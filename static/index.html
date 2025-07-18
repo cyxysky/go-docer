@@ -160,18 +160,26 @@
             overflow-y: auto;
             padding: 8px 12px;
             border-radius: 0 0 8px 8px;
+            font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.4;
         }
 
         .terminal-line {
             margin: 0;
-            padding: 0;
+            padding: 2px 0;
             white-space: pre-wrap;
             word-wrap: break-word;
+            display: flex;
+            align-items: center;
+            min-height: 20px;
         }
 
         .terminal-prompt {
             color: #4ec9b0;
             font-weight: bold;
+            margin-right: 8px;
+            flex-shrink: 0;
         }
 
         .terminal-input {
@@ -181,8 +189,9 @@
             font-family: inherit;
             font-size: inherit;
             outline: none;
-            width: 100%;
+            flex: 1;
             caret-color: #cccccc;
+            min-width: 0;
         }
 
         .terminal-input:focus {
@@ -195,6 +204,7 @@
             height: 16px;
             background: #cccccc;
             animation: blink 1s infinite;
+            margin-left: 2px;
         }
 
         @keyframes blink {
@@ -204,6 +214,7 @@
 
         .terminal-output {
             color: #cccccc;
+            flex: 1;
         }
 
         .terminal-error {
@@ -220,6 +231,24 @@
 
         .terminal-info {
             color: #569cd6;
+        }
+
+        /* 终端滚动条样式 */
+        .terminal-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .terminal-content::-webkit-scrollbar-track {
+            background: #2d2d30;
+        }
+
+        .terminal-content::-webkit-scrollbar-thumb {
+            background: #404040;
+            border-radius: 4px;
+        }
+
+        .terminal-content::-webkit-scrollbar-thumb:hover {
+            background: #555555;
         }
 
         .file-tree {

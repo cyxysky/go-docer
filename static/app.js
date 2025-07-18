@@ -452,7 +452,11 @@ async function executeCommand(command) {
         if (response.ok) {
             const result = await response.json();
             if (result.output) {
-                appendToTerminal(result.output, 'output');
+                // 处理输出中的控制字符
+                const cleanOutput = result.output.replace(/\u0001\u0000\u0000\u0000\u0000\u0000\u0000/g, '')
+                                               .replace(/\u0002\u0000\u0000\u0000\u0000\u0000\u0000/g, '')
+                                               .replace(/\ufffd/g, '');
+                appendToTerminal(cleanOutput, 'output');
             }
         } else {
             const error = await response.text();
@@ -466,24 +470,37 @@ async function executeCommand(command) {
 // 添加内容到终端
 function appendToTerminal(text, type = 'output') {
     const terminal = document.getElementById('terminal');
-    const line = document.createElement('div');
-    line.className = 'terminal-line';
     
     if (type === 'command') {
-        line.innerHTML = `<span class="terminal-prompt">$ </span><span class="terminal-output">${text}</span>`;
-    } else if (type === 'error') {
-        line.innerHTML = `<span class="terminal-error">${text}</span>`;
-    } else if (type === 'success') {
-        line.innerHTML = `<span class="terminal-success">${text}</span>`;
-    } else if (type === 'warning') {
-        line.innerHTML = `<span class="terminal-warning">${text}</span>`;
-    } else if (type === 'info') {
-        line.innerHTML = `<span class="terminal-info">${text}</span>`;
+        // 命令输入行
+        const commandLine = document.createElement('div');
+        commandLine.className = 'terminal-line';
+        commandLine.innerHTML = `<span class="terminal-prompt">$ </span><span class="terminal-output">${text}</span>`;
+        terminal.appendChild(commandLine);
     } else {
-        line.innerHTML = `<span class="terminal-output">${text}</span>`;
+        // 输出行
+        const lines = text.split('\n');
+        lines.forEach(line => {
+            if (line.trim()) {
+                const outputLine = document.createElement('div');
+                outputLine.className = 'terminal-line';
+                
+                if (type === 'error') {
+                    outputLine.innerHTML = `<span class="terminal-error">${line}</span>`;
+                } else if (type === 'success') {
+                    outputLine.innerHTML = `<span class="terminal-success">${line}</span>`;
+                } else if (type === 'warning') {
+                    outputLine.innerHTML = `<span class="terminal-warning">${line}</span>`;
+                } else if (type === 'info') {
+                    outputLine.innerHTML = `<span class="terminal-info">${line}</span>`;
+                } else {
+                    outputLine.innerHTML = `<span class="terminal-output">${line}</span>`;
+                }
+                
+                terminal.appendChild(outputLine);
+            }
+        });
     }
-    
-    terminal.appendChild(line);
     
     // 添加新的输入行
     const inputLine = document.createElement('div');
@@ -606,23 +623,32 @@ async function gitOperation(type, message = '') {
         if (response.ok) {
             const data = await response.json();
             console.log('响应数据:', data);
-            appendToTerminal(data.output);
+            
+            // 处理输出中的控制字符
+            if (data.output) {
+                const cleanOutput = data.output.replace(/\u0001\u0000\u0000\u0000\u0000\u0000\u0000/g, '')
+                                             .replace(/\u0002\u0000\u0000\u0000\u0000\u0000\u0000/g, '')
+                                             .replace(/\ufffd/g, '');
+                appendToTerminal(cleanOutput, 'output');
+            }
             
             // 如果是克隆操作，刷新文件树
             if (type === 'clone') {
                 await loadFileTree(currentWorkspace);
                 showToast('Git仓库克隆完成！', 'success');
+            } else {
+                showToast(`Git ${type} 操作完成！`, 'success');
             }
         } else {
             const error = await response.text();
             console.error('Git操作失败:', error);
-            appendToTerminal('Git操作失败: ' + error);
-            showToast('Git操作失败: ' + error, 'danger');
+            appendToTerminal(`Git操作失败: ${error}`, 'error');
+            showToast(`Git ${type} 操作失败: ${error}`, 'danger');
         }
     } catch (error) {
         console.error('Git操作异常:', error);
-        appendToTerminal('Git操作失败: ' + error.message);
-        showToast('Git操作失败: ' + error.message, 'danger');
+        appendToTerminal(`Git操作异常: ${error.message}`, 'error');
+        showToast(`Git ${type} 操作异常: ${error.message}`, 'danger');
     }
 }
 
