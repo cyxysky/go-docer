@@ -1,0 +1,124 @@
+# 容器管理系统配置文件示例
+
+# 全局配置
+global:
+  # Docker API配置
+  docker:
+    host: "unix:///var/run/docker.sock"
+    api_version: "1.41"
+    timeout: 30s
+  
+  # 日志配置
+  logging:
+    level: "info"
+    format: "json"
+    output: "stdout"
+  
+  # 默认网络配置
+  network:
+    default_driver: "bridge"
+    default_subnet: "172.18.0.0/16"
+    default_gateway: "172.18.0.1"
+
+# 容器模板配置
+templates:
+  # Web应用模板
+  web_app:
+    image: "nginx:alpine"
+    ports:
+      - "8080:80"
+    volumes:
+      - "/tmp/html:/usr/share/nginx/html"
+    environment:
+      NGINX_HOST: "localhost"
+      NGINX_PORT: "80"
+    command: ["nginx", "-g", "daemon off;"]
+  
+  # 数据库模板
+  database:
+    image: "mysql:8.0"
+    ports:
+      - "3306:3306"
+    volumes:
+      - "/tmp/mysql/data:/var/lib/mysql"
+    environment:
+      MYSQL_ROOT_PASSWORD: "password"
+      MYSQL_DATABASE: "myapp"
+  
+  # 开发环境模板
+  dev_env:
+    image: "golang:1.21-alpine"
+    ports:
+      - "3000:3000"
+    volumes:
+      - "/tmp/project:/app"
+    working_dir: "/app"
+    command: ["go", "run", "main.go"]
+
+# 网络配置
+networks:
+  # 默认网络
+  default:
+    name: "default-network"
+    driver: "bridge"
+    subnet: "172.18.0.0/16"
+    gateway: "172.18.0.1"
+  
+  # 开发网络
+  development:
+    name: "dev-network"
+    driver: "bridge"
+    subnet: "172.19.0.0/16"
+    gateway: "172.19.0.1"
+  
+  # 生产网络
+  production:
+    name: "prod-network"
+    driver: "bridge"
+    subnet: "172.20.0.0/16"
+    gateway: "172.20.0.1"
+
+# 安全配置
+security:
+  # 默认用户
+  default_user: "1000:1000"
+  
+  # 安全选项
+  security_opts:
+    - "no-new-privileges"
+  
+  # 资源限制
+  resources:
+    memory: "512m"
+    cpu_shares: 1024
+    cpu_quota: 50000
+    cpu_period: 100000
+
+# 监控配置
+monitoring:
+  # 统计收集间隔
+  stats_interval: "5s"
+  
+  # 日志轮转
+  log_rotation:
+    max_size: "100MB"
+    max_files: 5
+  
+  # 健康检查
+  health_check:
+    interval: "30s"
+    timeout: "10s"
+    retries: 3
+    start_period: "40s"
+
+# 备份配置
+backup:
+  # 自动备份
+  auto_backup: false
+  backup_interval: "24h"
+  
+  # 备份路径
+  backup_path: "/tmp/backups"
+  
+  # 保留备份数量
+  keep_backups: 7 

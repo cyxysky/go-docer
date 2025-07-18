@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    
+    <title>在线代码编辑器 - Docker容器化开发环境</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/codemirror.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/theme/dracula.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #6366f1;
+            --secondary-color: #8b5cf6;
+            --success-color: #10b981;         
+            --warning-color: #f59e0b;          
+            --danger-color: #ef4444;            
+            --dark-bg: #1f2937;          
+            --darker-bg: #111827;           
+            --light-bg: #f3f4f6;
+            --border-color: #374151;        
+        }
+
+        body {
+            background: #ffffff;
+            color: #333333;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .sidebar {
+            background: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            height: 100vh;
+            overflow-y: auto;
+            position: fixed;
+            width: 320px;
+            z-index: 1000;
+        }
+
+        .main-content {
+            margin-left: 320px;
+            min-height: 100vh;
+            background: #ffffff;
+        }
+
+        .card {
+            background: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            border-radius: 12px 12px 0 0 !important;
+        }
+
+        .btn {
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--success-color), #059669);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, var(--warning-color), #d97706);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger-color), #dc2626);
+        }
+
+        .btn-outline-primary {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .btn-outline-primary:hover {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .form-control, .form-select {
+            background: #ffffff;
+            color: #333333;
+            border: 1px solid #ced4da;
+            border-radius: 8px;
+        }
+
+        .form-control:focus, .form-select:focus {
+            background: #ffffff;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.25);
+            color: #333333;
+        }
+
+        .form-control::placeholder {
+            color: #6c757d;
+        }
+
+        .CodeMirror {
+            height: 500px;
+            border-radius: 8px;
+            font-family: 'Fira Code', Monaco, Consolas, monospace;
+            font-size: 14px;
+            border: 1px solid var(--border-color);
+        }
+
+        .terminal {
+            background: #1e1e1e;
+            color: #cccccc;
+            font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+            height: 350px;
+            overflow-y: auto;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #404040;
+            font-size: 14px;
+            line-height: 1.4;
+            position: relative;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        .terminal-header {
+            background: #2d2d30;
+            color: #cccccc;
+            padding: 8px 12px;
+            border-bottom: 1px solid #404040;
+            border-radius: 8px 8px 0 0;
+            font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .terminal-content {
+            background: #1e1e1e;
+            height: calc(100% - 40px);
+            overflow-y: auto;
+            padding: 8px 12px;
+            border-radius: 0 0 8px 8px;
+        }
+
+        .terminal-line {
+            margin: 0;
+            padding: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .terminal-prompt {
+            color: #4ec9b0;
+            font-weight: bold;
+        }
+
+        .terminal-input {
+            background: transparent;
+            border: none;
+            color: #cccccc;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            width: 100%;
+            caret-color: #cccccc;
+        }
+
+        .terminal-input:focus {
+            outline: none;
+        }
+
+        .terminal-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: #cccccc;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .terminal-output {
+            color: #cccccc;
+        }
+
+        .terminal-error {
+            color: #f44747;
+        }
+
+        .terminal-success {
+            color: #4ec9b0;
+        }
+
+        .terminal-warning {
+            color: #ce9178;
+        }
+
+        .terminal-info {
+            color: #569cd6;
+        }
+
+        .file-tree {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .workspace-card {
+            background: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+            padding: 15px;
+        }
+
+        .workspace-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            border-color: var(--primary-color);
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-running {
+            background: linear-gradient(135deg, var(--success-color), #059669);
+            color: white;
+        }
+
+        .status-stopped {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+            color: white;
+        }
+
+        .status-created {
+            background: linear-gradient(135deg, var(--warning-color), #d97706);
+            color: white;
+        }
+
+        .file-item {
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+
+        .file-item:hover {
+            background: rgba(99, 102, 241, 0.1);
+            border-color: var(--primary-color);
+        }
+
+        .file-item.folder {
+            background: rgba(139, 92, 246, 0.1);
+        }
+
+        .file-item.file {
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .stats-card {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+        }
+
+        .workspace-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .stat-item {
+            background: rgba(55, 65, 81, 0.5);
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        .navbar-brand {
+            font-weight: 600;
+            color: var(--primary-color) !important;
+        }
+
+        .input-group-text {
+            background: #e9ecef;
+            border: 1px solid #ced4da;
+            color: #495057;
+        }
+
+        .text-muted {
+            color: #6c757d !important;
+        }
+
+        .btn-group .btn {
+            border-radius: 6px;
+            margin: 0 2px;
+        }
+
+        .btn-group .btn:first-child {
+            border-radius: 6px 0 0 6px;
+        }
+
+        .btn-group .btn:last-child {
+            border-radius: 0 6px 6px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-code me-2"></i>
+                在线代码编辑器
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text">
+                    <i class="fas fa-docker me-1"></i>
+                    Docker 容器化开发环境
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 侧边栏 -->
+            <div class="col-md-3 col-lg-2 sidebar p-3">
+                <!-- 创建工作空间 -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-plus-circle me-2"></i>
+                            创建工作空间
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">工作空间名称</label>
+                            <input type="text" id="workspaceName" class="form-control" placeholder="输入名称">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">开发环境</label>
+                            <select id="workspaceImage" class="form-select">
+                                <option value="node:18-alpine">Node.js 18 Alpine</option>
+                                <option value="python:3.11-slim">Python 3.11 Slim</option>
+                                <option value="golang:1.23.1">Go 1.23.1</option>
+                                <option value="openjdk:18-jdk-slim">Java 18 JDK Slim</option>
+                                <option value="php:8.2-apache">PHP 8.2 Apache</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Git 仓库 (可选)</label>
+                            <input type="text" id="gitRepo" class="form-control" placeholder="https://github.com/user/repo.git">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Git 分支</label>
+                            <input type="text" id="gitBranch" class="form-control" placeholder="main" value="main">
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="createWorkspace()">
+                            <i class="fas fa-rocket me-2"></i>
+                            创建工作空间
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 工作空间列表 -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            工作空间列表
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="workspaceList"></div>
+                    </div>
+                </div>
+
+                <!-- 文件树 -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-folder-tree me-2"></i>
+                            文件树
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="fileTree" class="file-tree"></div>
+                    </div>
+                </div>
+
+                <!-- 镜像管理 -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-docker me-2"></i>
+                            镜像管理
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <button class="btn btn-outline-primary btn-sm w-100 mb-2" onclick="loadImages()">
+                            <i class="fas fa-sync me-1"></i>
+                            刷新镜像列表
+                        </button>
+                        <div id="imageList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 主内容区 -->
+            <div class="col-md-9 col-lg-10 main-content p-4">
+                <div class="row">
+                    <!-- 代码编辑器 -->
+                    <div class="col-lg-8">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-file-code me-2"></i>
+                                        <span id="currentFile">未选择文件</span>
+                                    </h6>
+                                    <div>
+                                        <button class="btn btn-success btn-sm me-2" onclick="saveFile()">
+                                            <i class="fas fa-save me-1"></i>
+                                            保存
+                                        </button>
+                                        <button class="btn btn-info btn-sm" onclick="runCode()">
+                                            <i class="fas fa-play me-1"></i>
+                                            运行
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <textarea id="codeEditor" style="display: none;"></textarea>
+                                <div id="editorContainer"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 终端和Git操作 -->
+                    <div class="col-lg-4">
+                        <!-- 终端 -->
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-terminal me-2"></i>
+                                    终端
+                                </h6>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="terminal-header">
+                                    <span>终端</span>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="clearTerminal()" title="清空终端">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="terminal" class="terminal-content">
+                                    <div class="terminal-line">
+                                        <span class="terminal-prompt">$ </span>
+                                        <span class="terminal-output">欢迎使用在线代码编辑器终端</span>
+                                    </div>
+                                    <div class="terminal-line">
+                                        <span class="terminal-prompt">$ </span>
+                                        <input type="text" id="terminalInput" class="terminal-input" placeholder="输入命令..." onkeypress="handleTerminalInput(event)">
+                                        <span class="terminal-cursor"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Git操作 -->
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="fab fa-git-alt me-2"></i>
+                                    Git 操作
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-primary btn-sm w-100" onclick="gitClone()">
+                                            <i class="fas fa-download me-1"></i>
+                                            克隆
+                                        </button>
+                                    </div>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-info btn-sm w-100" onclick="gitStatus()">
+                                            <i class="fas fa-info-circle me-1"></i>
+                                            状态
+                                        </button>
+                                    </div>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-success btn-sm w-100" onclick="gitAdd()">
+                                            <i class="fas fa-plus me-1"></i>
+                                            添加
+                                        </button>
+                                    </div>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-secondary btn-sm w-100" onclick="gitCommit()">
+                                            <i class="fas fa-check me-1"></i>
+                                            提交
+                                        </button>
+                                    </div>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-warning btn-sm w-100" onclick="gitPush()">
+                                            <i class="fas fa-upload me-1"></i>
+                                            推送
+                                        </button>
+                                    </div>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-dark btn-sm w-100" onclick="gitPull()">
+                                            <i class="fas fa-sync me-1"></i>
+                                            拉取
+                                        </button>
+                                    </div>
+                                </div>
+                                <input type="text" id="commitMessage" class="form-control" placeholder="提交信息">
+                            </div>
+                        </div>
+
+                        <!-- 容器状态 -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-chart-line me-2"></i>
+                                    容器状态
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="containerStats" class="workspace-stats">
+                                    <div class="stat-item">
+                                        <div class="stat-value" id="cpuUsage">--</div>
+                                        <div class="stat-label">CPU</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-value" id="memoryUsage">--</div>
+                                        <div class="stat-label">内存</div>
+                                    </div>
+                                </div>
+                                <button class="btn btn-outline-secondary btn-sm w-100" onclick="refreshStats()">
+                                    <i class="fas fa-sync me-1"></i>
+                                    刷新状态
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div class="toast-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/go/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/clike/clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/php/php.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/markdown/markdown.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html> 
