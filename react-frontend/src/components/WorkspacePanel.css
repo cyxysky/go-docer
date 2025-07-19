@@ -1,0 +1,242 @@
+/* 工作空间面板样式 */
+
+/* 工作空间创建面板 */
+.workspace-creation {
+  overflow: hidden;
+}
+
+.workspace-creation-header {
+  padding: 12px 16px;
+  background: var(--quaternary-color);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.workspace-creation-body {
+  padding: 16px;
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.form-control {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--dark-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.form-control:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.form-control::placeholder {
+  color: var(--text-secondary);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  outline: none;
+}
+
+.btn-primary {
+  background: var(--primary-color);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #106ebe;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.w-100 {
+  width: 100%;
+}
+
+/* 工作空间列表 */
+.workspace-list {
+
+  border-radius: 6px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.workspace-list-content {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.workspace-item {
+  background: var(--tertiary-color);
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-left: 2px solid transparent;
+  position: relative;
+}
+
+.workspace-item:hover {
+  background: var(--quaternary-color);
+}
+
+.workspace-item:last-child {
+  border-bottom: none;
+}
+
+.workspace-item.active {
+  background: rgba(0, 122, 204, 0.1);
+  border-left: 2px solid var(--primary-color);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.workspace-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-name i {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.workspace-details {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.workspace-image {
+  font-family: 'Fira Code', monospace;
+  background: rgba(0, 122, 204, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.workspace-status {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.workspace-status.running {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--success-color);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.workspace-status.stopped {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.workspace-status.initializing {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning-color);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.workspace-status.pending {
+  background: rgba(139, 92, 246, 0.2);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.workspace-status.pulling {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.workspace-status.creating {
+  background: rgba(168, 85, 247, 0.2);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.workspace-status.starting {
+  background: rgba(234, 179, 8, 0.2);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.workspace-status.failed {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger-color);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.workspace-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.workspace-actions .btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.workspace-actions .btn:hover {
+  background: var(--border-color);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.workspace-actions .btn i {
+  font-size: 10px;
+} 

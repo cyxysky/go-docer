@@ -1,0 +1,178 @@
+/* 全局样式重置和基础样式 */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  height: 100vh;
+}
+
+code {
+  font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+/* 移除默认的链接样式 */
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* 移除默认的按钮样式 */
+button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* 移除默认的输入框样式 */
+input, textarea, select {
+  font-family: inherit;
+  outline: none;
+}
+
+/* 移除默认的列表样式 */
+ul, ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* 确保根元素占满整个视口 */
+#root {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* 隐藏滚动条但保持功能 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* 选择文本的样式 */
+::selection {
+  background: rgba(0, 122, 204, 0.3);
+  color: inherit;
+}
+
+/* 焦点样式 */
+:focus {
+  outline: 2px solid #007acc;
+  outline-offset: 2px;
+}
+
+/* 禁用状态 */
+:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 工具类 */
+.hidden {
+  display: none !important;
+}
+
+.visible {
+  display: block !important;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.h-full {
+  height: 100%;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+/* 动画类 */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* 响应式工具类 */
+@media (max-width: 768px) {
+  .mobile-hidden {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .desktop-hidden {
+    display: none !important;
+  }
+}

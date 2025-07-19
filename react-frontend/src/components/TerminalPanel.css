@@ -1,0 +1,229 @@
+/* 终端面板样式 */
+
+/* 终端容器 */
+.terminal-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--darker-bg);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  height: 100%;
+  min-height: 0; /* Allow flex shrinking */
+}
+
+.terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--tertiary-color);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+}
+
+.terminal-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.terminal-title i {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.terminal-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-left: 8px;
+}
+
+.terminal-status.connected {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--success-color);
+}
+
+.terminal-status.connecting {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning-color);
+}
+
+.terminal-status.error {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger-color);
+}
+
+.terminal-status i {
+  font-size: 8px;
+}
+
+.terminal-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.terminal-controls .btn {
+  padding: 4px 6px;
+  font-size: 10px;
+  min-width: unset;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.terminal-controls .btn:hover:not(:disabled) {
+  background: var(--border-color);
+  color: var(--text-primary);
+}
+
+.terminal-controls .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  outline: none;
+}
+
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.terminal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  min-height: 0; /* Allow flex shrinking */
+}
+
+/* xterm.js 终端内容区域 */
+.terminal-content {
+  flex: 1;
+  background: var(--darker-bg);
+  padding: 8px;
+  overflow: hidden;
+  position: relative;
+  min-height: 0; /* Remove fixed min-height, allow flexible sizing */
+  display: flex;
+  flex-direction: column;
+}
+
+/* xterm.js 样式覆盖 */
+.terminal-content .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 4px;
+  flex: 1;
+}
+
+.terminal-content .xterm-viewport {
+  background: var(--darker-bg);
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+}
+
+.terminal-content .xterm-screen {
+  background: var(--darker-bg);
+}
+
+.terminal-content .xterm-cursor {
+  background-color: var(--text-primary);
+}
+
+/* 终端滚动条样式 */
+.terminal-content .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-content .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--tertiary-color);
+  border-radius: 4px;
+}
+
+.terminal-content .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.terminal-content .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+.terminal-content .xterm-viewport::-webkit-scrollbar-corner {
+  background: var(--tertiary-color);
+}
+
+/* Firefox 滚动条样式 */
+.terminal-content .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) var(--tertiary-color);
+}
+
+/* 确保滚动条始终可见 */
+.terminal-content .xterm-viewport:hover {
+  scrollbar-color: var(--text-secondary) var(--tertiary-color);
+}
+
+/* 终端文本选择样式 */
+.terminal-content .xterm-selection {
+  background-color: var(--primary-color);
+  opacity: 0.3;
+}
+
+/* 终端焦点样式 */
+.terminal-content .xterm:focus {
+  outline: none;
+}
+
+/* Remove duplicate terminal-body rule - already defined above */
+
+/* Theme-specific overrides for xterm.js elements that don't inherit CSS variables */
+[data-theme="dark"] .terminal-content .xterm-viewport {
+  background: #1e1e1e;
+}
+
+[data-theme="dark"] .terminal-content .xterm-screen {
+  background: #1e1e1e;
+}
+
+[data-theme="light"] .terminal-content .xterm-viewport {
+  background: #ffffff;
+}
+
+[data-theme="light"] .terminal-content .xterm-screen {
+  background: #ffffff;
+}
+
+/* 加载动画 */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.fa-spin {
+  animation: spin 1s linear infinite;
+} 

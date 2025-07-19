@@ -5,326 +5,1292 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">    
     <title>在线代码编辑器 - Docker容器化开发环境</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/codemirror.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/theme/dracula.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Monaco Editor -->
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+    <!-- Xterm.js Terminal -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <style>
         :root {
-            --primary-color: #6366f1;
-            --secondary-color: #8b5cf6;
+            --primary-color: #007acc;
+            --secondary-color: #1e1e1e;
+            --tertiary-color: #252526;
+            --quaternary-color: #2d2d30;
             --success-color: #10b981;         
             --warning-color: #f59e0b;          
-            --danger-color: #ef4444;            
-            --dark-bg: #1f2937;          
-            --darker-bg: #111827;           
-            --light-bg: #f3f4f6;
-            --border-color: #374151;        
+            --danger-color: #ef4444;
+            --info-color: #06b6d4;
+            --dark-bg: #1e1e1e;
+            --darker-bg: #181818;
+            --light-bg: #252526;
+            --border-color: #3e3e42;
+            --text-primary: #cccccc;
+            --text-secondary: #969696;
+            --sidebar-width: 280px;
+            --header-height: 50px;
+            --status-bar-height: 24px;
+        }
+
+        /* 亮色主题 */
+        [data-theme="light"] {
+            --primary-color: #0066cc;
+            --secondary-color: #f8f8f8;
+            --tertiary-color: #e8e8e8;
+            --quaternary-color: #d8d8d8;
+            --success-color: #10b981;         
+            --warning-color: #f59e0b;          
+            --danger-color: #ef4444;
+            --info-color: #06b6d4;
+            --dark-bg: #ffffff;
+            --darker-bg: #f5f5f5;
+            --light-bg: #eeeeee;
+            --border-color: #d0d0d0;
+            --text-primary: #333333;
+            --text-secondary: #666666;
+        }
+
+        * {
+            box-sizing: border-box;
         }
 
         body {
-            background: #ffffff;
-            color: #333333;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            min-height: 100vh;
-        }
-
-        .navbar {
-            background: #f8f9fa;
-            border-bottom: 1px solid #dee2e6;
-        }
-
-        .sidebar {
-            background: #f8f9fa;
-            border-right: 1px solid #dee2e6;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--dark-bg);
+            color: var(--text-primary);
+            overflow: hidden;
             height: 100vh;
-            overflow-y: auto;
-            position: fixed;
-            width: 320px;
+        }
+
+        /* 顶部菜单栏 */
+        .top-menu {
+            height: var(--header-height);
+            background: var(--secondary-color);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
             z-index: 1000;
+            position: relative;
         }
 
-        .main-content {
-            margin-left: 320px;
-            min-height: 100vh;
-            background: #ffffff;
+        .top-menu .brand {
+            color: var(--primary-color);
+            font-weight: 600;
+            font-size: 14px;
+            margin-right: 24px;
         }
 
-        .card {
-            background: #ffffff;
-            border: 1px solid #dee2e6;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        .top-menu .menu-items {
+            display: flex;
+            gap: 20px;
+            flex: 1;
         }
 
-        .card-header {
-            background: #f8f9fa;
-            border-bottom: 1px solid #dee2e6;
-            border-radius: 12px 12px 0 0 !important;
+        .top-menu .menu-item {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 13px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
         }
 
-        .btn {
-            border-radius: 8px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            border: none;
+        .top-menu .menu-item:hover {
+            color: var(--text-primary);
+            background: var(--light-bg);
         }
 
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        .top-menu .menu-item.active {
+            color: var(--primary-color);
+            background: var(--light-bg);
         }
 
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
+        /* 主题切换按钮 */
+        .theme-toggle {
+            margin-left: 12px;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 6px 8px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
         }
 
-        .btn-success {
-            background: linear-gradient(135deg, var(--success-color), #059669);
-        }
-
-        .btn-warning {
-            background: linear-gradient(135deg, var(--warning-color), #d97706);
-        }
-
-        .btn-danger {
-            background: linear-gradient(135deg, var(--danger-color), #dc2626);
-        }
-
-        .btn-outline-primary {
+        .theme-toggle:hover {
+            background: var(--light-bg);
+            color: var(--text-primary);
             border-color: var(--primary-color);
+        }
+
+        .theme-toggle i {
+            font-size: 12px;
+        }
+
+        /* 主要布局容器 */
+        .main-container {
+            display: flex;
+            height: calc(100vh - var(--header-height) - var(--status-bar-height));
+        }
+
+        /* 侧边栏 */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--light-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* 侧边栏标签 */
+        .sidebar-tabs {
+            width: 48px;
+            background: var(--tertiary-color);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 8px 0;
+        }
+
+        .sidebar-tab {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            margin-bottom: 4px;
+            color: var(--text-secondary);
+        }
+
+        .sidebar-tab:hover {
+            background: var(--quaternary-color);
+            color: var(--text-primary);
+        }
+
+        .sidebar-tab.active {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .sidebar-tab.active::after {
+            content: '';
+            position: absolute;
+            right: -1px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 2px;
+            height: 20px;
+            background: var(--primary-color);
+        }
+
+        .sidebar-tab i {
+            font-size: 16px;
+        }
+
+        /* 侧边栏内容 */
+        .sidebar-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-tab-content {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-tab-content.active {
+            display: flex;
+        }
+
+        .sidebar-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--tertiary-color);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-header i {
+            font-size: 11px;
+            opacity: 0.8;
+        }
+
+        /* 工具栏样式 */
+        .file-toolbar,
+        .image-toolbar {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--quaternary-color);
+            display: flex;
+            gap: 4px;
+        }
+
+        .file-toolbar {
+            flex-wrap: wrap;
+        }
+
+        .image-toolbar {
+            flex-direction: column;
+        }
+
+        /* 文件树样式优化 */
+        .file-tree {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            margin-bottom: 2px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 13px;
+        }
+
+        .file-item:hover {
+            background: var(--quaternary-color);
+        }
+
+        .file-item.back-item {
+            background: var(--primary-color);
+            color: white;
+            font-weight: 600;
+        }
+
+        .file-item.back-item:hover {
+            background: var(--primary-color);
+            opacity: 0.9;
+        }
+
+        .file-item.folder-item {
             color: var(--primary-color);
         }
 
-        .btn-outline-primary:hover {
-            background: var(--primary-color);
-            border-color: var(--primary-color);
+        .file-item.file-item-file {
+            color: var(--text-primary);
         }
 
-        .form-control, .form-select {
-            background: #ffffff;
-            color: #333333;
-            border: 1px solid #ced4da;
-            border-radius: 8px;
+        .file-name {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
         }
 
-        .form-control:focus, .form-select:focus {
-            background: #ffffff;
+        .file-name i {
+            width: 16px;
+            text-align: center;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .file-item:hover .file-actions {
+            opacity: 1;
+        }
+
+        /* 空状态样式 */
+        .image-empty {
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .image-empty i {
+            font-size: 2rem;
+            margin-bottom: 12px;
+            opacity: 0.5;
+            display: block;
+        }
+
+        /* 工作空间创建面板 */
+        .workspace-creation {
+            background: var(--tertiary-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .workspace-creation-header {
+            padding: 12px 16px;
+            background: var(--quaternary-color);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .workspace-creation-body {
+            padding: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--dark-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-control:focus {
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.25);
-            color: #333333;
+            box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
         }
 
         .form-control::placeholder {
-            color: #6c757d;
+            color: var(--text-secondary);
         }
 
-        .CodeMirror {
-            height: 500px;
-            border-radius: 8px;
-            font-family: 'Fira Code', Monaco, Consolas, monospace;
-            font-size: 14px;
-            border: 1px solid var(--border-color);
-        }
-
-        .terminal {
-            background: #1e1e1e;
-            color: #cccccc;
-            font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
-            height: 350px;
-            overflow-y: auto;
-            padding: 12px;
-            border-radius: 8px;
-            border: 1px solid #404040;
-            font-size: 14px;
-            line-height: 1.4;
-            position: relative;
-            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
-        }
-
-        .terminal-header {
-            background: #2d2d30;
-            color: #cccccc;
-            padding: 8px 12px;
-            border-bottom: 1px solid #404040;
-            border-radius: 8px 8px 0 0;
-            font-size: 12px;
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 16px;
+            font-size: 13px;
             font-weight: 500;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            outline: none;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #106ebe;
+        }
+
+        .btn-secondary {
+            background: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: #4a4a4c;
+        }
+
+        .btn-sm {
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 工作空间列表 */
+        .workspace-list {
+            background: var(--tertiary-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .workspace-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .workspace-item:hover {
+            background: var(--quaternary-color);
+            transform: translateX(2px);
+        }
+
+        .workspace-item:last-child {
+            border-bottom: none;
+        }
+
+        .workspace-item.active {
+            background: rgba(0, 122, 204, 0.1);
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .workspace-item.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(to bottom, var(--primary-color), #1e90ff);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .workspace-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .workspace-name i {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+
+        .workspace-details {
+            font-size: 11px;
+            color: var(--text-secondary);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 8px;
         }
 
-        .terminal-content {
-            background: #1e1e1e;
-            height: calc(100% - 40px);
+        .workspace-image {
+            font-family: 'Fira Code', monospace;
+            background: rgba(0, 122, 204, 0.1);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+        }
+
+        .workspace-status {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .workspace-status.running {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success-color);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .workspace-status.stopped {
+            background: rgba(156, 163, 175, 0.2);
+            color: #9ca3af;
+            border: 1px solid rgba(156, 163, 175, 0.3);
+        }
+
+        .workspace-status.initializing {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--warning-color);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .workspace-status.pending {
+            background: rgba(139, 92, 246, 0.2);
+            color: #8b5cf6;
+            border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+
+        .workspace-status.pulling {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .workspace-status.creating {
+            background: rgba(168, 85, 247, 0.2);
+            color: #a855f7;
+            border: 1px solid rgba(168, 85, 247, 0.3);
+        }
+
+        .workspace-status.starting {
+            background: rgba(234, 179, 8, 0.2);
+            color: #eab308;
+            border: 1px solid rgba(234, 179, 8, 0.3);
+        }
+
+        .workspace-status.failed {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger-color);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .workspace-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .workspace-actions .btn {
+            flex: 1;
+            padding: 4px 8px;
+            font-size: 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+        }
+
+        .workspace-actions .btn:hover {
+            background: var(--border-color);
+            color: var(--text-primary);
+            transform: translateY(-1px);
+        }
+
+        .workspace-actions .btn i {
+            font-size: 10px;
+        }
+
+        /* 镜像管理样式 - 卡片风格 */
+        .image-list {
             overflow-y: auto;
-            padding: 8px 12px;
-            border-radius: 0 0 8px 8px;
-            font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
-            font-size: 14px;
-            line-height: 1.4;
+            padding: 8px;
         }
 
-        .terminal-line {
-            margin: 0;
-            padding: 2px 0;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+        .image-item {
+            background: var(--tertiary-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .image-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary-color), var(--info-color));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .image-item:hover {
+            background: var(--quaternary-color);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            border-color: var(--primary-color);
+        }
+
+        .image-item:hover::before {
+            opacity: 1;
+        }
+
+        .image-header {
             display: flex;
             align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .image-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary-color), var(--info-color));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+        }
+
+        .image-info {
+            flex: 1;
+        }
+
+        .image-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+            font-family: 'Fira Code', monospace;
+            line-height: 1.3;
+        }
+
+        .image-tag {
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: var(--border-color);
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .image-details {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .image-size {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success-color);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-weight: 600;
+        }
+
+        .image-date {
+            color: var(--text-secondary);
+            font-size: 10px;
+        }
+
+        .image-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .image-actions .btn {
+            flex: 1;
+            padding: 6px 12px;
+            font-size: 11px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .image-actions .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        .image-actions .btn-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger-color);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .image-actions .btn-danger:hover {
+            background: var(--danger-color);
+            color: white;
+        }
+
+        .image-actions .btn-info {
+            background: rgba(6, 182, 212, 0.1);
+            color: var(--info-color);
+            border-color: rgba(6, 182, 212, 0.3);
+        }
+
+        .image-actions .btn-info:hover {
+            background: var(--info-color);
+            color: white;
+        }
+
+        .image-actions {
+            margin-top: 6px;
+        }
+
+        .image-actions .btn {
+            padding: 2px 6px;
+            font-size: 9px;
+            border-radius: 3px;
+        }
+
+        /* 文件树 */
+        .file-tree {
+            background: var(--tertiary-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .file-tree-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+            position: relative;
+        }
+
+        .file-tree-item:hover {
+            background: var(--quaternary-color);
+            border-left-color: var(--primary-color);
+            transform: translateX(2px);
+        }
+
+        .file-tree-item.folder {
+            font-weight: 500;
+        }
+
+        .file-tree-item.folder:hover {
+            border-left-color: #f59e0b;
+        }
+
+        .file-tree-item.file {
+            font-weight: 400;
+        }
+
+        .file-tree-item.back-button {
+            color: var(--text-secondary);
+            font-style: italic;
+            border-left-color: #6b7280;
+        }
+
+        .file-tree-item.back-button:hover {
+            color: var(--text-primary);
+            border-left-color: var(--text-secondary);
+        }
+
+        .file-tree-item i {
+            width: 16px;
+            text-align: center;
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .file-tree-item.folder i {
+            color: #f59e0b;
+        }
+
+        .file-tree-item.file i {
+            color: var(--primary-color);
+        }
+
+        .file-tree-item.back-button i {
+            color: var(--text-secondary);
+        }
+
+        /* 文件类型特定图标颜色 */
+        .file-tree-item .fa-js-square {
+            color: #f7df1e;
+        }
+
+        .file-tree-item .fa-python {
+            color: #3776ab;
+        }
+
+        .file-tree-item .fa-java {
+            color: #ed8b00;
+        }
+
+        .file-tree-item .fa-php {
+            color: #777bb4;
+        }
+
+        .file-tree-item .fa-html5 {
+            color: #e34f26;
+        }
+
+        .file-tree-item .fa-css3-alt {
+            color: #1572b6;
+        }
+
+        .file-tree-item .fa-markdown {
+            color: #083fa1;
+        }
+
+        .file-tree-item .fa-database {
+            color: #336791;
+        }
+
+        .file-tree-item .fa-file-code {
+            color: #28a745;
+        }
+
+        .file-tree-item .fa-file-alt {
+            color: #6c757d;
+        }
+
+        /* 文件树为空时的样式 */
+        .file-tree-empty {
+            padding: 20px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .file-tree-empty i {
+            font-size: 2rem;
+            margin-bottom: 8px;
+            opacity: 0.5;
+        }
+
+        /* 主编辑区域 */
+        .editor-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 编辑器标签栏 */
+        .editor-tabs {
+            display: flex;
+            background: var(--secondary-color);
+            border-bottom: 1px solid var(--border-color);
+            height: 36px;
+            align-items: center;
+            padding: 0 16px;
+        }
+
+        .editor-tab {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--light-bg);
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+            font-size: 13px;
+            color: var(--text-primary);
+            cursor: pointer;
+            margin-right: 4px;
+            transition: background 0.2s;
+        }
+
+        .editor-tab:hover {
+            background: var(--tertiary-color);
+        }
+
+        .editor-tab.active {
+            background: var(--dark-bg);
+            border-bottom: 1px solid var(--dark-bg);
+            position: relative;
+            z-index: 1;
+        }
+
+        .editor-tab-close {
+            font-size: 10px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .editor-tab-close:hover {
+            opacity: 1;
+        }
+
+        /* Monaco Editor 容器 */
+        .monaco-editor-container {
+            flex: 1;
+            background: var(--dark-bg);
+            position: relative;
+        }
+
+        #monaco-editor {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 底部面板 - VSCode风格 */
+        .bottom-panel {
+            height: 300px;
+            background: var(--light-bg);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-tabs {
+            height: 35px;
+            background: var(--tertiary-color);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+        }
+
+        .panel-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: var(--tertiary-color);
+            border-right: 1px solid var(--border-color);
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .panel-tab:last-child {
+            border-right: none;
+        }
+
+        .panel-tab:hover {
+            color: var(--text-primary);
+            background: var(--quaternary-color);
+        }
+
+        .panel-tab.active {
+            color: var(--primary-color);
+            background: var(--light-bg);
+            border-bottom: 2px solid var(--primary-color);
+        }
+
+        .panel-tab i {
+            font-size: 11px;
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 终端样式 - 优化的WebSocket交互式终端 */
+        .terminal-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--darker-bg);
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: var(--tertiary-color);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+        }
+
+        .terminal-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .terminal-title i {
+            font-size: 11px;
+            opacity: 0.8;
+        }
+
+        .terminal-controls {
+            display: flex;
+            gap: 4px;
+        }
+
+        .terminal-controls .btn {
+            padding: 4px 6px;
+            font-size: 10px;
+            min-width: unset;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .terminal-controls .btn:hover {
+            background: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .terminal-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .terminal-welcome {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .terminal-welcome i {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .terminal-welcome div:first-of-type {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .terminal-hint {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+
+        .terminal-output {
+            flex: 1;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            padding: 12px;
+            overflow-y: auto;
+            background: #0c0c0c;
+            color: #cccccc;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* Xterm.js 终端样式 */
+        .xterm-terminal {
+            flex: 1;
+            background: #0c0c0c;
+            border-radius: 0;
+        }
+
+        .xterm-terminal .xterm {
+            height: 100%;
+            padding: 8px;
+        }
+
+        .xterm-terminal .xterm-viewport {
+            background: #0c0c0c;
+        }
+
+        .xterm-terminal .xterm-screen {
+            background: #0c0c0c;
+        }
+
+        .terminal-output::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .terminal-output::-webkit-scrollbar-track {
+            background: #0c0c0c;
+        }
+
+        .terminal-output::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .terminal-output::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        .terminal-input-container {
+            padding: 8px 12px;
+            background: var(--light-bg);
+            border-top: 1px solid var(--border-color);
+        }
+
+        .terminal-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            outline: none;
+            padding: 4px 0;
+            caret-color: #cccccc;
+        }
+
+        .terminal-input::placeholder {
+            color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
+        /* 终端连接状态样式 */
+        .terminal-status-connected .terminal-title {
+            color: var(--success-color) !important;
+        }
+
+        .terminal-status-disconnected .terminal-title {
+            color: var(--danger-color) !important;
+        }
+
+        .terminal-status-error .terminal-title {
+            color: var(--warning-color) !important;
+        }
+
+        .terminal-status-connecting .terminal-title {
+            color: var(--warning-color) !important;
+        }
+
+        /* 兼容旧的终端样式 */
+        .terminal-line {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 2px;
             min-height: 20px;
         }
 
         .terminal-prompt {
-            color: #4ec9b0;
+            color: #569cd6;
             font-weight: bold;
             margin-right: 8px;
             flex-shrink: 0;
         }
 
-        .terminal-input {
-            background: transparent;
-            border: none;
-            color: #cccccc;
-            font-family: inherit;
-            font-size: inherit;
-            outline: none;
-            flex: 1;
-            caret-color: #cccccc;
-            min-width: 0;
-        }
-
-        .terminal-input:focus {
-            outline: none;
-        }
-
-        .terminal-cursor {
-            display: inline-block;
-            width: 8px;
-            height: 16px;
-            background: #cccccc;
-            animation: blink 1s infinite;
-            margin-left: 2px;
-        }
-
-        @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0; }
-        }
-
-        .terminal-output {
-            color: #cccccc;
-            flex: 1;
-        }
-
         .terminal-error {
-            color: #f44747;
+            color: #f85149;
         }
 
         .terminal-success {
-            color: #4ec9b0;
+            color: #3fb950;
         }
 
         .terminal-warning {
-            color: #ce9178;
+            color: #d29922;
         }
 
         .terminal-info {
-            color: #569cd6;
+            color: #58a6ff;
         }
 
-        /* 终端滚动条样式 */
-        .terminal-content::-webkit-scrollbar {
-            width: 8px;
+        /* Git 面板 */
+        .git-panel {
+            padding: 16px;
         }
 
-        .terminal-content::-webkit-scrollbar-track {
-            background: #2d2d30;
+        .git-section {
+            margin-bottom: 20px;
         }
 
-        .terminal-content::-webkit-scrollbar-thumb {
-            background: #404040;
-            border-radius: 4px;
-        }
-
-        .terminal-content::-webkit-scrollbar-thumb:hover {
-            background: #555555;
-        }
-
-        .file-tree {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .workspace-card {
-            background: #ffffff;
-            border: 1px solid #dee2e6;
-            border-radius: 10px;
-            transition: all 0.3s ease;
-            margin-bottom: 10px;
-            padding: 15px;
-        }
-
-        .workspace-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-            border-color: var(--primary-color);
-        }
-
-        .status-badge {
-            padding: 4px 8px;
-            border-radius: 6px;
+        .git-section-title {
             font-size: 12px;
             font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
         }
 
-        .status-running {
-            background: linear-gradient(135deg, var(--success-color), #059669);
-            color: white;
+        .git-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
         }
 
-        .status-stopped {
-            background: linear-gradient(135deg, #6b7280, #4b5563);
-            color: white;
+        .commit-input {
+            margin-bottom: 8px;
         }
 
-        .status-created {
-            background: linear-gradient(135deg, var(--warning-color), #d97706);
-            color: white;
+        /* 容器状态面板 */
+        .stats-panel {
+            padding: 16px;
         }
 
-        .file-item {
-            padding: 8px 12px;
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .stat-card {
+            background: var(--tertiary-color);
+            border: 1px solid var(--border-color);
             border-radius: 6px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--primary-color);
             margin-bottom: 4px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            border: 1px solid transparent;
         }
 
-        .file-item:hover {
-            background: rgba(99, 102, 241, 0.1);
-            border-color: var(--primary-color);
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
         }
 
-        .file-item.folder {
-            background: rgba(139, 92, 246, 0.1);
+        /* 状态栏 */
+        .status-bar {
+            height: var(--status-bar-height);
+            background: var(--primary-color);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            font-size: 12px;
+            color: white;
+            justify-content: space-between;
         }
 
-        .file-item.file {
-            background: rgba(16, 185, 129, 0.1);
+        .status-left, .status-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
         }
 
-        .stats-card {
-            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
-            border: 1px solid rgba(99, 102, 241, 0.2);
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
 
-        .loading {
+        /* 加载动画 */
+        .loading-spinner {
             display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
             border-top-color: var(--primary-color);
             animation: spin 1s ease-in-out infinite;
@@ -334,308 +1300,460 @@
             to { transform: rotate(360deg); }
         }
 
+        /* Toast 通知 */
         .toast-container {
             position: fixed;
             top: 20px;
             right: 20px;
-            z-index: 1050;
+            z-index: 2000;
         }
 
-        .workspace-stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .stat-item {
-            background: rgba(55, 65, 81, 0.5);
-            padding: 10px;
-            border-radius: 8px;
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 18px;
-            font-weight: bold;
-            color: var(--primary-color);
-        }
-
-        .stat-label {
-            font-size: 12px;
-            color: #9ca3af;
-        }
-
-        .navbar-brand {
-            font-weight: 600;
-            color: var(--primary-color) !important;
-        }
-
-        .input-group-text {
-            background: #e9ecef;
-            border: 1px solid #ced4da;
-            color: #495057;
-        }
-
-        .text-muted {
-            color: #6c757d !important;
-        }
-
-        .btn-group .btn {
+        .toast {
+            background: var(--tertiary-color);
+            border: 1px solid var(--border-color);
             border-radius: 6px;
-            margin: 0 2px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.3s ease;
         }
 
-        .btn-group .btn:first-child {
-            border-radius: 6px 0 0 6px;
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
         }
 
-        .btn-group .btn:last-child {
-            border-radius: 0 6px 6px 0;
+        .toast.success {
+            border-left: 3px solid var(--success-color);
+        }
+
+        .toast.error {
+            border-left: 3px solid var(--danger-color);
+        }
+
+        .toast.warning {
+            border-left: 3px solid var(--warning-color);
+        }
+
+        .toast.info {
+            border-left: 3px solid var(--info-color);
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 1200px) {
+            .right-panel {
+                width: 300px;
+            }
+        }
+
+        @media (max-width: 968px) {
+            .sidebar {
+                width: 240px;
+            }
+            .right-panel {
+                width: 280px;
+            }
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--light-bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4a4a4c;
+        }
+
+        /* 隐藏和显示类 */
+        .hidden {
+            display: none !important;
+        }
+
+        .visible {
+            display: block !important;
+        }
+
+        /* 问题面板样式 */
+        .problems-panel {
+            padding: 16px;
+        }
+
+        .problems-section {
+            background: var(--tertiary-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .problems-section-title {
+            padding: 12px 16px;
+            background: var(--quaternary-color);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .problems-content {
+            padding: 16px;
+        }
+
+        .problems-empty {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .problems-empty i {
+            font-size: 2rem;
+            margin-bottom: 12px;
+            opacity: 0.5;
+            display: block;
+        }
+
+        /* 输出面板样式 */
+        .output-panel {
+            padding: 16px;
+        }
+
+        .output-section {
+            background: var(--tertiary-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .output-section-title {
+            padding: 12px 16px;
+            background: var(--quaternary-color);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .output-content {
+            padding: 16px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            color: var(--text-primary);
+            background: var(--darker-bg);
+            max-height: 200px;
+            overflow-y: auto;
         }
     </style>
 </head>
 <body>
-    <!-- 导航栏 -->
-    <nav class="navbar navbar-expand-lg navbar-light">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="#">
-                <i class="fas fa-code me-2"></i>
-                在线代码编辑器
-            </a>
-            <div class="navbar-nav ms-auto">
-                <span class="navbar-text">
-                    <i class="fas fa-docker me-1"></i>
-                    Docker 容器化开发环境
-                </span>
-            </div>
+    <!-- 顶部菜单栏 -->
+    <div class="top-menu">
+        <div class="brand">
+            <i class="fas fa-code"></i> 在线代码编辑器
         </div>
-    </nav>
+        <div class="menu-items">
+            <a href="#" class="menu-item active">文件</a>
+            <a href="#" class="menu-item">编辑</a>
+            <a href="#" class="menu-item">查看</a>
+            <a href="#" class="menu-item">终端</a>
+            <a href="#" class="menu-item">帮助</a>
+        </div>
+        <div class="menu-items">
+            <span class="menu-item">
+                <i class="fas fa-docker"></i> Docker 环境
+            </span>
+            <button class="btn btn-sm theme-toggle" onclick="toggleTheme()" title="切换主题">
+                <i class="fas fa-moon" id="themeIcon"></i>
+            </button>
+        </div>
+    </div>
 
-    <div class="container-fluid">
-        <div class="row">
-            <!-- 侧边栏 -->
-            <div class="col-md-3 col-lg-2 sidebar p-3">
-                <!-- 创建工作空间 -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h6 class="mb-0">
-                            <i class="fas fa-plus-circle me-2"></i>
-                            创建工作空间
-                        </h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">工作空间名称</label>
-                            <input type="text" id="workspaceName" class="form-control" placeholder="输入名称">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">开发环境</label>
-                            <select id="workspaceImage" class="form-select">
-                                <option value="node:18-alpine">Node.js 18 Alpine</option>
-                                <option value="python:3.11-slim">Python 3.11 Slim</option>
-                                <option value="golang:1.23.1">Go 1.23.1</option>
-                                <option value="openjdk:18-jdk-slim">Java 18 JDK Slim</option>
-                                <option value="php:8.2-apache">PHP 8.2 Apache</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Git 仓库 (可选)</label>
-                            <input type="text" id="gitRepo" class="form-control" placeholder="https://github.com/user/repo.git">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Git 分支</label>
-                            <input type="text" id="gitBranch" class="form-control" placeholder="main" value="main">
-                        </div>
-                        <button class="btn btn-primary w-100" onclick="createWorkspace()">
-                            <i class="fas fa-rocket me-2"></i>
-                            创建工作空间
-                        </button>
-                    </div>
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 左侧边栏 -->
+        <div class="sidebar">
+            <!-- 侧边栏标签 -->
+            <div class="sidebar-tabs">
+                <div class="sidebar-tab active" data-tab="workspace" title="工作空间">
+                    <i class="fas fa-cube"></i>
                 </div>
+                <div class="sidebar-tab" data-tab="files" title="文件管理器">
+                    <i class="fas fa-folder-tree"></i>
+                </div>
+                <div class="sidebar-tab" data-tab="images" title="镜像管理">
+                    <i class="fas fa-layer-group"></i>
+                </div>
+            </div>
 
-                <!-- 工作空间列表 -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h6 class="mb-0">
-                            <i class="fas fa-list me-2"></i>
-                            工作空间列表
-                        </h6>
+            <!-- 侧边栏内容 -->
+            <div class="sidebar-content">
+                <!-- 工作空间标签页 -->
+                <div id="workspace-tab" class="sidebar-tab-content active">
+                    <div class="sidebar-header">
+                        <i class="fas fa-cube"></i>
+                        <span>工作空间</span>
                     </div>
-                    <div class="card-body">
+
+                    <!-- 创建工作空间 -->
+                    <div class="workspace-creation">
+                        <div class="workspace-creation-header">
+                            <i class="fas fa-plus"></i> 创建工作空间
+                        </div>
+                        <div class="workspace-creation-body">
+                            <div class="form-group">
+                                <label class="form-label">名称</label>
+                                <input type="text" id="workspaceName" class="form-control" placeholder="输入工作空间名称">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">开发环境</label>
+                                <select id="workspaceImage" class="form-control">
+                                    <option value="node:18-slim">Node.js 18 (Debian Slim)</option>
+                                    <option value="python:3.11-slim">Python 3.11 (Debian Slim)</option>
+                                    <option value="golang:1.24-slim">Go 1.24 (Debian Slim)</option>
+                                    <option value="openjdk:17-slim">Java 17 (Debian Slim)</option>
+                                    <option value="php:8.2-cli-slim">PHP 8.2 CLI (Debian Slim)</option>
+                                    <option value="ruby:3.2-slim">Ruby 3.2 (Debian Slim)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Git 仓库 (可选)</label>
+                                <input type="text" id="gitRepo" class="form-control" placeholder="https://github.com/user/repo.git">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">分支</label>
+                                <input type="text" id="gitBranch" class="form-control" placeholder="main" value="main">
+                            </div>
+                            <button class="btn btn-primary w-100" onclick="createWorkspace()">
+                                <i class="fas fa-rocket"></i> 创建
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 工作空间列表 -->
+                    <div class="workspace-list">
+                        <div class="workspace-creation-header">
+                            <i class="fas fa-folder"></i> 工作空间列表
+                        </div>
                         <div id="workspaceList"></div>
                     </div>
                 </div>
 
-                <!-- 文件树 -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h6 class="mb-0">
-                            <i class="fas fa-folder-tree me-2"></i>
-                            文件树
-                        </h6>
+                <!-- 文件管理器标签页 -->
+                <div id="files-tab" class="sidebar-tab-content">
+                    <div class="sidebar-header">
+                        <i class="fas fa-folder-tree"></i>
+                        <span>文件管理器</span>
                     </div>
-                    <div class="card-body">
-                        <div id="fileTree" class="file-tree"></div>
+
+                    <!-- 文件操作工具栏 -->
+                    <div class="file-toolbar">
+                        <button class="btn btn-sm" onclick="refreshFileTree()" title="刷新">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                        <button class="btn btn-sm" onclick="createFile()" title="新建文件">
+                            <i class="fas fa-file-plus"></i>
+                        </button>
+                        <button class="btn btn-sm" onclick="createFolder()" title="新建文件夹">
+                            <i class="fas fa-folder-plus"></i>
+                        </button>
+                    </div>
+
+                    <!-- 文件树 -->
+                    <div class="file-tree">
+                        <div id="fileTree">
+                            <div class="file-tree-empty">
+                                <i class="fas fa-folder-open"></i>
+                                <div>选择工作空间查看文件</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 镜像管理 -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h6 class="mb-0">
-                            <i class="fas fa-docker me-2"></i>
-                            镜像管理
-                        </h6>
+                <!-- 镜像管理标签页 -->
+                <div id="images-tab" class="sidebar-tab-content">
+                    <div class="sidebar-header">
+                        <i class="fas fa-layer-group"></i>
+                        <span>镜像管理</span>
                     </div>
-                    <div class="card-body">
-                        <button class="btn btn-outline-primary btn-sm w-100 mb-2" onclick="loadImages()">
-                            <i class="fas fa-sync me-1"></i>
-                            刷新镜像列表
+
+                    <!-- 镜像操作工具栏 -->
+                    <div class="image-toolbar">
+                        <button class="btn btn-sm w-100 mb-2" onclick="loadImages()">
+                            <i class="fas fa-sync"></i> 刷新镜像列表
                         </button>
-                        <div id="imageList"></div>
+                        <button class="btn btn-sm w-100 mb-2" onclick="pullImage()">
+                            <i class="fas fa-download"></i> 拉取镜像
+                        </button>
+                    </div>
+
+                    <!-- 镜像列表 -->
+                    <div id="imageList" class="image-list">
+                        <div class="image-empty">
+                            <i class="fas fa-layer-group"></i>
+                            <div>点击刷新加载镜像</div>
+                        </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- 主内容区 -->
-            <div class="col-md-9 col-lg-10 main-content p-4">
-                <div class="row">
-                    <!-- 代码编辑器 -->
-                    <div class="col-lg-8">
-                        <div class="card mb-4">
-                            <div class="card-header">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <h6 class="mb-0">
-                                        <i class="fas fa-file-code me-2"></i>
-                                        <span id="currentFile">未选择文件</span>
-                                    </h6>
-                                    <div>
-                                        <button class="btn btn-success btn-sm me-2" onclick="saveFile()">
-                                            <i class="fas fa-save me-1"></i>
-                                            保存
-                                        </button>
-                                        <button class="btn btn-info btn-sm" onclick="runCode()">
-                                            <i class="fas fa-play me-1"></i>
-                                            运行
-                                        </button>
-                                    </div>
-                                </div>
+        <!-- 主编辑区域 -->
+        <div class="editor-container">
+            <!-- 编辑器标签栏 -->
+            <div class="editor-tabs">
+                <div class="editor-tab active" id="welcomeTab">
+                    <i class="fas fa-home"></i>
+                    <span>欢迎</span>
+                </div>
+            </div>
+
+            <!-- Monaco Editor -->
+            <div class="monaco-editor-container">
+                <div id="monaco-editor"></div>
+            </div>
+
+            <!-- 底部面板 - VSCode风格 -->
+            <div class="bottom-panel">
+                <!-- 面板标签 -->
+                <div class="panel-tabs">
+                    <div class="panel-tab active" data-panel="terminal">
+                        <i class="fas fa-terminal"></i>
+                        <span>终端</span>
+                    </div>
+                    <div class="panel-tab" data-panel="git">
+                        <i class="fas fa-git-alt"></i>
+                        <span>Git</span>
+                    </div>
+                    <div class="panel-tab" data-panel="stats">
+                        <i class="fas fa-chart-line"></i>
+                        <span>状态</span>
+                    </div>
+                    <div class="panel-tab" data-panel="problems">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>问题</span>
+                    </div>
+                    <div class="panel-tab" data-panel="output">
+                        <i class="fas fa-list"></i>
+                        <span>输出</span>
+                    </div>
+                </div>
+
+                <!-- 面板内容 -->
+                <div class="panel-content">
+                    <!-- 终端面板 -->
+                    <div id="terminal-panel" class="terminal-container">
+                        <div class="terminal-header">
+                            <div class="terminal-title">
+                                <i class="fas fa-terminal"></i>
+                                <span>终端</span>
                             </div>
-                            <div class="card-body">
-                                <textarea id="codeEditor" style="display: none;"></textarea>
-                                <div id="editorContainer"></div>
+                            <div class="terminal-controls">
+                                <button class="btn btn-sm" onclick="connectTerminal()" title="连接终端">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                <button class="btn btn-sm" onclick="clearTerminal()" title="清屏">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                                <button class="btn btn-sm" onclick="disconnectTerminal()" title="断开连接">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                                <button class="btn btn-sm" onclick="newTerminal()" title="新建终端">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="terminal-body" id="terminal">
+                            <div class="terminal-welcome" id="terminalWelcome">
+                                <i class="fas fa-terminal"></i>
+                                <div>在线代码编辑器终端</div>
+                                <div class="terminal-hint">选择工作空间后点击"连接终端"开始使用</div>
+                            </div>
+                            <div class="xterm-terminal" id="xtermContainer" style="display: none;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Git 面板 -->
+                    <div id="git-panel" class="git-panel hidden">
+                        <div class="git-section">
+                            <div class="git-section-title">源代码管理</div>
+                            <div class="git-actions">
+                                <button class="btn btn-secondary btn-sm" onclick="gitStatus()">
+                                    <i class="fas fa-info-circle"></i> 状态
+                                </button>
+                                <button class="btn btn-secondary btn-sm" onclick="gitAdd()">
+                                    <i class="fas fa-plus"></i> 暂存
+                                </button>
+                                <button class="btn btn-secondary btn-sm" onclick="gitPull()">
+                                    <i class="fas fa-download"></i> 拉取
+                                </button>
+                                <button class="btn btn-secondary btn-sm" onclick="gitPush()">
+                                    <i class="fas fa-upload"></i> 推送
+                                </button>
+                            </div>
+                            <div class="commit-input">
+                                <input type="text" id="commitMessage" class="form-control" placeholder="提交信息">
+                            </div>
+                            <button class="btn btn-primary w-100" onclick="gitCommit()">
+                                <i class="fas fa-check"></i> 提交
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 统计面板 -->
+                    <div id="stats-panel" class="stats-panel hidden">
+                        <div class="git-section-title">容器状态</div>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="cpuUsage">--</div>
+                                <div class="stat-label">CPU 使用率</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="memoryUsage">--</div>
+                                <div class="stat-label">内存使用率</div>
+                            </div>
+                        </div>
+                        <button class="btn btn-secondary w-100" onclick="refreshStats()">
+                            <i class="fas fa-sync"></i> 刷新状态
+                        </button>
+                    </div>
+
+                    <!-- 问题面板 -->
+                    <div id="problems-panel" class="problems-panel hidden">
+                        <div class="problems-section">
+                            <div class="problems-section-title">问题</div>
+                            <div class="problems-content" id="problemsContent">
+                                <div class="problems-empty">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <div>暂无问题</div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 终端和Git操作 -->
-                    <div class="col-lg-4">
-                        <!-- 终端 -->
-                        <div class="card mb-4">
-                            <div class="card-header">
-                                <h6 class="mb-0">
-                                    <i class="fas fa-terminal me-2"></i>
-                                    终端
-                                </h6>
-                            </div>
-                            <div class="card-body p-0">
-                                <div class="terminal-header">
-                                    <span>终端</span>
-                                    <div>
-                                        <button class="btn btn-sm btn-outline-secondary" onclick="clearTerminal()" title="清空终端">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
+                    <!-- 输出面板 -->
+                    <div id="output-panel" class="output-panel hidden">
+                        <div class="output-section">
+                            <div class="output-section-title">输出</div>
+                            <div class="output-content" id="outputContent">
+                                <div class="output-empty">
+                                    <i class="fas fa-list"></i>
+                                    <div>暂无输出</div>
                                 </div>
-                                <div id="terminal" class="terminal-content">
-                                    <div class="terminal-line">
-                                        <span class="terminal-prompt">$ </span>
-                                        <span class="terminal-output">欢迎使用在线代码编辑器终端</span>
-                                    </div>
-                                    <div class="terminal-line">
-                                        <span class="terminal-prompt">$ </span>
-                                        <input type="text" id="terminalInput" class="terminal-input" placeholder="输入命令..." onkeypress="handleTerminalInput(event)">
-                                        <span class="terminal-cursor"></span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Git操作 -->
-                        <div class="card mb-4">
-                            <div class="card-header">
-                                <h6 class="mb-0">
-                                    <i class="fab fa-git-alt me-2"></i>
-                                    Git 操作
-                                </h6>
-                            </div>
-                            <div class="card-body">
-                                <div class="row g-2 mb-3">
-                                    <div class="col-6">
-                                        <button class="btn btn-outline-primary btn-sm w-100" onclick="gitClone()">
-                                            <i class="fas fa-download me-1"></i>
-                                            克隆
-                                        </button>
-                                    </div>
-                                    <div class="col-6">
-                                        <button class="btn btn-outline-info btn-sm w-100" onclick="gitStatus()">
-                                            <i class="fas fa-info-circle me-1"></i>
-                                            状态
-                                        </button>
-                                    </div>
-                                    <div class="col-6">
-                                        <button class="btn btn-outline-success btn-sm w-100" onclick="gitAdd()">
-                                            <i class="fas fa-plus me-1"></i>
-                                            添加
-                                        </button>
-                                    </div>
-                                    <div class="col-6">
-                                        <button class="btn btn-outline-secondary btn-sm w-100" onclick="gitCommit()">
-                                            <i class="fas fa-check me-1"></i>
-                                            提交
-                                        </button>
-                                    </div>
-                                    <div class="col-6">
-                                        <button class="btn btn-outline-warning btn-sm w-100" onclick="gitPush()">
-                                            <i class="fas fa-upload me-1"></i>
-                                            推送
-                                        </button>
-                                    </div>
-                                    <div class="col-6">
-                                        <button class="btn btn-outline-dark btn-sm w-100" onclick="gitPull()">
-                                            <i class="fas fa-sync me-1"></i>
-                                            拉取
-                                        </button>
-                                    </div>
-                                </div>
-                                <input type="text" id="commitMessage" class="form-control" placeholder="提交信息">
-                            </div>
-                        </div>
-
-                        <!-- 容器状态 -->
-                        <div class="card">
-                            <div class="card-header">
-                                <h6 class="mb-0">
-                                    <i class="fas fa-chart-line me-2"></i>
-                                    容器状态
-                                </h6>
-                            </div>
-                            <div class="card-body">
-                                <div id="containerStats" class="workspace-stats">
-                                    <div class="stat-item">
-                                        <div class="stat-value" id="cpuUsage">--</div>
-                                        <div class="stat-label">CPU</div>
-                                    </div>
-                                    <div class="stat-item">
-                                        <div class="stat-value" id="memoryUsage">--</div>
-                                        <div class="stat-label">内存</div>
-                                    </div>
-                                </div>
-                                <button class="btn btn-outline-secondary btn-sm w-100" onclick="refreshStats()">
-                                    <i class="fas fa-sync me-1"></i>
-                                    刷新状态
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -644,19 +1762,34 @@
         </div>
     </div>
 
-    <!-- Toast 通知 -->
+    <!-- 状态栏 -->
+    <div class="status-bar">
+        <div class="status-left">
+            <div class="status-item">
+                <i class="fas fa-circle" style="color: #3fb950; font-size: 8px;"></i>
+                <span id="currentFile">未选择文件</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-code-branch"></i>
+                <span>main</span>
+            </div>
+        </div>
+        <div class="status-right">
+            <div class="status-item">
+                <span id="containerStatus">未连接</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-docker"></i>
+                <span>Docker</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 通知容器 -->
     <div class="toast-container"></div>
 
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/codemirror.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/javascript/javascript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/python/python.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/go/go.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/clike/clike.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/php/php.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/xml/xml.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/css/css.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.0.1/mode/markdown/markdown.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html> 

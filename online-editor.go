@@ -19,8 +19,8 @@ import (
 	imageTypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
-	"github.com/docker/go-connections/nat"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
@@ -78,67 +78,92 @@ type TerminalSession struct {
 }
 
 type GitOperation struct {
-	Type    string `json:"type"`    // clone, pull, push, commit, checkout
-	Repo    string `json:"repo"`
-	Branch  string `json:"branch"`
-	Message string `json:"message"`
+	Type    string   `json:"type"` // clone, pull, push, commit, checkout
+	Repo    string   `json:"repo"`
+	Branch  string   `json:"branch"`
+	Message string   `json:"message"`
 	Files   []string `json:"files"`
 }
 
 // 在线编辑器管理器
 type OnlineEditorManager struct {
-	workspaces      map[string]*Workspace
+	workspaces       map[string]*Workspace
 	terminalSessions map[string]*TerminalSession
-	mutex           sync.RWMutex
-	baseDir         string
-	workspacesDir   string
-	imagesDir       string
-	upgrader        websocket.Upgrader
+	mutex            sync.RWMutex
+	baseDir          string
+	workspacesDir    string
+	imagesDir        string
+	upgrader         websocket.Upgrader
 
-	dockerClient    *client.Client // 新增 Docker 客户端
-	networkName     string         // 工作空间网络名称
-	nextIP          int            // 下一个可用IP
-	portPool        map[int]bool   // 端口池管理
+	dockerClient *client.Client // 新增 Docker 客户端
+	networkName  string         // 工作空间网络名称
+	nextIP       int            // 下一个可用IP
+	portPool     map[int]bool   // 端口池管理
 }
 
-// 预加载的镜像配置 - 仅提供基础开发环境
+// 预加载的镜像配置 - 使用Slim镜像提供更好的兼容性
 var preloadedImages = map[string]map[string]interface{}{
-	"node:18-alpine": {
-		"description": "Node.js 18 开发环境",
+	"node:18-slim": {
+		"description": "Node.js 18 开发环境 (Debian Slim)",
+		"shell":       "/bin/bash",
 		"env": map[string]string{
-			"NODE_ENV": "development",
+			"NODE_ENV":          "development",
+			"NPM_CONFIG_PREFIX": "/usr/local",
 		},
 	},
 	"python:3.11-slim": {
-		"description": "Python 3.11 开发环境",
+		"description": "Python 3.11 开发环境 (Debian Slim)",
+		"shell":       "/bin/bash",
 		"env": map[string]string{
-			"PYTHONPATH": "/workspace",
+			"PYTHONPATH":       "/workspace",
+			"PYTHONUNBUFFERED": "1",
+			"PIP_NO_CACHE_DIR": "1",
 		},
 	},
-	"golang:1.23.1": {
-		"description": "Go 1.23 开发环境",
+	"golang:1.24-slim": {
+		"description": "Go 1.24 开发环境 (Debian Slim)",
+		"shell":       "/bin/bash",
 		"env": map[string]string{
-			"GOPATH": "/go",
-			"GOROOT": "/usr/local/go",
+			"GOPATH":      "/go",
+			"GOROOT":      "/usr/local/go",
+			"CGO_ENABLED": "0",
 		},
 	},
-	"openjdk:18-jdk-slim": {
-		"description": "Java 18 开发环境",
+	"openjdk:17-slim": {
+		"description": "Java 17 开发环境 (Debian Slim)",
+		"shell":       "/bin/bash",
 		"env": map[string]string{
-			"JAVA_HOME": "/usr/lib/jvm/java-18-openjdk",
+			"JAVA_HOME":  "/usr/local/openjdk-17",
+			"MAVEN_HOME": "/usr/share/maven",
 		},
 	},
-	"php:8.2-apache": {
-		"description": "PHP 8.2 + Apache 开发环境",
+	"php:8.2-cli-slim": {
+		"description": "PHP 8.2 CLI 开发环境 (Debian Slim)",
+		"shell":       "/bin/bash",
 		"env": map[string]string{
 			"PHP_INI_DIR": "/usr/local/etc/php",
+			"PHP_CFLAGS":  "-fstack-protector-strong -fpic -fpie -O2",
+		},
+	},
+	"ruby:3.2-slim": {
+		"description": "Ruby 3.2 开发环境 (Debian Slim)",
+		"shell":       "/bin/bash",
+		"env": map[string]string{
+			"RUBY_VERSION": "3.2",
+			"GEM_HOME":     "/usr/local/bundle",
 		},
 	},
 }
 
 // 创建在线编辑器管理器
 func NewOnlineEditorManager() (*OnlineEditorManager, error) {
-	baseDir := "/tmp/online-editor"
+	// 使用当前目录下的workspace作为工作空间根目录，确保用户能看到文件
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("获取当前目录失败: %v", err)
+	}
+
+	baseDir := filepath.Join(currentDir, "workspace")
 	workspacesDir := filepath.Join(baseDir, "workspaces")
 	imagesDir := filepath.Join(baseDir, "images")
 
@@ -159,7 +184,7 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 	// 创建或获取工作空间网络
 	networkName := "workspace-network"
 	ctx := context.Background()
-	
+
 	// 检查网络是否存在
 	networks, err := dockerCli.NetworkList(ctx, network.ListOptions{})
 	if err != nil {
@@ -209,7 +234,7 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 		dockerClient: dockerCli,
 		networkName:  networkName,
 		nextIP:       10, // 从 172.20.0.10 开始分配
-		portPool: make(map[int]bool),
+		portPool:     make(map[int]bool),
 	}, nil
 }
 
@@ -221,31 +246,6 @@ func generateWorkspaceID() string {
 // 生成终端会话ID
 func generateTerminalID() string {
 	return fmt.Sprintf("term_%d", time.Now().UnixNano())
-}
-
-// 分配下一个可用IP
-func (oem *OnlineEditorManager) allocateIP() string {
-	// 调用者必须持有锁
-	ip := "172.20.0." +  strconv.Itoa(oem.nextIP);
-	oem.nextIP++
-	log.Printf("分配IP地址: %s", ip)
-	return ip
-}
-
-// 检查端口是否可用
-func (oem *OnlineEditorManager) isPortAvailable(port int) bool {
-	// 调用者必须持有锁
-	return !oem.portPool[port]
-}
-
-// 分配端口
-func (oem *OnlineEditorManager) allocatePort(port int) bool {
-	// 调用者必须持有锁
-	if oem.portPool[port] {
-		return false
-	}
-	oem.portPool[port] = true
-	return true
 }
 
 // 释放端口
@@ -278,144 +278,24 @@ func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch
 		return nil, fmt.Errorf("不支持的镜像: %s", images)
 	}
 	log.Printf("镜像配置: %v", imageConfig)
-	
-	// 拉取镜像（如果本地没有）
-	ctx := context.Background()
-	_, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, images)
-	if err != nil {
-		// 镜像不存在则拉取
-		log.Printf("拉取镜像: %s", images)
-		out, err := oem.dockerClient.ImagePull(ctx, images, imageTypes.PullOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("拉取镜像失败: %v", err)
-		}
-		defer out.Close()
-		io.Copy(io.Discard, out) // 拉取完毕
-	}
-	log.Printf("镜像拉取完成: %s", images)
-	
-	// 设置环境变量
-	envs := []string{}
-	if env, ok := imageConfig["env"].(map[string]string); ok {
-		for k, v := range env {
-			envs = append(envs, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-	
-	// 添加基础环境变量
-	baseEnvs := []string{
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/opt/homebrew/bin",
-		"TERM=xterm-256color",
-		"HOME=/root",
-		"USER=root",
-		"SHELL=/bin/bash",
-		"PWD=/workspace",
-	}
-	envs = append(envs, baseEnvs...)
-	
-	log.Printf("环境变量: %v", envs)
-	
-	// 容器挂载卷 - 确保工作空间目录正确挂载
-	mounts := []mount.Mount{
-		{
-			Type:   mount.TypeBind,
-			Source: workspaceDir,
-			Target: "/workspace",
-			BindOptions: &mount.BindOptions{
-				Propagation: mount.PropagationRPrivate,
-			},
-		},
-	}
-	log.Printf("挂载卷: %v", mounts)
-	
-	// 清理可能冲突的容器
-	if err := oem.cleanupConflictingContainers(); err != nil {
-		log.Printf("清理冲突容器失败: %v", err)
-	}
-	
-	// 创建容器
-	containerConfig := &container.Config{
-		Image:        images,
-		Env:          envs,
-		Tty:          true,
-		OpenStdin:    true,
-		ExposedPorts: nat.PortSet{},
-		WorkingDir:   "/workspace",
-		// 使用tail命令保持容器运行
-		Cmd: []string{"tail", "-f", "/dev/null"},
-	}
-	
-	hostConfig := &container.HostConfig{
-		Mounts: mounts,
-		// 确保容器有足够的权限
-		Privileged: false,
-	}
-	
-	networkingConfig := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{
-			oem.networkName: {
-				// 让Docker自动分配IP，避免冲突
-			},
-		},
-	}
-	
-	log.Printf("创建容器: %v", containerConfig)
-	resp, err := oem.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, workspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("创建容器失败: %v", err)
-	}
-	log.Printf("容器创建完成: %v", resp)
-	
-	// 启动容器
-	if err := oem.dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		// 如果启动失败，清理容器
-		log.Printf("容器启动失败，清理容器: %v", err)
-		oem.dockerClient.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
-		return nil, fmt.Errorf("启动容器失败: %v", err)
-	}
-	log.Printf("容器启动成功: %s", resp.ID)
-	
-	// 等待容器真正运行
-	time.Sleep(2 * time.Second)
-	
-	// 检查容器状态
-	containerInfo, err := oem.dockerClient.ContainerInspect(ctx, resp.ID)
-	if err != nil {
-		log.Printf("检查容器状态失败: %v", err)
-	} else {
-		log.Printf("容器状态: %s", containerInfo.State.Status)
-		if containerInfo.State.Status != "running" {
-			return nil, fmt.Errorf("容器启动后状态异常: %s", containerInfo.State.Status)
-		}
-	}
-	
-	// 检查并安装必要的工具
-	go func() {
-		time.Sleep(5 * time.Second) // 等待容器完全启动
-		if err := oem.installTools(workspaceID); err != nil {
-			log.Printf("安装工具失败: %v", err)
-		}
-	}()
-	
-	// 创建工作空间对象
+
+	// 创建工作空间对象 - 初始状态为pending
 	workspace := &Workspace{
 		ID:          workspaceID,
 		Name:        name,
 		Image:       images,
-		Status:      "running", // 容器已启动，状态设为running
+		Status:      "pending", // 初始状态：等待资源分配
 		Created:     time.Now(),
-		Started:     &[]time.Time{time.Now()}[0], // 设置启动时间
 		GitRepo:     gitRepo,
 		GitBranch:   gitBranch,
 		Environment: make(map[string]string),
-		ContainerID: resp.ID,
 		NetworkName: oem.networkName,
 	}
 
-	// 设置端口映射 - 完全由用户自定义
+	// 设置端口映射
 	workspace.Ports = customPorts
 
-	// 设置默认卷挂载 - 工作空间目录
+	// 设置默认卷挂载
 	workspace.Volumes = []VolumeMount{
 		{
 			HostPath:      workspaceDir,
@@ -431,14 +311,470 @@ func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch
 
 	oem.workspaces[workspaceID] = workspace
 
-	// 保存Git仓库信息到工作空间，供用户手动克隆
-	if gitRepo != "" {
-		workspace.GitRepo = gitRepo
-		workspace.GitBranch = gitBranch
-		log.Printf("Git仓库信息已保存，用户可手动克隆: %s", gitRepo)
-	}
+	// 异步初始化容器
+	go func() {
+		if err := oem.initializeContainer(workspace, images, workspaceDir, imageConfig); err != nil {
+			log.Printf("容器初始化失败: %v", err)
+			oem.mutex.Lock()
+			workspace.Status = "failed"
+			oem.mutex.Unlock()
+		}
+	}()
 
 	return workspace, nil
+}
+
+// 初始化容器 - 分阶段进行
+func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images, workspaceDir string, imageConfig map[string]interface{}) error {
+	workspaceID := workspace.ID
+
+	// 阶段1：更新状态为拉取镜像中
+	oem.updateWorkspaceStatus(workspaceID, "pulling")
+
+	// 拉取镜像（如果本地没有）
+	ctx := context.Background()
+	_, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, images)
+	if err != nil {
+		log.Printf("[%s] 拉取镜像: %s", workspaceID, images)
+		out, err := oem.dockerClient.ImagePull(ctx, images, imageTypes.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("拉取镜像失败: %v", err)
+		}
+		defer out.Close()
+		io.Copy(io.Discard, out)
+	}
+	log.Printf("[%s] 镜像准备完成: %s", workspaceID, images)
+
+	// 阶段2：更新状态为创建容器中
+	oem.updateWorkspaceStatus(workspaceID, "creating")
+
+	// 设置环境变量
+	envs := []string{}
+	if env, ok := imageConfig["env"].(map[string]string); ok {
+		for k, v := range env {
+			envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+
+	// 获取镜像配置中的Shell信息
+	defaultShell := "/bin/bash"
+	if shell, ok := imageConfig["shell"].(string); ok {
+		defaultShell = shell
+	}
+
+	// 添加基础环境变量 - 优化Slim镜像兼容性
+	baseEnvs := []string{
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/opt/homebrew/bin",
+		"TERM=xterm-256color",
+		"HOME=/root",
+		"USER=root",
+		fmt.Sprintf("SHELL=%s", defaultShell),
+		"PWD=/workspace",
+		"LANG=C.UTF-8",
+		"LC_ALL=C.UTF-8",
+		"DEBIAN_FRONTEND=noninteractive",
+		"TZ=Asia/Shanghai",
+	}
+	envs = append(envs, baseEnvs...)
+
+	// 容器挂载卷 - 确保工作空间目录正确挂载到/workspace
+	mounts := []mount.Mount{
+		{
+			Type:   mount.TypeBind,
+			Source: workspaceDir,
+			Target: "/workspace",
+			BindOptions: &mount.BindOptions{
+				Propagation: mount.PropagationRPrivate,
+			},
+		},
+	}
+
+	// 清理可能冲突的容器
+	if err := oem.cleanupConflictingContainers(); err != nil {
+		log.Printf("[%s] 清理冲突容器失败: %v", workspaceID, err)
+	}
+
+	// 创建容器
+	containerConfig := &container.Config{
+		Image:        images,
+		Env:          envs,
+		Tty:          true,
+		OpenStdin:    true,
+		ExposedPorts: nat.PortSet{},
+		WorkingDir:   "/workspace",
+		// 使用tail命令保持容器运行
+		Cmd: []string{"tail", "-f", "/dev/null"},
+	}
+
+	hostConfig := &container.HostConfig{
+		Mounts:     mounts,
+		Privileged: false,
+		// 添加资源限制
+		Resources: container.Resources{
+			Memory:    512 * 1024 * 1024, // 512MB
+			CPUShares: 1024,
+		},
+	}
+
+	networkingConfig := &network.NetworkingConfig{
+		EndpointsConfig: map[string]*network.EndpointSettings{
+			oem.networkName: {},
+		},
+	}
+
+	log.Printf("[%s] 创建容器配置", workspaceID)
+	resp, err := oem.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, workspaceID)
+	if err != nil {
+		return fmt.Errorf("创建容器失败: %v", err)
+	}
+	log.Printf("[%s] 容器创建完成: %s", workspaceID, resp.ID)
+
+	// 更新容器ID
+	oem.mutex.Lock()
+	workspace.ContainerID = resp.ID
+	oem.mutex.Unlock()
+
+	// 阶段3：更新状态为启动中
+	oem.updateWorkspaceStatus(workspaceID, "starting")
+
+	// 启动容器
+	if err := oem.dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		// 如果启动失败，清理容器
+		log.Printf("[%s] 容器启动失败，清理容器: %v", workspaceID, err)
+		oem.dockerClient.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		return fmt.Errorf("启动容器失败: %v", err)
+	}
+	log.Printf("[%s] 容器启动成功", workspaceID)
+
+	// 等待容器稳定运行
+	for attempts := 0; attempts < 10; attempts++ {
+		time.Sleep(2 * time.Second)
+
+		containerInfo, err := oem.dockerClient.ContainerInspect(ctx, resp.ID)
+		if err != nil {
+			log.Printf("[%s] 检查容器状态失败: %v", workspaceID, err)
+			continue
+		}
+
+		if containerInfo.State.Status == "running" {
+			log.Printf("[%s] 容器运行状态确认", workspaceID)
+			break
+		}
+
+		if attempts == 9 {
+			return fmt.Errorf("容器启动后状态异常: %s", containerInfo.State.Status)
+		}
+	}
+
+	// 阶段4：更新状态为初始化中
+	oem.updateWorkspaceStatus(workspaceID, "initializing")
+
+	// 等待容器完全启动并初始化环境
+	time.Sleep(3 * time.Second)
+
+	// 初始化容器环境
+	if err := oem.initializeEnvironment(workspaceID); err != nil {
+		log.Printf("[%s] 环境初始化失败: %v", workspaceID, err)
+		// 不返回错误，因为容器已经可以使用
+	}
+
+	// 阶段5：所有初始化完成，状态设为运行中
+	oem.updateWorkspaceStatus(workspaceID, "running")
+
+	// 设置启动时间
+	oem.mutex.Lock()
+	now := time.Now()
+	workspace.Started = &now
+	oem.mutex.Unlock()
+
+	log.Printf("[%s] 工作空间初始化完成，状态：运行中", workspaceID)
+	return nil
+}
+
+// 更新工作空间状态
+func (oem *OnlineEditorManager) updateWorkspaceStatus(workspaceID, status string) {
+	oem.mutex.Lock()
+	defer oem.mutex.Unlock()
+
+	if workspace, exists := oem.workspaces[workspaceID]; exists {
+		workspace.Status = status
+		log.Printf("[%s] 状态更新: %s", workspaceID, status)
+	}
+}
+
+// 初始化环境
+func (oem *OnlineEditorManager) initializeEnvironment(workspaceID string) error {
+	workspace, exists := oem.workspaces[workspaceID]
+	if !exists {
+		return fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	ctx := context.Background()
+
+	// 设置完整的环境变量
+	envs := []string{
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/opt/homebrew/bin",
+		"TERM=xterm-256color",
+		"HOME=/root",
+		"USER=root",
+		"SHELL=/bin/bash",
+		"PWD=/workspace",
+		"LANG=C.UTF-8",
+		"LC_ALL=C.UTF-8",
+		"DEBIAN_FRONTEND=noninteractive",
+	}
+
+	// 添加镜像特定的环境变量
+	if workspace.Environment != nil {
+		for k, v := range workspace.Environment {
+			envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+
+	log.Printf("[%s] 开始环境初始化...", workspaceID)
+
+	// 1. 创建工作目录并设置权限
+	setupCmd := []string{"/bin/bash", "-c", `
+		# 确保工作目录存在并设置权限
+		mkdir -p /workspace
+		chmod 755 /workspace
+		cd /workspace
+		
+		# 创建常用目录
+		mkdir -p /workspace/tmp
+		mkdir -p /workspace/logs
+		
+		# 设置git安全目录（如果git存在）
+		if command -v git >/dev/null 2>&1; then
+			git config --global --add safe.directory /workspace
+			git config --global init.defaultBranch main
+		fi
+		
+		echo "工作目录初始化完成"
+	`}
+
+	execConfig := container.ExecOptions{
+		Cmd:          setupCmd,
+		AttachStdout: true,
+		AttachStderr: true,
+		WorkingDir:   "/",
+		Env:          envs,
+	}
+
+	execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, execConfig)
+	if err != nil {
+		log.Printf("[%s] 创建初始化命令失败: %v", workspaceID, err)
+	} else {
+		execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+		if err == nil {
+			output, _ := io.ReadAll(execAttachResp.Reader)
+			execAttachResp.Close()
+			log.Printf("[%s] 工作目录初始化: %s", workspaceID, string(output))
+		}
+	}
+
+	// 2. 创建增强的.bashrc文件
+	bashrcContent := `#!/bin/bash
+# Online Code Editor Enhanced Shell Configuration
+
+# 设置颜色提示符
+export PS1='\[\033[01;32m\]\u@container\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+
+# 设置别名
+alias ll='ls -alF'
+alias la='ls -A'  
+alias l='ls -CF'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+
+# 开发相关别名
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit'
+alias gp='git push'
+alias gl='git log --oneline'
+alias gd='git diff'
+
+# 设置历史记录
+export HISTSIZE=2000
+export HISTFILESIZE=4000
+export HISTCONTROL=ignoredups:erasedups
+shopt -s histappend
+
+# 启用颜色支持
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+fi
+
+# 设置编辑器
+export EDITOR=nano
+export VISUAL=nano
+
+# 自动完成功能
+if [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+fi
+
+# 函数：快速创建项目结构
+mkproject() {
+    if [ -z "$1" ]; then
+        echo "用法: mkproject <项目名>"
+        return 1
+    fi
+    mkdir -p "$1"/{src,docs,tests,config}
+    cd "$1"
+    echo "# $1" > README.md
+    echo "项目 $1 创建完成"
+}
+
+# 函数：快速Git初始化
+gitinit() {
+    git init
+    echo -e "node_modules/\n.env\n*.log\n.DS_Store" > .gitignore
+    git add .
+    git commit -m "Initial commit"
+    echo "Git仓库初始化完成"
+}
+
+# 欢迎信息
+clear
+echo "=========================================="
+echo "  🚀 在线代码编辑器 - 开发环境"
+echo "=========================================="
+echo "当前目录: $(pwd)"
+echo "可用命令:"
+echo "  - mkproject <name>  : 创建项目结构"
+echo "  - gitinit          : 初始化Git仓库"
+echo "  - ll, la, l        : 文件列表"
+echo "  - gs, ga, gc, gp   : Git快捷命令"
+echo "=========================================="
+
+# 切换到工作目录
+cd /workspace 2>/dev/null || cd /
+`
+
+	// 写入.bashrc文件
+	createBashrcCmd := []string{"/bin/bash", "-c", fmt.Sprintf("cat > /root/.bashrc << 'EOF'\n%s\nEOF", bashrcContent)}
+	execConfig = container.ExecOptions{
+		Cmd:          createBashrcCmd,
+		AttachStdout: true,
+		AttachStderr: true,
+		WorkingDir:   "/",
+		Env:          envs,
+	}
+
+	execResp, err = oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, execConfig)
+	if err != nil {
+		log.Printf("[%s] 创建.bashrc失败: %v", workspaceID, err)
+	} else {
+		execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+		if err == nil {
+			execAttachResp.Close()
+			log.Printf("[%s] .bashrc配置文件已创建", workspaceID)
+		}
+	}
+
+	// 3. 安装基础开发工具
+	return oem.installDevelopmentTools(workspaceID, envs)
+}
+
+// 安装开发工具
+func (oem *OnlineEditorManager) installDevelopmentTools(workspaceID string, envs []string) error {
+	workspace, exists := oem.workspaces[workspaceID]
+	if !exists {
+		return fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	ctx := context.Background()
+
+	// 检查并安装必要的工具
+	requiredTools := []string{"git", "curl", "wget", "vim", "nano", "tree"}
+	missingTools := []string{}
+
+	// 检查工具是否存在
+	for _, tool := range requiredTools {
+		checkCmd := []string{"which", tool}
+		execConfig := container.ExecOptions{
+			Cmd:          checkCmd,
+			AttachStdout: true,
+			AttachStderr: true,
+			WorkingDir:   "/workspace",
+			Env:          envs,
+		}
+
+		execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, execConfig)
+		if err == nil {
+			execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+			if err == nil {
+				output, _ := io.ReadAll(execAttachResp.Reader)
+				execAttachResp.Close()
+				if len(output) == 0 {
+					missingTools = append(missingTools, tool)
+				} else {
+					log.Printf("[%s] 工具 %s 已存在", workspaceID, tool)
+				}
+			}
+		}
+	}
+
+	// 如果有缺失的工具，尝试安装
+	if len(missingTools) > 0 {
+		log.Printf("[%s] 缺失工具: %v，尝试安装...", workspaceID, missingTools)
+
+		// 尝试不同的包管理器（按常见程度排序）
+		installCommands := [][]string{
+			// Debian/Ubuntu
+			{"/bin/bash", "-c", "apt-get update && apt-get install -y " + strings.Join(missingTools, " ")},
+			// Alpine
+			{"/bin/bash", "-c", "apk add --no-cache " + strings.Join(missingTools, " ")},
+			// CentOS/RHEL/Rocky
+			{"/bin/bash", "-c", "yum install -y " + strings.Join(missingTools, " ")},
+			// Fedora
+			{"/bin/bash", "-c", "dnf install -y " + strings.Join(missingTools, " ")},
+		}
+
+		for i, cmd := range installCommands {
+			log.Printf("[%s] 尝试安装方式 %d", workspaceID, i+1)
+
+			installExecConfig := container.ExecOptions{
+				Cmd:          cmd,
+				AttachStdout: true,
+				AttachStderr: true,
+				WorkingDir:   "/workspace",
+				Env:          envs,
+			}
+
+			execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, installExecConfig)
+			if err != nil {
+				continue
+			}
+
+			execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+			if err != nil {
+				continue
+			}
+
+			// 读取安装输出
+			output, _ := io.ReadAll(execAttachResp.Reader)
+			execAttachResp.Close()
+
+			// 检查安装是否成功
+			if strings.Contains(string(output), "installed") ||
+				strings.Contains(string(output), "upgraded") ||
+				strings.Contains(string(output), "OK:") {
+				log.Printf("[%s] 工具安装成功", workspaceID)
+				break
+			}
+		}
+	}
+
+	log.Printf("[%s] 开发环境初始化完成", workspaceID)
+	return nil
 }
 
 // 启动工作空间
@@ -516,7 +852,7 @@ func (oem *OnlineEditorManager) DeleteWorkspace(workspaceID string) error {
 	}
 
 	ctx := context.Background()
-	
+
 	// 释放端口
 	for _, p := range workspace.Ports {
 		if p.HostPort != "" {
@@ -525,7 +861,7 @@ func (oem *OnlineEditorManager) DeleteWorkspace(workspaceID string) error {
 			}
 		}
 	}
-	
+
 	// 强制删除容器
 	if err := oem.dockerClient.ContainerRemove(ctx, workspace.ContainerID, container.RemoveOptions{Force: true}); err != nil {
 		return fmt.Errorf("删除容器失败: %v", err)
@@ -570,22 +906,38 @@ func (oem *OnlineEditorManager) GetWorkspace(workspaceID string) (*Workspace, er
 
 // 文件系统操作
 
-// 列出文件
+// 列出文件 - 使用主机文件系统
 func (oem *OnlineEditorManager) ListFiles(workspaceID, path string) ([]FileInfo, error) {
 	oem.mutex.RLock()
 	defer oem.mutex.RUnlock()
 
-	_, exists := oem.workspaces[workspaceID]
+	workspace, exists := oem.workspaces[workspaceID]
 	if !exists {
 		return nil, fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
 
+	// 如果工作空间未运行，返回错误
+	if workspace.Status != "running" {
+		return nil, fmt.Errorf("工作空间未运行: %s", workspaceID)
+	}
+
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
+
+	// 如果路径为空，使用根路径
+	if path == "" {
+		path = "."
+	}
+
 	fullPath := filepath.Join(workspaceDir, path)
 
 	// 检查路径是否在工作空间内
 	if !strings.HasPrefix(fullPath, workspaceDir) {
 		return nil, fmt.Errorf("访问路径超出工作空间范围")
+	}
+
+	// 检查目录是否存在
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("目录不存在: %s", path)
 	}
 
 	entries, err := os.ReadDir(fullPath)
@@ -600,9 +952,15 @@ func (oem *OnlineEditorManager) ListFiles(workspaceID, path string) ([]FileInfo,
 			continue
 		}
 
+		// 构建相对路径
+		relativePath := entry.Name()
+		if path != "." {
+			relativePath = filepath.Join(path, entry.Name())
+		}
+
 		fileInfo := FileInfo{
 			Name:         entry.Name(),
-			Path:         filepath.Join(path, entry.Name()),
+			Path:         relativePath,
 			IsDir:        entry.IsDir(),
 			Size:         info.Size(),
 			ModifiedTime: info.ModTime(),
@@ -614,14 +972,19 @@ func (oem *OnlineEditorManager) ListFiles(workspaceID, path string) ([]FileInfo,
 	return files, nil
 }
 
-// 读取文件
+// 读取文件 - 使用主机文件系统
 func (oem *OnlineEditorManager) ReadFile(workspaceID, filePath string) (string, error) {
 	oem.mutex.RLock()
 	defer oem.mutex.RUnlock()
 
-	_, exists := oem.workspaces[workspaceID]
+	workspace, exists := oem.workspaces[workspaceID]
 	if !exists {
 		return "", fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	// 如果工作空间未运行，返回错误
+	if workspace.Status != "running" {
+		return "", fmt.Errorf("工作空间未运行: %s", workspaceID)
 	}
 
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
@@ -640,14 +1003,19 @@ func (oem *OnlineEditorManager) ReadFile(workspaceID, filePath string) (string, 
 	return string(content), nil
 }
 
-// 写入文件
+// 写入文件 - 使用主机文件系统
 func (oem *OnlineEditorManager) WriteFile(workspaceID, filePath, content string) error {
 	oem.mutex.Lock()
 	defer oem.mutex.Unlock()
 
-	_, exists := oem.workspaces[workspaceID]
+	workspace, exists := oem.workspaces[workspaceID]
 	if !exists {
 		return fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	// 如果工作空间未运行，返回错误
+	if workspace.Status != "running" {
+		return fmt.Errorf("工作空间未运行: %s", workspaceID)
 	}
 
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
@@ -699,7 +1067,7 @@ func (oem *OnlineEditorManager) DeleteFile(workspaceID, filePath string) error {
 
 // 终端操作
 
-// 创建终端会话
+// 创建终端会话 - 优化版本，支持真正的交互式终端
 func (oem *OnlineEditorManager) CreateTerminalSession(workspaceID string) (*TerminalSession, error) {
 	oem.mutex.Lock()
 	defer oem.mutex.Unlock()
@@ -738,11 +1106,11 @@ func (oem *OnlineEditorManager) ExecuteCommand(workspaceID string, command []str
 	}
 
 	if workspace.Status != "running" {
-		return "", fmt.Errorf("工作空间未运行: %s", workspaceID)
+		return "", fmt.Errorf("工作空间未运行，当前状态: %s", workspace.Status)
 	}
 
 	ctx := context.Background()
-	
+
 	// 检查容器状态
 	containerInfo, err := oem.dockerClient.ContainerInspect(ctx, workspace.ContainerID)
 	if err != nil {
@@ -750,11 +1118,45 @@ func (oem *OnlineEditorManager) ExecuteCommand(workspaceID string, command []str
 	}
 
 	if containerInfo.State.Status != "running" {
-		return "", fmt.Errorf("容器未运行，当前状态: %s", containerInfo.State.Status)
+		return "", fmt.Errorf("容器状态异常: %s", containerInfo.State.Status)
 	}
 
-	log.Printf("执行命令: %v", command)
-	
+	// 处理特殊命令，如cd等内置命令
+	if len(command) > 0 {
+		switch command[0] {
+		case "cd":
+			// cd命令需要特殊处理，因为它是shell内置命令
+			if len(command) > 1 {
+				// 使用shell来执行cd命令并获取新的工作目录
+				shellCmd := fmt.Sprintf("cd %s && pwd", command[1])
+				command = []string{"/bin/bash", "-c", shellCmd}
+			} else {
+				// cd without arguments - go to home directory
+				command = []string{"/bin/bash", "-c", "cd ~ && pwd"}
+			}
+		case "pwd":
+			// 确保pwd命令在正确的工作目录执行
+			command = []string{"/bin/bash", "-c", "pwd"}
+		case "ls", "ll":
+			// 使用shell来执行ls命令以支持别名
+			if len(command) == 1 {
+				command = []string{"/bin/bash", "-c", command[0]}
+			} else {
+				shellCmd := fmt.Sprintf("%s %s", command[0], strings.Join(command[1:], " "))
+				command = []string{"/bin/bash", "-c", shellCmd}
+			}
+		default:
+			// 对于其他命令，如果只有一个参数且可能是复合命令，使用shell执行
+			if len(command) == 1 && (strings.Contains(command[0], "&&") ||
+				strings.Contains(command[0], "||") ||
+				strings.Contains(command[0], "|") ||
+				strings.Contains(command[0], ">") ||
+				strings.Contains(command[0], "<")) {
+				command = []string{"/bin/bash", "-c", command[0]}
+			}
+		}
+	}
+
 	// 设置完整的环境变量
 	envs := []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/opt/homebrew/bin",
@@ -766,25 +1168,30 @@ func (oem *OnlineEditorManager) ExecuteCommand(workspaceID string, command []str
 		"LANG=C.UTF-8",
 		"LC_ALL=C.UTF-8",
 	}
-	
+
 	// 添加镜像特定的环境变量
 	if workspace.Environment != nil {
 		for k, v := range workspace.Environment {
 			envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 		}
 	}
-	
+
+	log.Printf("执行命令: %v in workspace %s", command, workspaceID)
+
+	// 创建执行配置
 	execConfig := container.ExecOptions{
 		Cmd:          command,
 		AttachStdout: true,
 		AttachStderr: true,
+		AttachStdin:  false,
+		Tty:          false,
 		WorkingDir:   "/workspace",
 		Env:          envs,
 	}
 
 	execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, execConfig)
 	if err != nil {
-		return "", fmt.Errorf("创建命令失败: %v", err)
+		return "", fmt.Errorf("创建执行配置失败: %v", err)
 	}
 
 	execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
@@ -793,13 +1200,32 @@ func (oem *OnlineEditorManager) ExecuteCommand(workspaceID string, command []str
 	}
 	defer execAttachResp.Close()
 
-	output, err := io.ReadAll(execAttachResp.Reader)
-	if err != nil {
-		return "", fmt.Errorf("读取命令输出失败: %v", err)
-	}
+	// 设置超时
+	timeout := 30 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	log.Printf("命令执行完成，输出长度: %d", len(output))
-	return string(output), nil
+	// 读取输出
+	outputChan := make(chan []byte, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		output, err := io.ReadAll(execAttachResp.Reader)
+		if err != nil {
+			errorChan <- err
+		} else {
+			outputChan <- output
+		}
+	}()
+
+	select {
+	case output := <-outputChan:
+		return string(output), nil
+	case err := <-errorChan:
+		return "", fmt.Errorf("读取命令输出失败: %v", err)
+	case <-ctx.Done():
+		return "", fmt.Errorf("命令执行超时")
+	}
 }
 
 // Git操作
@@ -814,7 +1240,7 @@ func (oem *OnlineEditorManager) cloneGitRepo(workspaceID, repo, branch string) e
 	ctx := context.Background()
 	// 在容器内执行git clone
 	execConfig := container.ExecOptions{
-		Cmd:         []string{"git", "clone", "-b", branch, repo, "."},
+		Cmd:          []string{"git", "clone", "-b", branch, repo, "."},
 		AttachStdout: true,
 		AttachStderr: true,
 		WorkingDir:   "/workspace",
@@ -884,7 +1310,7 @@ func (oem *OnlineEditorManager) GitOperation(workspaceID string, operation GitOp
 		if branch == "" {
 			branch = workspace.GitBranch
 		}
-		
+
 		// 先清空工作空间目录，然后克隆
 		cmd = []string{"/bin/sh", "-c", fmt.Sprintf("rm -rf /workspace/* /workspace/.* 2>/dev/null || true && git clone -b %s %s .", branch, repo)}
 	case "status":
@@ -922,7 +1348,7 @@ func (oem *OnlineEditorManager) GitOperation(workspaceID string, operation GitOp
 		"LANG=C.UTF-8",
 		"LC_ALL=C.UTF-8",
 	}
-	
+
 	// 添加镜像特定的环境变量
 	if workspace.Environment != nil {
 		for k, v := range workspace.Environment {
@@ -958,7 +1384,7 @@ func (oem *OnlineEditorManager) GitOperation(workspaceID string, operation GitOp
 	return string(output), nil
 }
 
-// 安装必要的工具
+// 安装必要的工具 - 优化版本
 func (oem *OnlineEditorManager) installTools(workspaceID string) error {
 	workspace, exists := oem.workspaces[workspaceID]
 	if !exists {
@@ -966,7 +1392,7 @@ func (oem *OnlineEditorManager) installTools(workspaceID string) error {
 	}
 
 	ctx := context.Background()
-	
+
 	// 检查容器是否在运行
 	containerInfo, err := oem.dockerClient.ContainerInspect(ctx, workspace.ContainerID)
 	if err != nil {
@@ -974,11 +1400,12 @@ func (oem *OnlineEditorManager) installTools(workspaceID string) error {
 	}
 
 	if containerInfo.State.Status != "running" {
-		return fmt.Errorf("容器未运行，无法安装工具，当前状态: %s", containerInfo.State.Status)
+		log.Printf("容器未运行，跳过工具安装，当前状态: %s", containerInfo.State.Status)
+		return nil
 	}
-	
-	log.Printf("开始为工作空间 %s 安装工具...", workspaceID)
-	
+
+	log.Printf("开始为工作空间 %s 初始化环境...", workspaceID)
+
 	// 设置完整的环境变量
 	envs := []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/opt/homebrew/bin",
@@ -991,120 +1418,74 @@ func (oem *OnlineEditorManager) installTools(workspaceID string) error {
 		"LC_ALL=C.UTF-8",
 		"DEBIAN_FRONTEND=noninteractive",
 	}
-	
+
 	// 添加镜像特定的环境变量
 	if workspace.Environment != nil {
 		for k, v := range workspace.Environment {
 			envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 		}
 	}
-	
-	// 检查是否已经安装了git
-	checkCmd := []string{"which", "git"}
+
+	// 创建.bashrc文件以改善shell体验
+	bashrcContent := `#!/bin/bash
+# 设置别名
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias ..='cd ..'
+alias ...='cd ../..'
+
+# 设置PS1提示符
+export PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+
+# 设置历史记录
+export HISTSIZE=1000
+export HISTFILESIZE=2000
+export HISTCONTROL=ignoredups:erasedups
+
+# 启用颜色支持
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+    alias grep='grep --color=auto'
+    alias fgrep='fgrep --color=auto'
+    alias egrep='egrep --color=auto'
+fi
+
+# 设置工作目录
+cd /workspace 2>/dev/null || cd /
+
+echo "Welcome to Online Code Editor!"
+echo "Current directory: $(pwd)"
+echo "Available commands: ls, cd, pwd, git, etc."
+`
+
+	// 写入.bashrc文件
+	createBashrcCmd := []string{"/bin/bash", "-c", fmt.Sprintf("echo '%s' > /root/.bashrc", bashrcContent)}
 	execConfig := container.ExecOptions{
-		Cmd:          checkCmd,
+		Cmd:          createBashrcCmd,
 		AttachStdout: true,
 		AttachStderr: true,
-		WorkingDir:   "/workspace",
+		WorkingDir:   "/",
 		Env:          envs,
 	}
 
 	execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, execConfig)
 	if err != nil {
-		return fmt.Errorf("创建检查命令失败: %v", err)
-	}
-
-	execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
-	if err != nil {
-		return fmt.Errorf("执行检查命令失败: %v", err)
-	}
-	defer execAttachResp.Close()
-
-	output, err := io.ReadAll(execAttachResp.Reader)
-	if err != nil {
-		return fmt.Errorf("读取检查输出失败: %v", err)
-	}
-
-	// 如果git不存在，尝试安装
-	if len(output) == 0 {
-		log.Printf("容器中未找到git，尝试安装...")
-		
-		// 尝试不同的包管理器
-		installCommands := []string{
-			"apt-get update && apt-get install -y git curl wget vim nano tree htop",
-			"yum install -y git curl wget vim nano tree htop",
-			"apk add --no-cache git curl wget vim nano tree htop",
-			"dnf install -y git curl wget vim nano tree htop",
-			"zypper install -y git curl wget vim nano tree htop",
-			"pacman -S --noconfirm git curl wget vim nano tree htop",
-		}
-
-		success := false
-		for i, cmd := range installCommands {
-			log.Printf("尝试安装命令 %d: %s", i+1, cmd)
-			
-			installExecConfig := container.ExecOptions{
-				Cmd:          []string{"/bin/sh", "-c", cmd},
-				AttachStdout: true,
-				AttachStderr: true,
-				WorkingDir:   "/workspace",
-				Env:          envs,
-			}
-
-			installExecResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, installExecConfig)
-			if err != nil {
-				log.Printf("创建安装命令失败: %v", err)
-				continue
-			}
-
-			installExecAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, installExecResp.ID, container.ExecStartOptions{})
-			if err != nil {
-				log.Printf("执行安装命令失败: %v", err)
-				continue
-			}
-
-			installOutput, err := io.ReadAll(installExecAttachResp.Reader)
-			installExecAttachResp.Close()
-
-			if err == nil {
-				log.Printf("工具安装命令执行完成: %s", string(installOutput))
-				
-				// 再次检查git是否安装成功
-				checkCmd := []string{"which", "git"}
-				checkExecConfig := container.ExecOptions{
-					Cmd:          checkCmd,
-					AttachStdout: true,
-					AttachStderr: true,
-					WorkingDir:   "/workspace",
-					Env:          envs,
-				}
-
-				checkExecResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, checkExecConfig)
-				if err == nil {
-					checkExecAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, checkExecResp.ID, container.ExecStartOptions{})
-					if err == nil {
-						checkOutput, _ := io.ReadAll(checkExecAttachResp.Reader)
-						checkExecAttachResp.Close()
-						if len(checkOutput) > 0 {
-							log.Printf("Git安装成功: %s", string(checkOutput))
-							success = true
-							break
-						}
-					}
-				}
-			}
-		}
-		
-		if !success {
-			log.Printf("警告: 无法安装Git，但容器将继续运行")
-		}
+		log.Printf("创建.bashrc失败: %v", err)
 	} else {
-		log.Printf("容器中已存在git: %s", string(output))
+		execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+		if err == nil {
+			execAttachResp.Close()
+			log.Printf("已创建.bashrc配置文件")
+		}
 	}
 
-	// 检查并安装其他基本工具
-	basicTools := []string{"cd", "ls", "pwd", "mkdir", "rm", "cp", "mv"}
-	for _, tool := range basicTools {
+	// 检查并安装必要的工具
+	requiredTools := []string{"git", "curl", "wget", "vim", "nano"}
+	missingTools := []string{}
+
+	for _, tool := range requiredTools {
 		checkCmd := []string{"which", tool}
 		execConfig := container.ExecOptions{
 			Cmd:          checkCmd,
@@ -1121,13 +1502,74 @@ func (oem *OnlineEditorManager) installTools(workspaceID string) error {
 				output, _ := io.ReadAll(execAttachResp.Reader)
 				execAttachResp.Close()
 				if len(output) == 0 {
-					log.Printf("警告: 工具 %s 未找到", tool)
+					missingTools = append(missingTools, tool)
+				} else {
+					log.Printf("工具 %s 已存在: %s", tool, strings.TrimSpace(string(output)))
 				}
 			}
 		}
 	}
 
-	log.Printf("工具安装检查完成")
+	// 如果有缺失的工具，尝试安装
+	if len(missingTools) > 0 {
+		log.Printf("缺失工具: %v，尝试安装...", missingTools)
+
+		// 尝试不同的包管理器
+		installCommands := [][]string{
+			{"/bin/bash", "-c", "apt-get update && apt-get install -y " + strings.Join(missingTools, " ")},
+			{"/bin/bash", "-c", "yum install -y " + strings.Join(missingTools, " ")},
+			{"/bin/bash", "-c", "apk add --no-cache " + strings.Join(missingTools, " ")},
+			{"/bin/bash", "-c", "dnf install -y " + strings.Join(missingTools, " ")},
+		}
+
+		success := false
+		for i, cmd := range installCommands {
+			log.Printf("尝试安装命令 %d: %s", i+1, strings.Join(cmd, " "))
+
+			installExecConfig := container.ExecOptions{
+				Cmd:          cmd,
+				AttachStdout: true,
+				AttachStderr: true,
+				WorkingDir:   "/workspace",
+				Env:          envs,
+			}
+
+			execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, installExecConfig)
+			if err != nil {
+				log.Printf("创建安装命令失败: %v", err)
+				continue
+			}
+
+			execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+			if err != nil {
+				log.Printf("执行安装命令失败: %v", err)
+				continue
+			}
+
+			// 读取安装输出
+			output, err := io.ReadAll(execAttachResp.Reader)
+			execAttachResp.Close()
+
+			if err == nil {
+				log.Printf("安装输出: %s", string(output))
+				success = true
+				break
+			}
+		}
+
+		if !success {
+			log.Printf("警告: 无法安装工具，容器可能使用了不支持的包管理器")
+		}
+	}
+
+	// 设置工作空间状态为完全初始化
+	oem.mutex.Lock()
+	if workspace.Status == "running" {
+		// 工具安装完成，状态保持为running
+		log.Printf("工作空间 %s 环境初始化完成", workspaceID)
+	}
+	oem.mutex.Unlock()
+
 	return nil
 }
 
@@ -1216,11 +1658,11 @@ func (oem *OnlineEditorManager) handleListWorkspaces(w http.ResponseWriter, r *h
 
 func (oem *OnlineEditorManager) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string        `json:"name"`
-		Image    string        `json:"image"`
-		GitRepo  string        `json:"git_repo"`
-		GitBranch string       `json:"git_branch"`
-		Ports    []PortMapping `json:"ports"`
+		Name      string        `json:"name"`
+		Image     string        `json:"image"`
+		GitRepo   string        `json:"git_repo"`
+		GitBranch string        `json:"git_branch"`
+		Ports     []PortMapping `json:"ports"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1296,14 +1738,16 @@ func (oem *OnlineEditorManager) handleListFiles(w http.ResponseWriter, r *http.R
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
+	if files == nil {
+		files = []FileInfo{}
+	}
 	json.NewEncoder(w).Encode(files)
 }
 
 func (oem *OnlineEditorManager) handleReadFile(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	workspaceID := vars["id"]
-	
+
 	var req struct {
 		Path string `json:"path"`
 	}
@@ -1331,7 +1775,7 @@ func (oem *OnlineEditorManager) handleReadFile(w http.ResponseWriter, r *http.Re
 func (oem *OnlineEditorManager) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	workspaceID := vars["id"]
-	
+
 	var req struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -1358,7 +1802,7 @@ func (oem *OnlineEditorManager) handleWriteFile(w http.ResponseWriter, r *http.R
 func (oem *OnlineEditorManager) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	workspaceID := vars["id"]
-	
+
 	var req struct {
 		Path string `json:"path"`
 	}
@@ -1394,10 +1838,13 @@ func (oem *OnlineEditorManager) handleCreateTerminal(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(session)
 }
 
+// 优化的终端WebSocket处理器 - 支持真正的交互式终端
 func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	workspaceID := vars["id"]
 	sessionID := vars["sessionId"]
+
+	log.Printf("[Terminal] 创建终端会话: %s for workspace: %s", sessionID, workspaceID)
 
 	// 升级到WebSocket
 	conn, err := oem.upgrader.Upgrade(w, r, nil)
@@ -1410,46 +1857,80 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 	// 获取终端会话
 	oem.mutex.RLock()
 	session, exists := oem.terminalSessions[sessionID]
+	workspace, workspaceExists := oem.workspaces[workspaceID]
 	oem.mutex.RUnlock()
 
 	if !exists || session.WorkspaceID != workspaceID {
-		conn.WriteMessage(websocket.TextMessage, []byte("终端会话不存在"))
+		conn.WriteMessage(websocket.TextMessage, []byte("\r\n❌ 终端会话不存在\r\n"))
 		return
 	}
 
-	// 获取工作空间
-	workspace, exists := oem.workspaces[workspaceID]
-	if !exists || workspace.Status != "running" {
-		conn.WriteMessage(websocket.TextMessage, []byte("工作空间未运行"))
+	if !workspaceExists || workspace.Status != "running" {
+		conn.WriteMessage(websocket.TextMessage, []byte("\r\n❌ 工作空间未运行\r\n"))
 		return
 	}
 
 	session.WebSocket = conn
+	session.LastActivity = time.Now()
 
 	// 创建交互式终端
 	ctx := context.Background()
-	
+
+	// 获取镜像配置中的Shell信息
+	defaultShell := "/bin/bash"
+	if imageConfig, exists := preloadedImages[workspace.Image]; exists {
+		if shell, ok := imageConfig["shell"].(string); ok {
+			defaultShell = shell
+		}
+	}
+
 	// 设置完整的环境变量
 	envs := []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/opt/homebrew/bin",
 		"TERM=xterm-256color",
 		"HOME=/root",
 		"USER=root",
-		"SHELL=/bin/bash",
+		fmt.Sprintf("SHELL=%s", defaultShell),
 		"PWD=/workspace",
 		"LANG=C.UTF-8",
 		"LC_ALL=C.UTF-8",
+		"DEBIAN_FRONTEND=noninteractive",
+		"TZ=Asia/Shanghai",
+		// 重要：禁用历史扩展以避免提示符重复
+		"set +H",
 	}
-	
+
 	// 添加镜像特定的环境变量
 	if workspace.Environment != nil {
 		for k, v := range workspace.Environment {
 			envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 		}
 	}
-	
+
+	// 初始化脚本 - 启动带有自定义提示符的bash
+	initScript := `#!/bin/bash
+# 进入工作目录
+cd /workspace 2>/dev/null || cd /
+
+# 设置简洁的提示符，避免重复显示
+export PS1="root@online-editor:/workspace $ "
+
+# 禁用历史扩展
+set +H
+
+# 清空屏幕并显示欢迎信息
+clear
+echo "🚀 在线代码编辑器终端"
+echo "当前目录: $(pwd)"
+echo "==============================================="
+
+# 启动交互式bash
+exec /bin/bash --login -i
+`
+
+	// 创建Exec配置
 	execConfig := container.ExecOptions{
-		Cmd:          []string{"/bin/bash"},
+		Cmd:          []string{"/bin/bash", "-c", initScript},
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
@@ -1458,43 +1939,109 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 		Env:          envs,
 	}
 
+	log.Printf("[Terminal] 创建容器Exec配置")
 	execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, execConfig)
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("创建终端失败: %v", err)))
+		errorMsg := fmt.Sprintf("\r\n❌ 创建终端失败: %v\r\n", err)
+		conn.WriteMessage(websocket.TextMessage, []byte(errorMsg))
 		return
 	}
 
+	log.Printf("[Terminal] 附加到容器Exec")
 	execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("附加到终端失败: %v", err)))
+		errorMsg := fmt.Sprintf("\r\n❌ 附加到终端失败: %v\r\n", err)
+		conn.WriteMessage(websocket.TextMessage, []byte(errorMsg))
 		return
 	}
 	defer execAttachResp.Close()
 
-	// 转发输出到WebSocket
+	// 设置WebSocket超时
+	conn.SetReadDeadline(time.Now().Add(60 * time.Minute))
+	conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+
+	// 用于同步关闭
+	done := make(chan struct{})
+
+	// 从容器读取输出并转发到WebSocket
 	go func() {
-		buffer := make([]byte, 124)
+		defer close(done)
+		buffer := make([]byte, 1024)
+
 		for {
 			n, err := execAttachResp.Reader.Read(buffer)
 			if err != nil {
+				if err != io.EOF {
+					log.Printf("[Terminal] 读取容器输出失败: %v", err)
+				}
 				break
 			}
+
 			if n > 0 {
-				conn.WriteMessage(websocket.BinaryMessage, buffer[:n])
+				// 重置写入超时
+				conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+
+				// 发送数据到WebSocket
+				if err := conn.WriteMessage(websocket.BinaryMessage, buffer[:n]); err != nil {
+					log.Printf("[Terminal] 发送数据到WebSocket失败: %v", err)
+					break
+				}
+
+				// 更新活动时间
+				session.LastActivity = time.Now()
 			}
 		}
 	}()
 
-	// 处理WebSocket输入
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
+	// 从WebSocket读取输入并转发到容器
+	go func() {
+		defer func() {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}()
 
-		// 写入到容器终端
-		execAttachResp.Conn.Write(message)
-	}
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				// 重置读取超时
+				conn.SetReadDeadline(time.Now().Add(60 * time.Minute))
+
+				_, message, err := conn.ReadMessage()
+				if err != nil {
+					if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+						log.Printf("[Terminal] WebSocket读取失败: %v", err)
+					}
+					return
+				}
+
+				// 处理特殊键序列
+				if len(message) > 0 {
+					// 写入到容器终端
+					if _, err := execAttachResp.Conn.Write(message); err != nil {
+						log.Printf("[Terminal] 写入容器失败: %v", err)
+						return
+					}
+
+					// 更新活动时间
+					session.LastActivity = time.Now()
+				}
+			}
+		}
+	}()
+
+	// 等待任一协程结束
+	<-done
+
+	log.Printf("[Terminal] 终端会话结束: %s", sessionID)
+
+	// 清理会话
+	oem.mutex.Lock()
+	delete(oem.terminalSessions, sessionID)
+	oem.mutex.Unlock()
 }
 
 func (oem *OnlineEditorManager) handleExecuteCommand(w http.ResponseWriter, r *http.Request) {
@@ -1563,12 +2110,12 @@ func (oem *OnlineEditorManager) handleListImages(w http.ResponseWriter, r *http.
 		}
 
 		imageList = append(imageList, map[string]interface{}{
-			"id":          image.ID,
-			"tags":        tags,
-			"size":        image.Size,
-			"created":     image.Created,
+			"id":           image.ID,
+			"tags":         tags,
+			"size":         image.Size,
+			"created":      image.Created,
 			"architecture": imageInfo.Architecture,
-			"os":          imageInfo.Os,
+			"os":           imageInfo.Os,
 		})
 	}
 
@@ -1819,4 +2366,4 @@ func main() {
 	if err := manager.StartServer(port); err != nil {
 		log.Fatalf("启动服务器失败: %v", err)
 	}
-} 
+}
