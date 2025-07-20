@@ -10,10 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/docker/docker/api/types/container"
 	imageTypes "github.com/docker/docker/api/types/image"
@@ -99,6 +101,31 @@ type OnlineEditorManager struct {
 	networkName  string         // 工作空间网络名称
 	nextIP       int            // 下一个可用IP
 	portPool     map[int]bool   // 端口池管理
+}
+
+// filterTerminalOutput 过滤终端输出中的控制序列
+func filterTerminalOutput(text string) string {
+	// 过滤括号粘贴模式控制序列
+	if strings.Contains(text, "\x1b[?2004l") || strings.Contains(text, "\033[?2004l") {
+		return ""
+	}
+
+	// 过滤其他常见的控制序列
+	patterns := []string{
+		`\x00.`,
+		`\x1b\[[0-9;]*[a-zA-Z]`,    // ANSI转义序列
+		`\033\[[0-9;]*[a-zA-Z]`,    // ANSI转义序列 (八进制)
+		`\x1b\[[?]2004[hl]`,        // 括号粘贴模式
+		`\033\[[?]2004[hl]`,        // 括号粘贴模式 (八进制)
+		`\x01\x00{6}\x0B.*?\r\r\n`, // 特定的控制序列
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		text = re.ReplaceAllString(text, "")
+	}
+
+	return text
 }
 
 // 预加载的镜像配置 - 使用Slim镜像提供更好的兼容性
@@ -577,13 +604,8 @@ func (oem *OnlineEditorManager) initializeEnvironment(workspaceID string) error 
 	bashrcContent := `#!/bin/bash
 # Online Code Editor Enhanced Shell Configuration
 
-# 设置颜色提示符
-export PS1='\[\033[01;32m\]\u@container\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-
 # 设置别名
 alias ll='ls -alF'
-alias la='ls -A'  
-alias l='ls -CF'
 alias ..='cd ..'
 alias ...='cd ../..'
 alias ....='cd ../../..'
@@ -604,12 +626,6 @@ export HISTSIZE=2000
 export HISTFILESIZE=4000
 export HISTCONTROL=ignoredups:erasedups
 shopt -s histappend
-
-# 启用颜色支持
-if [ -x /usr/bin/dircolors ]; then
-    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
-    alias ls='ls --color=auto'
-fi
 
 # 设置编辑器
 export EDITOR=nano
@@ -1065,6 +1081,134 @@ func (oem *OnlineEditorManager) DeleteFile(workspaceID, filePath string) error {
 	return nil
 }
 
+// 创建文件
+func (oem *OnlineEditorManager) CreateFile(workspaceID, filePath string) error {
+	oem.mutex.Lock()
+	defer oem.mutex.Unlock()
+
+	workspace, exists := oem.workspaces[workspaceID]
+	if !exists {
+		return fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	// 如果工作空间未运行，返回错误
+	if workspace.Status != "running" {
+		return fmt.Errorf("工作空间未运行: %s", workspaceID)
+	}
+
+	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
+	fullPath := filepath.Join(workspaceDir, filePath)
+
+	// 检查路径是否在工作空间内
+	if !strings.HasPrefix(fullPath, workspaceDir) {
+		return fmt.Errorf("访问路径超出工作空间范围")
+	}
+
+	// 检查文件是否已存在
+	if _, err := os.Stat(fullPath); err == nil {
+		return fmt.Errorf("文件已存在: %s", filePath)
+	}
+
+	// 创建目录
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %v", err)
+	}
+
+	// 创建空文件
+	file, err := os.Create(fullPath)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %v", err)
+	}
+	defer file.Close()
+
+	return nil
+}
+
+// 创建文件夹
+func (oem *OnlineEditorManager) CreateFolder(workspaceID, folderPath string) error {
+	oem.mutex.Lock()
+	defer oem.mutex.Unlock()
+
+	workspace, exists := oem.workspaces[workspaceID]
+	if !exists {
+		return fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	// 如果工作空间未运行，返回错误
+	if workspace.Status != "running" {
+		return fmt.Errorf("工作空间未运行: %s", workspaceID)
+	}
+
+	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
+	fullPath := filepath.Join(workspaceDir, folderPath)
+
+	// 检查路径是否在工作空间内
+	if !strings.HasPrefix(fullPath, workspaceDir) {
+		return fmt.Errorf("访问路径超出工作空间范围")
+	}
+
+	// 检查文件夹是否已存在
+	if _, err := os.Stat(fullPath); err == nil {
+		return fmt.Errorf("文件夹已存在: %s", folderPath)
+	}
+
+	// 创建文件夹
+	if err := os.MkdirAll(fullPath, 0755); err != nil {
+		return fmt.Errorf("创建文件夹失败: %v", err)
+	}
+
+	return nil
+}
+
+// 移动文件或文件夹
+func (oem *OnlineEditorManager) MoveFile(workspaceID, sourcePath, targetPath string) error {
+	oem.mutex.Lock()
+	defer oem.mutex.Unlock()
+
+	workspace, exists := oem.workspaces[workspaceID]
+	if !exists {
+		return fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	// 如果工作空间未运行，返回错误
+	if workspace.Status != "running" {
+		return fmt.Errorf("工作空间未运行: %s", workspaceID)
+	}
+
+	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
+	sourceFullPath := filepath.Join(workspaceDir, sourcePath)
+	targetFullPath := filepath.Join(workspaceDir, targetPath)
+
+	// 检查路径是否在工作空间内
+	if !strings.HasPrefix(sourceFullPath, workspaceDir) || !strings.HasPrefix(targetFullPath, workspaceDir) {
+		return fmt.Errorf("访问路径超出工作空间范围")
+	}
+
+	// 检查源文件是否存在
+	if _, err := os.Stat(sourceFullPath); os.IsNotExist(err) {
+		return fmt.Errorf("源文件不存在: %s", sourcePath)
+	}
+
+	// 检查目标路径是否已存在
+	if _, err := os.Stat(targetFullPath); err == nil {
+		return fmt.Errorf("目标路径已存在: %s", targetPath)
+	}
+
+	// 创建目标目录
+	targetDir := filepath.Dir(targetFullPath)
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("创建目标目录失败: %v", err)
+	}
+
+	// 移动文件或文件夹
+	if err := os.Rename(sourceFullPath, targetFullPath); err != nil {
+		return fmt.Errorf("移动文件失败: %v", err)
+	}
+
+	return nil
+}
+
 // 终端操作
 
 // 创建终端会话 - 优化版本，支持真正的交互式终端
@@ -1417,6 +1561,8 @@ func (oem *OnlineEditorManager) installTools(workspaceID string) error {
 		"LANG=C.UTF-8",
 		"LC_ALL=C.UTF-8",
 		"DEBIAN_FRONTEND=noninteractive",
+		"set +H",
+		"BASH_ENV=/dev/null",
 	}
 
 	// 添加镜像特定的环境变量
@@ -1429,28 +1575,11 @@ func (oem *OnlineEditorManager) installTools(workspaceID string) error {
 	// 创建.bashrc文件以改善shell体验
 	bashrcContent := `#!/bin/bash
 # 设置别名
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
-alias ..='cd ..'
-alias ...='cd ../..'
-
-# 设置PS1提示符
-export PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
 
 # 设置历史记录
 export HISTSIZE=1000
 export HISTFILESIZE=2000
 export HISTCONTROL=ignoredups:erasedups
-
-# 启用颜色支持
-if [ -x /usr/bin/dircolors ]; then
-    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
-    alias ls='ls --color=auto'
-    alias grep='grep --color=auto'
-    alias fgrep='fgrep --color=auto'
-    alias egrep='egrep --color=auto'
-fi
 
 # 设置工作目录
 cd /workspace 2>/dev/null || cd /
@@ -1601,6 +1730,28 @@ func (oem *OnlineEditorManager) cleanupConflictingContainers() error {
 func (oem *OnlineEditorManager) StartServer(port int) error {
 	router := mux.NewRouter()
 
+	// CORS中间件
+	corsMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 设置CORS头
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+			// 处理预检请求
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	// 应用CORS中间件
+	router.Use(corsMiddleware)
+
 	// API路由
 	api := router.PathPrefix("/api/v1").Subrouter()
 
@@ -1616,6 +1767,9 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	api.HandleFunc("/workspaces/{id}/files", oem.handleListFiles).Methods("GET")
 	api.HandleFunc("/workspaces/{id}/files/read", oem.handleReadFile).Methods("POST")
 	api.HandleFunc("/workspaces/{id}/files/write", oem.handleWriteFile).Methods("POST")
+	api.HandleFunc("/workspaces/{id}/files/create", oem.handleCreateFile).Methods("POST")
+	api.HandleFunc("/workspaces/{id}/files/mkdir", oem.handleCreateFolder).Methods("POST")
+	api.HandleFunc("/workspaces/{id}/files/move", oem.handleMoveFile).Methods("POST")
 	api.HandleFunc("/workspaces/{id}/files/delete", oem.handleDeleteFile).Methods("POST")
 
 	// 终端
@@ -1825,6 +1979,85 @@ func (oem *OnlineEditorManager) handleDeleteFile(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusOK)
 }
 
+func (oem *OnlineEditorManager) handleCreateFile(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	workspaceID := vars["id"]
+
+	var req struct {
+		Path string `json:"path"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Path == "" {
+		http.Error(w, "缺少文件路径参数", http.StatusBadRequest)
+		return
+	}
+
+	if err := oem.CreateFile(workspaceID, req.Path); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (oem *OnlineEditorManager) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	workspaceID := vars["id"]
+
+	var req struct {
+		Path string `json:"path"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Path == "" {
+		http.Error(w, "缺少文件夹路径参数", http.StatusBadRequest)
+		return
+	}
+
+	if err := oem.CreateFolder(workspaceID, req.Path); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (oem *OnlineEditorManager) handleMoveFile(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	workspaceID := vars["id"]
+
+	var req struct {
+		SourcePath string `json:"source_path"`
+		TargetPath string `json:"target_path"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.SourcePath == "" || req.TargetPath == "" {
+		http.Error(w, "缺少源路径或目标路径参数", http.StatusBadRequest)
+		return
+	}
+
+	if err := oem.MoveFile(workspaceID, req.SourcePath, req.TargetPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (oem *OnlineEditorManager) handleCreateTerminal(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	workspaceID := vars["id"]
@@ -1898,6 +2131,8 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 		"TZ=Asia/Shanghai",
 		// 重要：禁用历史扩展以避免提示符重复
 		"set +H",
+		// 禁用括号粘贴模式
+		"BASH_ENV=/dev/null",
 	}
 
 	// 添加镜像特定的环境变量
@@ -1907,22 +2142,31 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 		}
 	}
 
-	// 初始化脚本 - 启动带有自定义提示符的bash
+	// 初始化脚本 - 启动带有自定义提示符的bash，禁用回显
 	initScript := `#!/bin/bash
 # 进入工作目录
 cd /workspace 2>/dev/null || cd /
 
 # 设置简洁的提示符，避免重复显示
-export PS1="root@online-editor:/workspace $ "
+export PS1="root@online-editor:/workspace $"
 
 # 禁用历史扩展
 set +H
+
+# 禁用括号粘贴模式 - 这是关键！
+printf '\033[?2004l'
+
+# 禁用终端回显
+stty -echo
 
 # 清空屏幕并显示欢迎信息
 clear
 echo "🚀 在线代码编辑器终端"
 echo "当前目录: $(pwd)"
 echo "==============================================="
+
+# 显示初始提示符
+echo -n "root@online-editor:/workspace $ "
 
 # 启动交互式bash
 exec /bin/bash --login -i
@@ -1971,7 +2215,11 @@ exec /bin/bash --login -i
 		for {
 			n, err := execAttachResp.Reader.Read(buffer)
 			if err != nil {
-				if err != io.EOF {
+				if err == io.EOF {
+					log.Printf("[Terminal] 容器输出流结束")
+				} else if strings.Contains(err.Error(), "use of closed network connection") {
+					log.Printf("[Terminal] Docker连接已关闭")
+				} else {
 					log.Printf("[Terminal] 读取容器输出失败: %v", err)
 				}
 				break
@@ -1981,8 +2229,35 @@ exec /bin/bash --login -i
 				// 重置写入超时
 				conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 
-				// 发送数据到WebSocket
-				if err := conn.WriteMessage(websocket.BinaryMessage, buffer[:n]); err != nil {
+				// 获取实际数据
+				actualData := buffer[:n]
+
+				// 处理终端输出数据
+				// 首先尝试将数据转换为有效的UTF-8字符串
+				text := string(actualData)
+
+				// 检查UTF-8有效性
+				if !utf8.ValidString(text) {
+					// 如果不是有效的UTF-8，尝试修复
+					text = strings.ToValidUTF8(text, "")
+					// 如果修复后仍然无效，跳过这条数据
+					if !utf8.ValidString(text) {
+						continue
+					}
+				}
+
+				// 过滤控制序列
+				filteredText := filterTerminalOutput(text)
+
+				// 如果过滤后为空，跳过
+				if filteredText == "" {
+					continue
+				}
+
+				log.Printf("[Terminal] 发送数据到WebSocket (长度: %d): %q", len(filteredText), text)
+
+				// 发送过滤后的文本消息
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(text)); err != nil {
 					log.Printf("[Terminal] 发送数据到WebSocket失败: %v", err)
 					break
 				}
@@ -2014,12 +2289,19 @@ exec /bin/bash --login -i
 				if err != nil {
 					if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 						log.Printf("[Terminal] WebSocket读取失败: %v", err)
+					} else if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+						log.Printf("[Terminal] WebSocket正常关闭: %v", err)
+					} else {
+						log.Printf("[Terminal] WebSocket读取错误: %v", err)
 					}
 					return
 				}
 
 				// 处理特殊键序列
 				if len(message) > 0 {
+					// 完整的ASCII码分析和转换
+					log.Printf("[Terminal] 收到WebSocket消息 (长度: %d): %q", len(message), message)
+
 					// 写入到容器终端
 					if _, err := execAttachResp.Conn.Write(message); err != nil {
 						log.Printf("[Terminal] 写入容器失败: %v", err)

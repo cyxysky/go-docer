@@ -1,69 +1,224 @@
-/* 统计面板样式 */
+/* 统计面板样式 - 现代化设计 */
 
 .stats-panel {
-  padding: 16px;
+  padding: 20px;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--secondary-color);
 }
 
-.git-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-  text-transform: uppercase;
+.stats-error {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #dc2626;
+  font-size: 13px;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.stats-error i {
+  font-size: 16px;
+  color: #ef4444;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
 .stat-card {
   background: var(--tertiary-color);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 12px;
+  border-radius: 16px;
+  padding: 20px 16px;
   text-align: center;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(10px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary-color), var(--info-color), var(--success-color));
+  opacity: 0.8;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  background: var(--quaternary-color);
 }
 
 .stat-value {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 28px;
+  font-weight: 800;
   color: var(--primary-color);
-  margin-bottom: 4px;
+  margin-bottom: 8px;
+  line-height: 1;
 }
 
 .stat-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 600;
+}
+
+.git-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.w-100 {
+  width: 100%;
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   text-decoration: none;
   outline: none;
+  background: var(--primary-color);
+  color: white;
+  position: relative;
+  overflow: hidden;
+  min-height: 32px;
+  text-align: center;
+  width: fit-content;
+  gap: 4px;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn:hover::before {
+  left: 100%;
+}
+
+.btn:hover:not(:disabled) {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  opacity: 0.9;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .btn-secondary {
-  background: var(--border-color);
+  background: var(--tertiary-color);
   color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.btn-secondary:hover {
-  background: #4a4a4c;
+.btn-secondary:hover:not(:disabled) {
+  background: var(--quaternary-color);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
-.w-100 {
-  width: 100%;
-} 
+.btn i {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.refresh {
+  flex-shrink: 0;
+  white-space: nowrap;
+  min-width: 90px;
+  max-width: 100px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .stats-panel {
+    padding: 16px;
+  }
+  
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .stat-card {
+    padding: 16px 12px;
+  }
+  
+  .stat-value {
+    font-size: 24px;
+  }
+  
+  .git-section-title {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  
+  .refresh {
+    min-width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .stat-card {
+    padding: 20px 16px;
+  }
+}

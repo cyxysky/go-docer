@@ -1,15 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { WorkspaceProvider, useWorkspace } from './contexts/WorkspaceContext';
 import { FileProvider, useFile } from './contexts/FileContext';
-import { ImageProvider, useImage } from './contexts/ImageContext';
-import { TerminalProvider, useTerminal } from './contexts/TerminalContext';
+import { ImageProvider } from './contexts/ImageContext';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { MultiTerminalProvider } from './contexts/MultiTerminalContext';
 import WorkspacePanel from './components/WorkspacePanel';
 import FilePanel from './components/FilePanel';
 import ImagePanel from './components/ImagePanel';
 import TerminalPanel from './components/TerminalPanel';
 import GitPanel from './components/GitPanel';
 import StatsPanel from './components/StatsPanel';
+import ResizablePanel from './components/ResizablePanel';
+import MonacoEditor from './components/MonacoEditor';
 import ToastComponent from './components/Toast';
+import ThemeToggle from './components/ThemeToggle';
 import './App.css';
 
 // 主应用组件
@@ -17,33 +21,63 @@ const AppContent: React.FC = () => {
   const { currentWorkspace } = useWorkspace();
   const [activeSidebarTab, setActiveSidebarTab] = useState('workspace');
   const [activePanel, setActivePanel] = useState('terminal');
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [toasts, setToasts] = useState<Array<{id: string, message: string, type: 'success' | 'error' | 'warning' | 'info'}>>([]);
+  const { theme } = useTheme();
+  const [toasts] = useState<Array<{id: string, message: string, type: 'success' | 'error' | 'warning' | 'info'}>>([]);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(250);
+  const [isResizingBottomPanel, setIsResizingBottomPanel] = useState(false);
+  const startPosRef = useRef(0);
+  const startHeightRef = useRef(0);
+  const isResizingRef = useRef(false); // 使用ref来跟踪拖拽状态
 
-  // 初始化主题
+  // 底部面板拖拽调整大小
+  const handleBottomPanelMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // 立即设置ref状态
+    isResizingRef.current = true;
+    setIsResizingBottomPanel(true);
+    
+    startPosRef.current = e.clientY;
+    startHeightRef.current = bottomPanelHeight;
+    
+    document.addEventListener('mousemove', handleBottomPanelMouseMove);
+    document.addEventListener('mouseup', handleBottomPanelMouseUp);
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleBottomPanelMouseMove = (e: MouseEvent) => {
+    if (!isResizingRef.current) {
+      return;
+    }
+
+    const delta = startPosRef.current - e.clientY; // 向上拖动增加高度
+    const newHeight = Math.max(150, Math.min(500, startHeightRef.current + delta));
+    
+    setBottomPanelHeight(newHeight);
+  };
+
+  const handleBottomPanelMouseUp = () => {
+    isResizingRef.current = false;
+    setIsResizingBottomPanel(false);
+    document.removeEventListener('mousemove', handleBottomPanelMouseMove);
+    document.removeEventListener('mouseup', handleBottomPanelMouseUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as 'dark' | 'light' || 'dark';
-    setTheme(savedTheme);
-    document.documentElement.setAttribute('data-theme', savedTheme);
+    return () => {
+      document.removeEventListener('mousemove', handleBottomPanelMouseMove);
+      document.removeEventListener('mouseup', handleBottomPanelMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      isResizingRef.current = false;
+    };
   }, []);
 
-  // 主题切换
-  const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    document.documentElement.setAttribute('data-theme', newTheme);
-    showToast(`已切换到${newTheme === 'dark' ? '暗色' : '亮色'}主题`, 'success');
-  };
-
-  // Toast通知系统
-  const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
-    const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id));
-    }, 4000);
-  };
+  // 主题切换功能现在由ThemeContext提供
 
   return (
     <div className="app" data-theme={theme}>
@@ -54,65 +88,71 @@ const AppContent: React.FC = () => {
         </div>
 
         <div className="menu-items">
-          <button className="btn btn-sm theme-toggle" onClick={toggleTheme} title="切换主题">
-            <i className={`fas ${theme === 'dark' ? 'fa-sun' : 'fa-moon'}`}></i>
-          </button>
+          <ThemeToggle />
         </div>
       </div>
 
       {/* 主容器 */}
       <div className="main-container">
-        {/* 左侧边栏 */}
-        <div className="sidebar">
-          {/* 侧边栏标签 */}
-          <div className="sidebar-tabs">
-            <div 
-              className={`sidebar-tab ${activeSidebarTab === 'workspace' ? 'active' : ''}`}
-              onClick={() => setActiveSidebarTab('workspace')}
-              title="工作空间"
-            >
-              <i className="fas fa-cube"></i>
+        {/* 左侧边栏 - 可调整大小 */}
+        <ResizablePanel
+          direction="horizontal"
+          initialSize={280}
+          minSize={200}
+          maxSize={500}
+          className="sidebar-resizable"
+        >
+          <div className="sidebar">
+            {/* 侧边栏标签 */}
+            <div className="sidebar-tabs">
+              <div 
+                className={`sidebar-tab ${activeSidebarTab === 'workspace' ? 'active' : ''}`}
+                onClick={() => setActiveSidebarTab('workspace')}
+                title="工作空间"
+              >
+                <i className="fas fa-cube"></i>
+              </div>
+              <div 
+                className={`sidebar-tab ${activeSidebarTab === 'files' ? 'active' : ''}`}
+                onClick={() => setActiveSidebarTab('files')}
+                title="文件管理器"
+              >
+                <i className="fas fa-folder-tree"></i>
+              </div>
+              <div 
+                className={`sidebar-tab ${activeSidebarTab === 'images' ? 'active' : ''}`}
+                onClick={() => setActiveSidebarTab('images')}
+                title="镜像管理"
+              >
+                <i className="fas fa-layer-group"></i>
+              </div>
             </div>
-            <div 
-              className={`sidebar-tab ${activeSidebarTab === 'files' ? 'active' : ''}`}
-              onClick={() => setActiveSidebarTab('files')}
-              title="文件管理器"
-            >
-              <i className="fas fa-folder-tree"></i>
-            </div>
-            <div 
-              className={`sidebar-tab ${activeSidebarTab === 'images' ? 'active' : ''}`}
-              onClick={() => setActiveSidebarTab('images')}
-              title="镜像管理"
-            >
-              <i className="fas fa-layer-group"></i>
+
+            {/* 侧边栏内容 */}
+            <div className="sidebar-content">
+              {/* 工作空间标签页 */}
+              {activeSidebarTab === 'workspace' && (
+                <div className="sidebar-tab-content active">
+                  <WorkspacePanel />
+                </div>
+              )}
+
+              {/* 文件管理器标签页 */}
+              {activeSidebarTab === 'files' && (
+                <div className="sidebar-tab-content active">
+                  <FilePanel />
+                </div>
+              )}
+
+              {/* 镜像管理标签页 */}
+              {activeSidebarTab === 'images' && (
+                <div className="sidebar-tab-content active">
+                  <ImagePanel />
+                </div>
+              )}
             </div>
           </div>
-
-          {/* 侧边栏内容 */}
-          <div className="sidebar-content">
-            {/* 工作空间标签页 */}
-            {activeSidebarTab === 'workspace' && (
-              <div className="sidebar-tab-content active">
-                <WorkspacePanel />
-              </div>
-            )}
-
-            {/* 文件管理器标签页 */}
-            {activeSidebarTab === 'files' && (
-              <div className="sidebar-tab-content active">
-                <FilePanel />
-              </div>
-            )}
-
-            {/* 镜像管理标签页 */}
-            {activeSidebarTab === 'images' && (
-              <div className="sidebar-tab-content active">
-                <ImagePanel />
-              </div>
-            )}
-          </div>
-        </div>
+        </ResizablePanel>
 
         {/* 主编辑区域 */}
         <div className="editor-container">
@@ -121,43 +161,58 @@ const AppContent: React.FC = () => {
           
           {/* Monaco Editor */}
           <div className="monaco-editor-container">
-            <div id="monaco-editor"></div>
+            <MonacoEditor />
           </div>
 
-          {/* 底部面板 */}
-          <div className="bottom-panel">
-            <div className="panel-tabs">
-              <div 
-                className={`panel-tab ${activePanel === 'terminal' ? 'active' : ''}`}
-                onClick={() => setActivePanel('terminal')}
-              >
-                <i className="fas fa-terminal"></i>
-                <span>终端</span>
-              </div>
-              <div 
-                className={`panel-tab ${activePanel === 'git' ? 'active' : ''}`}
-                onClick={() => setActivePanel('git')}
-              >
-                <i className="fas fa-git-alt"></i>
-                <span>Git</span>
-              </div>
-              <div 
-                className={`panel-tab ${activePanel === 'stats' ? 'active' : ''}`}
-                onClick={() => setActivePanel('stats')}
-              >
-                <i className="fas fa-chart-line"></i>
-                <span>状态</span>
-              </div>
-            </div>
+          {/* 底部面板拖拽手柄 */}
+          <div 
+            className={`bottom-panel-resize-handle ${isResizingBottomPanel ? 'resizing' : ''}`}
+            onMouseDown={handleBottomPanelMouseDown}
+          >
+            <div className="resize-handle-line"></div>
+          </div>
 
-            <div className="panel-content">
-              {activePanel === 'terminal' && <TerminalPanel />}
-              {activePanel === 'git' && (
-                <GitPanel currentWorkspace={currentWorkspace} />
-              )}
-              {activePanel === 'stats' && (
-                <StatsPanel currentWorkspace={currentWorkspace} />
-              )}
+          {/* 底部面板 - 可调整大小 */}
+          <div 
+            className="bottom-panel-container"
+            style={{ height: `${bottomPanelHeight}px` }}
+          >
+            <div className="bottom-panel">
+              <div className="panel-tabs">
+                <div 
+                  className={`panel-tab ${activePanel === 'terminal' ? 'active' : ''}`}
+                  onClick={() => setActivePanel('terminal')}
+                >
+                  <i className="fas fa-terminal"></i>
+                  <span>终端</span>
+                </div>
+                <div 
+                  className={`panel-tab ${activePanel === 'git' ? 'active' : ''}`}
+                  onClick={() => setActivePanel('git')}
+                >
+                  <i className="fas fa-git-alt"></i>
+                  <span>Git</span>
+                </div>
+                <div 
+                  className={`panel-tab ${activePanel === 'stats' ? 'active' : ''}`}
+                  onClick={() => setActivePanel('stats')}
+                >
+                  <i className="fas fa-chart-line"></i>
+                  <span>状态</span>
+                </div>
+              </div>
+
+              <div className="panel-content">
+                <div className={`panel-tab-content ${activePanel === 'terminal' ? 'active' : ''}`}>
+                  <TerminalPanel />
+                </div>
+                <div className={`panel-tab-content ${activePanel === 'git' ? 'active' : ''}`}>
+                  <GitPanel currentWorkspace={currentWorkspace} />
+                </div>
+                <div className={`panel-tab-content ${activePanel === 'stats' ? 'active' : ''}`}>
+                  <StatsPanel currentWorkspace={currentWorkspace} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -174,7 +229,11 @@ const AppContent: React.FC = () => {
 
 // 编辑器标签栏组件
 const EditorTabs: React.FC = () => {
-  const { openTabs, activeTab, closeTab } = useFile();
+  const { openTabs, activeTab, closeTab, setActiveTab } = useFile();
+
+  const handleTabClick = (tabId: string) => {
+    setActiveTab(tabId);
+  };
 
   return (
     <div className="editor-tabs">
@@ -182,7 +241,7 @@ const EditorTabs: React.FC = () => {
         <div 
           key={tab.id}
           className={`editor-tab ${activeTab === tab.id ? 'active' : ''}`}
-          onClick={() => {/* 切换标签逻辑 */}}
+          onClick={() => handleTabClick(tab.id)}
         >
           <i className="fas fa-file-code"></i>
           <span className="tab-name">{tab.path.split('/').pop()}</span>
@@ -238,9 +297,11 @@ const StatusBar: React.FC = () => {
 // 主应用组件（包含Provider）
 const App: React.FC = () => {
   return (
-    <WorkspaceProvider>
-      <WorkspaceConsumer />
-    </WorkspaceProvider>
+    <ThemeProvider>
+      <WorkspaceProvider>
+        <WorkspaceConsumer />
+      </WorkspaceProvider>
+    </ThemeProvider>
   );
 };
 
@@ -251,9 +312,9 @@ const WorkspaceConsumer: React.FC = () => {
   return (
     <FileProvider currentWorkspace={currentWorkspace}>
       <ImageProvider>
-        <TerminalProvider>
+        <MultiTerminalProvider>
           <AppContent />
-        </TerminalProvider>
+        </MultiTerminalProvider>
       </ImageProvider>
     </FileProvider>
   );

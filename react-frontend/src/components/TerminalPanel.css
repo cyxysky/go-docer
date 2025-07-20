@@ -5,12 +5,42 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--darker-bg);
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
+  background: var(--darker-bg, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
   overflow: hidden;
   height: 100%;
-  min-height: 0; /* Allow flex shrinking */
+  max-height: 100%;
+  min-height: 0; /* 允许收缩 */
+}
+
+.terminal-content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 多终端支持样式 */
+.terminal-panel {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-panel.hidden {
+  display: none;
+}
+
+.terminal-panel.active {
+  display: flex;
+}
+
+.terminal-instance {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .terminal-header {
@@ -18,16 +48,18 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  background: var(--tertiary-color);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color, #333);
   font-size: 12px;
+  flex-shrink: 0;
+  height: 40px;
+  min-height: 40px;
 }
 
 .terminal-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-primary);
+  color: var(--text-primary, #cccccc);
   font-weight: 500;
 }
 
@@ -48,17 +80,17 @@
 
 .terminal-status.connected {
   background: rgba(16, 185, 129, 0.2);
-  color: var(--success-color);
+  color: var(--success-color, #10b981);
 }
 
 .terminal-status.connecting {
   background: rgba(245, 158, 11, 0.2);
-  color: var(--warning-color);
+  color: var(--warning-color, #f59e0b);
 }
 
 .terminal-status.error {
   background: rgba(239, 68, 68, 0.2);
-  color: var(--danger-color);
+  color: var(--danger-color, #ef4444);
 }
 
 .terminal-status i {
@@ -71,43 +103,25 @@
 }
 
 .terminal-controls .btn {
-  padding: 4px 6px;
-  font-size: 10px;
-  min-width: unset;
+  padding: 6px;
+  font-size: 16px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 4px;
   background: transparent;
-  border: 1px solid var(--border-color);
   color: var(--text-secondary);
+  border: none;
   transition: all 0.2s ease;
 }
 
 .terminal-controls .btn:hover:not(:disabled) {
-  background: var(--border-color);
-  color: var(--text-primary);
+  background: var(--border-color, #333);
+  color: var(--text-primary, #cccccc);
 }
 
 .terminal-controls .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-decoration: none;
-  outline: none;
-}
-
-.btn-sm {
-  padding: 4px 8px;
-  font-size: 11px;
 }
 
 .terminal-body {
@@ -117,75 +131,86 @@
   overflow: hidden;
   position: relative;
   min-height: 0; /* Allow flex shrinking */
+  height: calc(100% - 40px); /* 减去header高度 */
+  max-height: calc(100% - 40px);
 }
 
 /* xterm.js 终端内容区域 */
 .terminal-content {
   flex: 1;
-  background: var(--darker-bg);
-  padding: 8px;
+  background: var(--darker-bg, #1e1e1e);
+  padding: 0;
   overflow: hidden;
   position: relative;
-  min-height: 0; /* Remove fixed min-height, allow flexible sizing */
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 /* xterm.js 样式覆盖 */
 .terminal-content .xterm {
-  height: 100%;
-  width: 100%;
-  padding: 4px;
+  height: 100% !important;
+  width: 100% !important;
+  max-height: 100% !important;
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .terminal-content .xterm-viewport {
-  background: var(--darker-bg);
-  overflow-y: auto;
-  overflow-x: hidden;
-  height: 100%;
+  background: var(--darker-bg, #1e1e1e) !important;
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  max-height: 100% !important;
+  flex: 1;
 }
 
 .terminal-content .xterm-screen {
-  background: var(--darker-bg);
+  background: var(--darker-bg, #1e1e1e) !important;
+  max-height: 100% !important;
+  min-height: 0;
 }
 
 .terminal-content .xterm-cursor {
-  background-color: var(--text-primary);
+  background-color: var(--text-primary, #cccccc) !important;
 }
 
-/* 终端滚动条样式 */
+/* 终端滚动条样式 - 强制显示 */
 .terminal-content .xterm-viewport::-webkit-scrollbar {
-  width: 8px;
+  width: 12px !important;
+  height: 12px !important;
 }
 
 .terminal-content .xterm-viewport::-webkit-scrollbar-track {
-  background: var(--tertiary-color);
-  border-radius: 4px;
+  background: var(--tertiary-color) !important;
+  border-radius: 6px !important;
 }
 
 .terminal-content .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
+  background: var(--border-color) !important;
+  border-radius: 6px !important;
+  border: 2px solid var(--tertiary-color) !important;
 }
 
 .terminal-content .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
+  background: var(--text-secondary) !important;
 }
 
 .terminal-content .xterm-viewport::-webkit-scrollbar-corner {
-  background: var(--tertiary-color);
+  background: var(--tertiary-color) !important;
 }
 
 /* Firefox 滚动条样式 */
 .terminal-content .xterm-viewport {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-color) var(--tertiary-color);
+  scrollbar-width: auto !important;
+  scrollbar-color: var(--border-color) var(--tertiary-color) !important;
 }
 
 /* 确保滚动条始终可见 */
-.terminal-content .xterm-viewport:hover {
-  scrollbar-color: var(--text-secondary) var(--tertiary-color);
+.terminal-content .xterm-viewport {
+  scrollbar-color: var(--border-color) var(--tertiary-color) !important;
 }
 
 /* 终端文本选择样式 */
@@ -198,8 +223,6 @@
 .terminal-content .xterm:focus {
   outline: none;
 }
-
-/* Remove duplicate terminal-body rule - already defined above */
 
 /* Theme-specific overrides for xterm.js elements that don't inherit CSS variables */
 [data-theme="dark"] .terminal-content .xterm-viewport {
@@ -226,4 +249,41 @@
 
 .fa-spin {
   animation: spin 1s linear infinite;
+}
+
+/* 修复终端内容区域的布局问题 */
+.terminal-content .xterm-helper-textarea {
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  z-index: -1;
+}
+
+/* 确保终端内容正确显示 */
+.terminal-content .xterm-screen {
+  padding: 0 8px;
+}
+
+/* 修复终端光标闪烁问题 */
+.terminal-content .xterm-cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* 确保终端容器在面板切换时保持正确尺寸 */
+.panel-tab-content.active .terminal-container {
+  height: 100%;
+  max-height: 100%;
+}
+
+/* 确保终端在父级容器大小变化时正确调整 */
+.terminal-container {
+  transition: none; /* 禁用过渡动画以避免布局问题 */
 } 

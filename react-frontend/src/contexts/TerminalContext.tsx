@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { useWorkspace } from './WorkspaceContext';
+import { useMultiTerminal } from './MultiTerminalContext';
 
 interface TerminalContextType {
   terminalStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -22,68 +23,147 @@ export const useTerminal = () => {
 
 interface TerminalProviderProps {
   children: React.ReactNode;
+  terminalId: string; // 添加终端ID参数
 }
 
-export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children }) => {
+export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children, terminalId }) => {
   const { currentWorkspace } = useWorkspace();
+  const { updateTerminalStatus } = useMultiTerminal();
   const [terminalStatus, setTerminalStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
-  const writeToTerminalRef = useRef<(data: string) => void>(() => {});
+  const writeToTerminalRef = useRef<(data: string) => void>(() => { });
+  const webSocketRef = useRef<WebSocket | null>(null);
+  const terminalIdRef = useRef<string | null>(null);
+
+  // 更新多终端上下文中的状态
+  const updateStatus = useCallback((status: 'disconnected' | 'connecting' | 'connected' | 'error') => {
+    setTerminalStatus(status);
+    updateTerminalStatus(terminalId, status);
+  }, [terminalId, updateTerminalStatus]);
 
   const connectTerminal = useCallback(async () => {
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
     }
 
-    setTerminalStatus('connecting');
+    updateStatus('connecting');
 
     try {
-      // 模拟连接过程
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // 显示欢迎信息
-      writeToTerminalRef.current('欢迎使用在线代码编辑器终端！\r\n');
-      writeToTerminalRef.current(`当前工作空间: ${currentWorkspace}\r\n`);
-      writeToTerminalRef.current('输入 "help" 查看可用命令\r\n\r\n');
-      
-      setTerminalStatus('connected');
+      // 首先创建终端会话
+      const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/terminal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          cols: 80,
+          rows: 20,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('创建终端会话失败');
+      }
+
+      const terminalData = await response.json();
+      terminalIdRef.current = terminalData.id;
+
+      // 连接WebSocket
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/v1/workspaces/${currentWorkspace}/terminal/${terminalData.id}/ws`;
+
+      console.log(`[Terminal ${terminalId}] 连接WebSocket:`, wsUrl);
+      console.log(`[Terminal ${terminalId}] 终端ID:`, terminalData.id);
+
+      const ws = new WebSocket(wsUrl);
+      webSocketRef.current = ws;
+
+      // 设置连接超时
+      const connectionTimeout = setTimeout(() => {
+        if (ws.readyState === WebSocket.CONNECTING) {
+          console.error(`[Terminal ${terminalId}] WebSocket连接超时`);
+          ws.close();
+          updateStatus('error');
+        }
+      }, 5000);
+
+      ws.onopen = function () {
+        console.log(`[Terminal ${terminalId}] WebSocket连接已建立`);
+        clearTimeout(connectionTimeout);
+        updateStatus('connected');
+        console.log(`[Terminal ${terminalId}] 等待后端终端初始化...`);
+      };
+
+      ws.onmessage = function (event) {
+        if (typeof event.data === 'string') {
+          let asc = event.data.split('').map(c => c.charCodeAt(0));
+          console.log('string', asc, String.fromCodePoint(...asc.slice(7, asc.length)))
+          writeToTerminalRef.current(String.fromCodePoint(...asc.slice(7, asc.length)));
+        } else if (event.data instanceof ArrayBuffer) {
+          const text = String.fromCodePoint(...new Uint8Array(event.data));
+          console.log(text)
+          writeToTerminalRef.current(text);
+        } else {
+          console.log(typeof event.data)
+          writeToTerminalRef.current(String.fromCodePoint(event.data));
+        }
+      };
+
+      ws.onclose = function (event) {
+        console.log(`[Terminal ${terminalId}] WebSocket连接已关闭:`, event.code, event.reason);
+        clearTimeout(connectionTimeout);
+        webSocketRef.current = null;
+        terminalIdRef.current = null;
+        updateStatus('disconnected');
+      };
+
+      ws.onerror = function (error) {
+        console.error(`[Terminal ${terminalId}] WebSocket错误:`, error);
+        clearTimeout(connectionTimeout);
+        updateStatus('error');
+      };
+
     } catch (error) {
-      setTerminalStatus('error');
+      console.error(`[Terminal ${terminalId}] 连接失败:`, error);
+      updateStatus('error');
       throw error;
     }
-  }, [currentWorkspace]);
+  }, [currentWorkspace, terminalId, updateStatus]);
 
   const disconnectTerminal = useCallback(() => {
-    writeToTerminalRef.current('终端已断开连接\r\n');
-    setTerminalStatus('disconnected');
-  }, []);
+    if (webSocketRef.current) {
+      webSocketRef.current.close();
+      webSocketRef.current = null;
+    }
+    terminalIdRef.current = null;
+    updateStatus('disconnected');
+  }, [updateStatus]);
 
   const clearTerminal = useCallback(() => {
     // 清屏功能由 xterm.js 处理
   }, []);
 
   const sendCommand = useCallback((command: string) => {
-    if (!command.trim()) return;
-    
-    // 简单的命令处理
-    if (command.trim() === 'help') {
-      writeToTerminalRef.current('可用命令:\r\n');
-      writeToTerminalRef.current('  help     - 显示帮助信息\r\n');
-      writeToTerminalRef.current('  clear    - 清屏\r\n');
-      writeToTerminalRef.current('  pwd      - 显示当前目录\r\n');
-      writeToTerminalRef.current('  ls       - 列出文件\r\n');
-      writeToTerminalRef.current('  date     - 显示当前时间\r\n\r\n');
-    } else if (command.trim() === 'clear') {
-      // 清屏功能由 xterm.js 处理
-    } else if (command.trim() === 'pwd') {
-      writeToTerminalRef.current('/workspace\r\n');
-    } else if (command.trim() === 'ls') {
-      writeToTerminalRef.current('README.md  src/  package.json\r\n');
-    } else if (command.trim() === 'date') {
-      writeToTerminalRef.current(new Date().toString() + '\r\n');
-    } else {
-      writeToTerminalRef.current(`命令未找到: ${command}\r\n`);
+    console.log(`[Terminal ${terminalId}] sendCommand 被调用:`, command);
+    console.log(`[Terminal ${terminalId}] WebSocket状态:`, webSocketRef.current?.readyState);
+
+    if (!webSocketRef.current || webSocketRef.current.readyState !== WebSocket.OPEN) {
+      console.log(`[Terminal ${terminalId}] WebSocket未连接，忽略命令:`, command);
+      return;
     }
-  }, []);
+
+    console.log(`[Terminal ${terminalId}] 发送命令:`, command);
+
+    if (command.length === 1 && (command.charCodeAt(0) < 32 || command.charCodeAt(0) === 127)) {
+      console.log(`[Terminal ${terminalId}] 发送特殊按键:`, command);
+      webSocketRef.current.send(command);
+    } else if (command.startsWith('\x1b[')) {
+      console.log(`[Terminal ${terminalId}] 发送转义序列:`, command);
+      webSocketRef.current.send(command);
+    } else {
+      console.log(`[Terminal ${terminalId}] 发送普通命令:`, command + '\n');
+      webSocketRef.current.send(command + '\n');
+    }
+  }, [terminalId]);
 
   const setTerminalWriter = useCallback((writer: (data: string) => void) => {
     writeToTerminalRef.current = writer;
@@ -95,6 +175,15 @@ export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children }) 
       disconnectTerminal();
     }
   }, [currentWorkspace, disconnectTerminal]);
+
+  // 组件卸载时清理WebSocket连接
+  useEffect(() => {
+    return () => {
+      if (webSocketRef.current) {
+        webSocketRef.current.close();
+      }
+    };
+  }, []);
 
   const value: TerminalContextType = {
     terminalStatus,

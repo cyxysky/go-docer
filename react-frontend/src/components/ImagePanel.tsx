@@ -9,11 +9,11 @@ const ImagePanel: React.FC = () => {
   return (
     <>
       <div className="image-toolbar">
-        <button className="btn btn-sm w-100 mb-2" onClick={loadImages}>
-          <i className="fas fa-sync"></i> 刷新镜像
+        <button className="btn btn-sm" onClick={loadImages} title="刷新镜像列表">
+          <i className="fas fa-sync-alt"></i>
         </button>
-        <button className="btn btn-sm w-100 mb-2">
-          <i className="fas fa-download"></i> 拉取镜像
+        <button className="btn btn-sm" title="下载镜像">
+          <i className="fas fa-download"></i>
         </button>
       </div>
 
@@ -21,7 +21,7 @@ const ImagePanel: React.FC = () => {
         {images.length === 0 ? (
           <div className="image-empty">
             <i className="fas fa-layer-group"></i>
-            <div>点击刷新加载镜像</div>
+            <div>暂无镜像，点击刷新加载镜像列表</div>
           </div>
         ) : (
           images.map((image: any) => (
@@ -34,8 +34,13 @@ const ImagePanel: React.FC = () => {
                 <span className="image-size">{formatBytes(image.size)}</span>
               </div>
               <div className="image-actions">
-                <button className="btn btn-secondary" onClick={() => deleteImage(image.id)} title="删除镜像">
-                  <i className="fas fa-trash"></i> 删除
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => deleteImage(image.id)} 
+                  title="删除镜像"
+                >
+                  <i className="fas fa-trash"></i>
+                  <span>删除</span>
                 </button>
               </div>
             </div>

@@ -1,0 +1,116 @@
+/* 可调整大小的面板样式 */
+
+.resizable-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.resizable-panel.horizontal {
+  flex-direction: row;
+}
+
+.resizable-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.resizable-panel.horizontal .resizable-content {
+  flex-direction: row;
+}
+
+/* 调整大小手柄 */
+.resize-handle {
+  position: absolute;
+  background: transparent;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+}
+
+.resize-handle:hover {
+  background: var(--primary-color, #007acc);
+  opacity: 0.3;
+}
+
+.resize-handle.vertical {
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  flex-direction: row;
+}
+
+.resize-handle.horizontal {
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 6px;
+  cursor: col-resize;
+  flex-direction: column;
+}
+
+.resize-handle-line {
+  background: var(--border-color, #3e3e42);
+  transition: background-color 0.2s ease;
+}
+
+.resize-handle.vertical .resize-handle-line {
+  width: 100%;
+  height: 1px;
+}
+
+.resize-handle.horizontal .resize-handle-line {
+  width: 1px;
+  height: 100%;
+}
+
+.resize-handle:hover .resize-handle-line {
+  background: var(--primary-color, #007acc);
+}
+
+/* 调整大小时的样式 */
+.resizable-panel.resizing {
+  user-select: none;
+}
+
+.resizable-panel.resizing .resize-handle {
+  background: var(--primary-color, #007acc);
+  opacity: 0.5;
+}
+
+.resizable-panel.resizing .resize-handle-line {
+  background: var(--primary-color, #007acc);
+}
+
+/* 确保面板内容不会溢出 */
+.resizable-panel * {
+  box-sizing: border-box;
+}
+
+/* 防止在调整大小时选中文本 */
+.resizable-panel.resizing,
+.resizable-panel.resizing * {
+  user-select: none !important;
+  pointer-events: none;
+}
+
+.resizable-panel.resizing .resize-handle {
+  pointer-events: all;
+}
+
+/* 确保拖动时手柄可见 */
+.resizable-panel.resizing .resize-handle {
+  opacity: 1 !important;
+}
+
+/* 底部面板拖拽现在使用独立的实现 */

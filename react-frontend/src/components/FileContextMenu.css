@@ -1,0 +1,325 @@
+/* 上下文菜单样式 */
+
+.context-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+.context-menu {
+  position: fixed;
+  background: var(--secondary-color);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 160px;
+  z-index: 1000;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: contextMenuSlideIn 0.15s ease;
+}
+
+@keyframes contextMenuSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+  color: var(--text-primary);
+  position: relative;
+  min-height: 28px;
+}
+
+.context-menu-item:hover {
+  background-color: var(--quaternary-color);
+}
+
+.context-menu-item:active {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.context-menu-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--text-secondary);
+}
+
+.context-menu-item.disabled:hover {
+  background-color: transparent;
+}
+
+.context-menu-item i {
+  width: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: color 0.1s ease;
+}
+
+.context-menu-item:hover i {
+  color: var(--text-primary);
+}
+
+.context-menu-item:active i {
+  color: white;
+}
+
+.context-menu-item.disabled i {
+  color: var(--text-secondary);
+}
+
+.context-menu-item span {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 4px 0;
+  opacity: 0.5;
+}
+
+/* 特殊菜单项样式 */
+.context-menu-item.new-file i {
+  color: var(--success-color);
+}
+
+.context-menu-item.new-folder i {
+  color: var(--warning-color);
+}
+
+.context-menu-item.rename i {
+  color: var(--info-color);
+}
+
+.context-menu-item.delete i {
+  color: var(--danger-color);
+}
+
+.context-menu-item.copy i {
+  color: var(--info-color);
+}
+
+.context-menu-item.cut i {
+  color: var(--warning-color);
+}
+
+.context-menu-item.paste i {
+  color: var(--success-color);
+}
+
+/* 快捷键提示 */
+.context-menu-item-shortcut {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 8px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.context-menu-item:hover .context-menu-item-shortcut {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.context-menu-item:active .context-menu-item-shortcut {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* 子菜单指示器 */
+.context-menu-item.has-submenu::after {
+  content: '›';
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: 8px;
+  font-weight: 600;
+  transition: color 0.1s ease;
+}
+
+.context-menu-item:hover.has-submenu::after {
+  color: var(--text-primary);
+}
+
+.context-menu-item:active.has-submenu::after {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* 菜单组样式 */
+.context-menu-group {
+  padding: 2px 0;
+}
+
+.context-menu-group:not(:last-child) {
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 2px;
+  padding-bottom: 2px;
+}
+
+/* 菜单标题 */
+.context-menu-title {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+  opacity: 0.8;
+}
+
+/* 复选框菜单项 */
+.context-menu-item.checkbox {
+  position: relative;
+}
+
+.context-menu-item.checkbox::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  background: var(--tertiary-color);
+  transition: all 0.1s ease;
+}
+
+.context-menu-item.checkbox.checked::before {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.context-menu-item.checkbox.checked::after {
+  content: '✓';
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: white;
+  font-weight: 600;
+}
+
+.context-menu-item.checkbox span {
+  margin-left: 20px;
+}
+
+/* 单选菜单项 */
+.context-menu-item.radio {
+  position: relative;
+}
+
+.context-menu-item.radio::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--tertiary-color);
+  transition: all 0.1s ease;
+}
+
+.context-menu-item.radio.checked::before {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.context-menu-item.radio.checked::after {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: white;
+}
+
+.context-menu-item.radio span {
+  margin-left: 20px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .context-menu {
+    min-width: 140px;
+    font-size: 12px;
+  }
+  
+  .context-menu-item {
+    padding: 6px 10px;
+    min-height: 24px;
+  }
+  
+  .context-menu-item i {
+    width: 14px;
+    font-size: 11px;
+  }
+  
+  .context-menu-item span {
+    font-size: 12px;
+  }
+  
+  .context-menu-item-shortcut {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .context-menu {
+    min-width: 120px;
+    font-size: 11px;
+  }
+  
+  .context-menu-item {
+    padding: 4px 8px;
+    min-height: 20px;
+  }
+  
+  .context-menu-item i {
+    width: 12px;
+    font-size: 10px;
+  }
+  
+  .context-menu-item span {
+    font-size: 11px;
+  }
+  
+  .context-menu-item-shortcut {
+    display: none;
+  }
+  
+  .context-menu-item.has-submenu::after {
+    font-size: 10px;
+  }
+} 

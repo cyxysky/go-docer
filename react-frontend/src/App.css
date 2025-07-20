@@ -131,14 +131,21 @@ body {
   overflow: hidden;
 }
 
-/* 侧边栏 */
-.sidebar {
-  width: var(--sidebar-width);
+/* 可调整大小的侧边栏容器 */
+.sidebar-resizable {
   background: var(--secondary-color);
   border-right: 1px solid var(--border-color);
+}
+
+/* 侧边栏 */
+.sidebar {
+  width: 100%;
+  height: 100%;
+  background: var(--secondary-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex-grow: 1;
 }
 
 .sidebar-tabs {
@@ -152,9 +159,9 @@ body {
   padding: 12px 8px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.2s;
   color: var(--text-secondary);
   border-bottom: 2px solid transparent;
+  transition: all 0.2s;
   position: relative;
 }
 
@@ -166,17 +173,9 @@ body {
 .sidebar-tab.active {
   color: var(--primary-color);
   background: var(--secondary-color);
+  border-bottom: 2px solid var(--primary-color);
 }
 
-.sidebar-tab.active::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--primary-color);
-}
 
 .sidebar-tab i {
   font-size: 14px;
@@ -227,14 +226,13 @@ body {
   flex-direction: column;
   background: var(--dark-bg);
   overflow: hidden;
+  min-width: 0; /* 允许收缩 */
 }
 
 .editor-tabs {
   height: 40px;
-  background: var(--tertiary-color);
   border-bottom: 1px solid var(--border-color);
   display: flex;
-  align-items: center;
   overflow-x: auto;
   overflow-y: hidden;
 }
@@ -249,6 +247,7 @@ body {
   cursor: pointer;
   transition: all 0.2s;
   min-width: 120px;
+  border-bottom: 2px solid transparent;
   max-width: 200px;
   font-size: 12px;
   color: var(--text-secondary);
@@ -287,11 +286,13 @@ body {
   height: 100%;
 }
 
+/* 旧的底部面板样式已移除，使用新的拖拽实现 */
+
 /* 底部面板 */
 .bottom-panel {
-  height: 200px;
+  width: 100%;
+  height: 100%;
   background: var(--secondary-color);
-  border-top: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -299,8 +300,6 @@ body {
 
 .panel-tabs {
   height: 32px;
-  background: var(--tertiary-color);
-  border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
 }
@@ -311,7 +310,6 @@ body {
   gap: 6px;
   padding: 6px 12px;
   cursor: pointer;
-  transition: all 0.2s;
   color: var(--text-secondary);
   font-size: 11px;
   border-right: 1px solid var(--border-color);
@@ -336,10 +334,26 @@ body {
   font-size: 10px;
 }
 
+/* 面板内容样式 */
 .panel-content {
   flex: 1;
   overflow: hidden;
   position: relative;
+}
+
+.panel-tab-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-tab-content.active {
+  display: flex;
 }
 
 /* 状态栏 */
@@ -403,6 +417,63 @@ body {
   background: var(--text-secondary);
 }
 
+/* 按钮样式 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  outline: none;
+  background: var(--primary-color);
+  color: white;
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.btn-secondary {
+  background: var(--tertiary-color);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--quaternary-color);
+}
+
+/* 确保可调整大小的面板正确显示 */
+.resizable-panel {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+.resizable-panel .resizable-content {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
 /* 工具类 */
 .hidden {
   display: none !important;
@@ -410,4 +481,94 @@ body {
 
 .visible {
   display: block !important;
+}
+
+/* 修复终端容器高度问题 */
+.terminal-container {
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.terminal-body {
+  height: calc(100% - 40px); /* 减去header高度 */
+  max-height: calc(100% - 40px);
+  overflow: hidden;
+}
+
+.terminal-content {
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+/* 修复侧边栏可调整大小的问题 */
+.sidebar-resizable {
+  background: var(--secondary-color);
+  border-right: 1px solid var(--border-color);
+  position: relative;
+}
+
+.sidebar-resizable .resizable-content {
+  width: 100%;
+  height: 100%;
+}
+
+/* 底部面板拖拽手柄 */
+.bottom-panel-resize-handle {
+  height: 2px;
+  background: transparent;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1000;
+  transition: background-color 0.2s ease;
+  user-select: none;
+  pointer-events: auto;
+  margin: 0;
+  padding: 0;
+}
+
+.bottom-panel-resize-handle:hover {
+  background: var(--primary-color, #007acc);
+  opacity: 0.3;
+}
+
+.bottom-panel-resize-handle.resizing {
+  background: var(--primary-color, #007acc);
+  opacity: 0.5;
+}
+
+.bottom-panel-resize-handle .resize-handle-line {
+  width: 100%;
+  height: 1px;
+  background: var(--border-color, #3e3e42);
+  transition: background-color 0.2s ease;
+  pointer-events: none;
+}
+
+.bottom-panel-resize-handle:hover .resize-handle-line,
+.bottom-panel-resize-handle.resizing .resize-handle-line {
+  background: var(--primary-color, #007acc);
+}
+
+/* 底部面板容器 */
+.bottom-panel-container {
+  background: var(--secondary-color);
+  border-top: 1px solid var(--border-color);
+  position: relative;
+  flex-shrink: 0;
+  min-height: 150px;
+  max-height: 500px;
+}
+
+.bottom-panel-container .bottom-panel {
+  width: 100%;
+  height: 100%;
+  background: var(--secondary-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }

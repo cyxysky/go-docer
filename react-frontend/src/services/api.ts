@@ -111,6 +111,13 @@ export const fileAPI = {
       method: 'POST',
       body: JSON.stringify({ path: filePath }),
     }),
+  
+  // 移动文件或文件夹
+  moveFile: (workspaceId: string, sourcePath: string, targetPath: string) => 
+    request(`/workspaces/${workspaceId}/files/move`, {
+      method: 'POST',
+      body: JSON.stringify({ source_path: sourcePath, target_path: targetPath }),
+    }),
 };
 
 // 镜像相关API

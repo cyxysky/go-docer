@@ -1,0 +1,167 @@
+/* 终端标签页样式 */
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  background: var(--darker-bg, #1e1e1e);
+  border-bottom: 1px solid var(--border-color, #333);
+  padding: 0 8px;
+  height: 36px;
+  min-height: 36px;
+  flex-shrink: 0;
+}
+
+.terminal-tabs-list {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  overflow-x: auto;
+  gap: 2px;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--secondary-bg, #2d2d2d);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 120px;
+  max-width: 200px;
+  position: relative;
+  margin-right: 2px;
+}
+
+.terminal-tab:hover {
+  background: var(--hover-bg, #3d3d3d);
+  border-color: var(--primary-color, #007acc);
+}
+
+.terminal-tab.active {
+  background: var(--primary-bg, #007acc);
+  border-color: var(--primary-color, #007acc);
+  color: var(--text-on-primary, #ffffff);
+}
+
+.terminal-tab-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.terminal-tab-title {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.terminal-tab i {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.terminal-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--text-secondary, #888);
+  font-size: 10px;
+  margin-left: 4px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.terminal-tab-close:hover {
+  background: var(--danger-color, #ef4444);
+  color: var(--text-on-primary, #ffffff);
+}
+
+.terminal-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary, #888);
+  font-size: 12px;
+  margin-left: 8px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.terminal-tab-add:hover {
+  background: var(--hover-bg, #3d3d3d);
+  border-color: var(--primary-color, #007acc);
+  color: var(--primary-color, #007acc);
+}
+
+/* 滚动条样式 */
+.terminal-tabs-list::-webkit-scrollbar {
+  height: 4px;
+}
+
+.terminal-tabs-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-tabs-list::-webkit-scrollbar-thumb {
+  background: var(--border-color, #333);
+  border-radius: 2px;
+}
+
+.terminal-tabs-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary, #888);
+}
+
+/* 状态颜色 */
+.text-success {
+  color: var(--success-color, #10b981) !important;
+}
+
+.text-warning {
+  color: var(--warning-color, #f59e0b) !important;
+}
+
+.text-danger {
+  color: var(--danger-color, #ef4444) !important;
+}
+
+.text-muted {
+  color: var(--text-secondary, #888) !important;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .terminal-tab {
+    min-width: 100px;
+    max-width: 150px;
+    padding: 4px 8px;
+  }
+  
+  .terminal-tab-title {
+    font-size: 11px;
+  }
+  
+  .terminal-tab-add {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+  }
+} 

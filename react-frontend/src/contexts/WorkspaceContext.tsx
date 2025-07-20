@@ -123,7 +123,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
     loadWorkspaces();
     
     // 设置定时刷新
-    const interval = setInterval(loadWorkspaces, 15000);
+    const interval = setInterval(loadWorkspaces, 5000);
     return () => clearInterval(interval);
   }, [loadWorkspaces]);
 
