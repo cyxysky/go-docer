@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { getStatusText } from '../utils';
 import { workspaceAPI } from '../services/api';

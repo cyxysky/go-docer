@@ -92,15 +92,74 @@ export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children, te
         console.log(`[Terminal ${terminalId}] 等待后端终端初始化...`);
       };
 
+      // 前端ASCII控制符过滤函数
+      const filterControlCharacters = (text: string): string => {
+        if (!text || text.length === 0) return '';
+        
+        // 过滤括号粘贴模式
+        if (text.includes('\x1b[?2004l') || text.includes('\x1b[?2004h') || 
+            text.includes('\x1b[201~') || text.includes('\x1b[200~')) {
+          return '';
+        }
+        
+        // 过滤各种控制序列
+        let filtered = text
+          // 基本控制字符
+          .replace(/\x00+/g, '')
+          .replace(/[\x01-\x08]+/g, '')
+          .replace(/\x0B+/g, '')
+          .replace(/\x0C+/g, '')
+          .replace(/[\x0E-\x1F]+/g, '')
+          .replace(/\x7F+/g, '')
+          
+          // ANSI转义序列
+          .replace(/\x1b\[[0-9;]*[ABCDEFGHJKSTfhilmnpqrsu]/g, '')
+          .replace(/\x1b\[[0-9;]*[ABCDEFGHJKSTfhilmnpqrsu]/g, '')
+          .replace(/\x1b\[\?[0-9;]*[hl]/g, '')
+          .replace(/\x1b\[\?[0-9;]*[hl]/g, '')
+          
+          // 颜色和样式控制
+          .replace(/\x1b\[[0-9;]*m/g, '')
+          .replace(/\x1b\[[0-9;]*m/g, '')
+          
+          // 终端控制序列
+          .replace(/\x1b\]0;.*?\x07/g, '')
+          .replace(/\x1b\]0;.*?\x1b\\/g, '')
+          .replace(/\x1b\[[0-9]*[ABCD]/g, '')
+          .replace(/\x1b\[[0-9]*;[0-9]*[Hf]/g, '')
+          .replace(/\x1b\[[0-9]*[JK]/g, '')
+          .replace(/\x1b\[s/g, '')
+          .replace(/\x1b\[u/g, '')
+          .replace(/\x1b\[2J/g, '')
+          .replace(/\x1b\[H/g, '')
+          
+          // 其他特殊序列
+          .replace(/\x1b\[>[0-9;]*c/g, '')
+          .replace(/\x1b\[[0-9;]*n/g, '')
+          .replace(/\r\n\r\n+/g, '\n')
+          .replace(/\n\r+/g, '\n')
+          .replace(/\r+\n/g, '\n')
+          .replace(/\x08+/g, '');
+        
+        return filtered;
+      };
+
       ws.onmessage = function (event) {
+        let outputText = '';
+        
         if (typeof event.data === 'string') {
           let asc = event.data.split('').map(c => c.charCodeAt(0));
-          writeToTerminalRef.current(String.fromCodePoint(...asc.slice(7, asc.length)));
+          outputText = String.fromCodePoint(...asc.slice(7, asc.length));
         } else if (event.data instanceof ArrayBuffer) {
-          const text = String.fromCodePoint(...new Uint8Array(event.data));
-          writeToTerminalRef.current(text);
+          outputText = String.fromCodePoint(...new Uint8Array(event.data));
         } else {
-          writeToTerminalRef.current(String.fromCodePoint(event.data));
+          outputText = String.fromCodePoint(event.data);
+        }
+        
+        // 在前端也过滤控制字符
+        const filteredText = filterControlCharacters(outputText);
+        if (filteredText) {
+          writeToTerminalRef.current(filteredText);
         }
       };
 

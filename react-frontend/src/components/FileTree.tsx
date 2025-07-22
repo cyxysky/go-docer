@@ -319,7 +319,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 };
 
 const FileTree: React.FC = () => {
-  const { files, openFile, deleteFile, renameFile, createFile, createFolder, moveFile, refreshFileTree } = useFile();
+  const { files, openFile, deleteFile, renameFile, createFile, createFolder, moveFile } = useFile();
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);

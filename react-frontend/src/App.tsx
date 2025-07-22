@@ -210,7 +210,7 @@ const AppContent: React.FC = () => {
                   <GitPanel currentWorkspace={currentWorkspace} />
                 </div>
                 <div className={`panel-tab-content ${activePanel === 'stats' ? 'active' : ''}`}>
-                  <StatsPanel currentWorkspace={currentWorkspace} />
+                  <StatsPanel />
                 </div>
               </div>
             </div>
