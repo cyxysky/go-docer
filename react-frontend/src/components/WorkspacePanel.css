@@ -732,8 +732,21 @@
 }
 
 .workspace-item.active {
-  background: rgba(0, 122, 204, 0.1);
-  border-left: 2px solid var(--primary-color);
+  background: linear-gradient(135deg, var(--accent-color, #007acc) 0%, #0066aa 100%);
+  color: white;
+  border-color: var(--accent-color, #007acc);
+  box-shadow: 0 4px 16px rgba(0, 122, 204, 0.3);
+}
+
+.workspace-item.active:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 122, 204, 0.4);
+}
+
+.workspace-item.active .workspace-name,
+.workspace-item.active .workspace-details,
+.workspace-item.active .workspace-image {
+  color: white;
 }
 
 @keyframes pulse {
@@ -742,35 +755,43 @@
 }
 
 .workspace-name {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 6px;
+  color: var(--text-primary, #cccccc);
+  margin-bottom: 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .workspace-name i {
-  font-size: 12px;
-  opacity: 0.7;
+  font-size: 14px;
+  color: var(--accent-color, #007acc);
+}
+
+.workspace-item.active .workspace-name i {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .workspace-details {
-  font-size: 11px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text-secondary, #999);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .workspace-image {
-  font-family: 'Fira Code', monospace;
-  background: rgba(0, 122, 204, 0.1);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 10px;
+  font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+  background: var(--border-color, #444);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid rgba(0, 122, 204, 0.2);
 }
 
 .workspace-status {
