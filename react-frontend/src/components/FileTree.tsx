@@ -1,10 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useFile } from '../contexts/FileContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { getFileIcon } from '../utils';
 import type { FileItem } from '../types';
 import FileContextMenu from './FileContextMenu';
 import './FileTree.css';
+
+// 全局展开状态管理
+interface ExpandedState {
+  [path: string]: boolean;
+}
+
+// 全局子文件缓存
+interface FileCache {
+  [path: string]: {
+    files: FileItem[];
+    timestamp: number;
+  };
+}
+
+let globalExpandedState: ExpandedState = {};
+let globalFileCache: FileCache = {};
+const CACHE_DURATION = 30000; // 30秒缓存
 
 interface FileTreeItemProps {
   file: FileItem;
@@ -15,6 +32,10 @@ interface FileTreeItemProps {
   onCreateFile: (parentPath: string) => void;
   onCreateFolder: (parentPath: string) => void;
   onMoveFile: (sourcePath: string, targetPath: string) => void;
+  expandedState: ExpandedState;
+  setExpandedState: (state: ExpandedState) => void;
+  fileCache: FileCache;
+  setFileCache: (cache: FileCache) => void;
 }
 
 const FileTreeItem: React.FC<FileTreeItemProps> = ({ 
@@ -25,36 +46,79 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   onRenameFile,
   onCreateFile,
   onCreateFolder,
-  onMoveFile
+  onMoveFile,
+  expandedState,
+  setExpandedState,
+  fileCache,
+  setFileCache
 }) => {
   const { loadSubFiles } = useFile();
   const { currentWorkspace } = useWorkspace();
   const [showActions, setShowActions] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [children, setChildren] = useState<FileItem[]>([]);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isLoadingChildren, setIsLoadingChildren] = useState(false);
+
+  const isExpanded = expandedState[file.path] || false;
+
+  // 从缓存或服务器加载子文件
+  const loadChildren = useCallback(async () => {
+    if (!currentWorkspace || !file.is_dir) return;
+
+    const now = Date.now();
+    const cached = fileCache[file.path];
+    
+    // 检查缓存是否有效
+    if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+      setChildren(cached.files);
+      return;
+    }
+
+    setIsLoadingChildren(true);
+    try {
+      const subFiles = await loadSubFiles(currentWorkspace, file.path);
+      setChildren(subFiles);
+      
+      // 更新缓存
+      const newCache = {
+        ...fileCache,
+        [file.path]: {
+          files: subFiles,
+          timestamp: now
+        }
+      };
+      setFileCache(newCache);
+      globalFileCache = newCache;
+    } catch (error) {
+      console.error('加载文件夹内容失败:', error);
+    } finally {
+      setIsLoadingChildren(false);
+    }
+  }, [currentWorkspace, file.path, file.is_dir, fileCache, setFileCache, loadSubFiles]);
+
+  // 当组件挂载时，如果已展开，则加载子文件
+  useEffect(() => {
+    if (isExpanded && file.is_dir) {
+      loadChildren();
+    }
+  }, [isExpanded, file.is_dir, loadChildren]);
 
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (file.is_dir) {
-      // 切换展开状态
-      if (isExpanded) {
-        setIsExpanded(false);
-      } else {
-        setIsExpanded(true);
-        // 如果还没有加载过子文件，则加载
-        if (children.length === 0 && currentWorkspace) {
-          try {
-            // 使用loadSubFiles加载子文件，不改变当前目录
-            const subFiles = await loadSubFiles(currentWorkspace, file.path);
-            setChildren(subFiles);
-          } catch (error) {
-            console.error('加载文件夹内容失败:', error);
-          }
-        }
+      const newExpandedState = {
+        ...expandedState,
+        [file.path]: !isExpanded
+      };
+      setExpandedState(newExpandedState);
+      globalExpandedState = newExpandedState;
+
+      // 如果展开且还没有子文件，则加载
+      if (!isExpanded) {
+        await loadChildren();
       }
     } else {
       onFileClick(file);
@@ -71,6 +135,19 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     onDeleteFile(file.path);
+    
+    // 清理相关缓存
+    const newCache = { ...fileCache };
+    delete newCache[file.path];
+    
+    // 清理父目录缓存以触发刷新
+    const parentPath = file.path.split('/').slice(0, -1).join('/');
+    if (parentPath && newCache[parentPath]) {
+      delete newCache[parentPath];
+    }
+    
+    setFileCache(newCache);
+    globalFileCache = newCache;
   };
 
   // 拖拽相关处理
@@ -113,7 +190,38 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
       const fileName = sourcePath.split('/').pop() || '';
       const targetPath = file.path ? `${file.path}/${fileName}` : fileName;
       onMoveFile(sourcePath, targetPath);
+      
+      // 清理缓存以触发刷新
+      const newCache = { ...fileCache };
+      delete newCache[file.path]; // 目标目录
+      const sourceParentPath = sourcePath.split('/').slice(0, -1).join('/');
+      if (sourceParentPath && newCache[sourceParentPath]) {
+        delete newCache[sourceParentPath]; // 源目录
+      }
+      setFileCache(newCache);
+      globalFileCache = newCache;
     }
+  };
+
+  // 处理创建文件后的缓存清理
+  const handleCreateFileWrapper = (parentPath: string) => {
+    onCreateFile(parentPath);
+    
+    // 清理父目录缓存
+    const newCache = { ...fileCache };
+    delete newCache[parentPath];
+    setFileCache(newCache);
+    globalFileCache = newCache;
+  };
+
+  const handleCreateFolderWrapper = (parentPath: string) => {
+    onCreateFolder(parentPath);
+    
+    // 清理父目录缓存
+    const newCache = { ...fileCache };
+    delete newCache[parentPath];
+    setFileCache(newCache);
+    globalFileCache = newCache;
   };
 
   const paddingLeft = level * 16;
@@ -121,7 +229,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   return (
     <>
       <div 
-        className={`file-tree-item ${file.is_dir ? 'folder' : 'file'} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
+        className={`file-tree-item ${file.is_dir ? 'folder' : 'file'} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''} ${isLoadingChildren ? 'loading' : ''}`}
         style={{ paddingLeft: `${paddingLeft}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
@@ -137,11 +245,16 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
         <div className="file-tree-item-content">
           <div className="file-tree-item-icon">
             {file.is_dir ? (
-              <i className={`fas fa-chevron-${isExpanded ? 'down' : 'right'} ${isExpanded ? 'expanded' : ''}`}></i>
+              <i className={`fas fa-chevron-${isExpanded ? 'down' : 'right'} ${isExpanded ? 'expanded' : ''} ${isLoadingChildren ? 'fa-spin fa-spinner' : ''}`}></i>
             ) : null}
             <i className={file.is_dir ? 'fas fa-folder' : getFileIcon(file.name)}></i>
           </div>
           <span className="file-tree-item-name">{file.name}</span>
+          {isLoadingChildren && (
+            <span className="loading-indicator">
+              <i className="fas fa-spinner fa-spin"></i>
+            </span>
+          )}
         </div>
         
         {showActions && (
@@ -180,6 +293,10 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
               onCreateFile={onCreateFile}
               onCreateFolder={onCreateFolder}
               onMoveFile={onMoveFile}
+              expandedState={expandedState}
+              setExpandedState={setExpandedState}
+              fileCache={fileCache}
+              setFileCache={setFileCache}
             />
           ))}
         </div>
@@ -193,8 +310,8 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
           onClose={() => setShowContextMenu(false)}
           onDelete={onDeleteFile}
           onRename={onRenameFile}
-          onCreateFile={onCreateFile}
-          onCreateFolder={onCreateFolder}
+          onCreateFile={handleCreateFileWrapper}
+          onCreateFolder={handleCreateFolderWrapper}
         />
       )}
     </>
@@ -202,7 +319,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 };
 
 const FileTree: React.FC = () => {
-  const { files, openFile, deleteFile, renameFile, createFile, createFolder, moveFile } = useFile();
+  const { files, openFile, deleteFile, renameFile, createFile, createFolder, moveFile, refreshFileTree } = useFile();
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -211,6 +328,16 @@ const FileTree: React.FC = () => {
   const [newFileParentPath, setNewFileParentPath] = useState('');
   const [renameFilePath, setRenameFilePath] = useState('');
   const [renameNewName, setRenameNewName] = useState('');
+  
+  // 使用全局状态
+  const [expandedState, setExpandedState] = useState<ExpandedState>(globalExpandedState);
+  const [fileCache, setFileCache] = useState<FileCache>(globalFileCache);
+
+  // 监听files变化，更新展开状态
+  useEffect(() => {
+    setExpandedState(globalExpandedState);
+    setFileCache(globalFileCache);
+  }, [files]);
 
   const handleFileClick = (file: FileItem) => {
     if (!file.is_dir) {
@@ -221,6 +348,7 @@ const FileTree: React.FC = () => {
   const handleDeleteFile = async (filePath: string) => {
     try {
       await deleteFile(filePath);
+      // 文件删除后会触发刷新，保持展开状态
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`删除文件失败: ${errorMessage}`);
@@ -240,6 +368,16 @@ const FileTree: React.FC = () => {
       await renameFile(renameFilePath, renameNewName.trim());
       setRenameNewName('');
       setShowRenameDialog(false);
+      
+      // 清理缓存
+      const newCache = { ...fileCache };
+      delete newCache[renameFilePath];
+      const parentPath = renameFilePath.split('/').slice(0, -1).join('/');
+      if (parentPath && newCache[parentPath]) {
+        delete newCache[parentPath];
+      }
+      setFileCache(newCache);
+      globalFileCache = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`重命名失败: ${errorMessage}`);
@@ -265,6 +403,12 @@ const FileTree: React.FC = () => {
       await createFile(filePath);
       setNewFileName('');
       setShowNewFileDialog(false);
+      
+      // 清理父目录缓存
+      const newCache = { ...fileCache };
+      delete newCache[newFileParentPath];
+      setFileCache(newCache);
+      globalFileCache = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`创建文件失败: ${errorMessage}`);
@@ -280,6 +424,12 @@ const FileTree: React.FC = () => {
       await createFolder(folderPath);
       setNewFolderName('');
       setShowNewFolderDialog(false);
+      
+      // 清理父目录缓存
+      const newCache = { ...fileCache };
+      delete newCache[newFileParentPath];
+      setFileCache(newCache);
+      globalFileCache = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`创建文件夹失败: ${errorMessage}`);
@@ -289,6 +439,17 @@ const FileTree: React.FC = () => {
   const handleMoveFile = async (sourcePath: string, targetPath: string) => {
     try {
       await moveFile(sourcePath, targetPath);
+      
+      // 清理相关缓存
+      const newCache = { ...fileCache };
+      const sourceParentPath = sourcePath.split('/').slice(0, -1).join('/');
+      const targetParentPath = targetPath.split('/').slice(0, -1).join('/');
+      
+      delete newCache[sourceParentPath];
+      delete newCache[targetParentPath];
+      
+      setFileCache(newCache);
+      globalFileCache = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`移动文件失败: ${errorMessage}`);
@@ -328,6 +489,10 @@ const FileTree: React.FC = () => {
             onCreateFile={handleCreateFile}
             onCreateFolder={handleCreateFolder}
             onMoveFile={handleMoveFile}
+            expandedState={expandedState}
+            setExpandedState={setExpandedState}
+            fileCache={fileCache}
+            setFileCache={setFileCache}
           />
         ))}
       </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { getStatusText } from '../utils';
 import './WorkspacePanel.css';
@@ -6,7 +6,7 @@ import './WorkspacePanel.css';
 const WorkspacePanel: React.FC = () => {
   const { 
     workspaces, 
-    currentWorkspace, 
+          currentWorkspace, 
     createWorkspace, 
     selectWorkspace, 
     startWorkspace, 
@@ -22,10 +22,14 @@ const WorkspacePanel: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+
+
   // 初始加载工作空间
   useEffect(() => {
     loadWorkspaces();
   }, [loadWorkspaces]);
+
+  
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -180,6 +184,8 @@ const WorkspacePanel: React.FC = () => {
           </div>
         </div>
       )}
+
+             
     </>
   );
 };

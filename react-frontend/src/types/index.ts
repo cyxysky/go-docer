@@ -7,6 +7,10 @@ export interface Workspace {
   container_id?: string;
   git_repo?: string;
   git_branch?: string;
+  created?: string;
+  started?: string;
+  network_ip?: string;
+  network_name?: string;
 }
 
 export interface FileItem {

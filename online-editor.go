@@ -46,6 +46,15 @@ type Workspace struct {
 	GitBranch   string            `json:"git_branch"`
 	NetworkIP   string            `json:"network_ip,omitempty"`
 	NetworkName string            `json:"network_name,omitempty"`
+	AccessURLs  []AccessURL       `json:"access_urls,omitempty"`
+}
+
+type AccessURL struct {
+	Port        string `json:"port"`
+	Protocol    string `json:"protocol"`
+	InternalURL string `json:"internal_url"`
+	ExternalURL string `json:"external_url,omitempty"`
+	Status      string `json:"status"` // "available", "unavailable", "checking"
 }
 
 type PortMapping struct {
@@ -87,6 +96,16 @@ type GitOperation struct {
 	Files   []string `json:"files"`
 }
 
+// IP池管理
+type IPPool struct {
+	subnet       string            // 子网范围，如 "172.20.0.0/16"
+	gateway      string            // 网关IP，如 "172.20.0.1"
+	usedIPs      map[string]bool   // 已使用的IP地址
+	ipToWorkspace map[string]string // IP到工作空间的映射
+	nextIPIndex  int               // 下一个可用IP索引
+	mutex        sync.RWMutex      // IP池锁
+}
+
 // 在线编辑器管理器
 type OnlineEditorManager struct {
 	workspaces       map[string]*Workspace
@@ -97,9 +116,9 @@ type OnlineEditorManager struct {
 	imagesDir        string
 	upgrader         websocket.Upgrader
 
-	dockerClient *client.Client // 新增 Docker 客户端
+	dockerClient *client.Client // Docker 客户端
 	networkName  string         // 工作空间网络名称
-	nextIP       int            // 下一个可用IP
+	ipPool       *IPPool        // IP池管理器
 	portPool     map[int]bool   // 端口池管理
 }
 
@@ -247,6 +266,9 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 		log.Printf("使用现有工作空间网络: %s", networkName)
 	}
 
+	// 创建IP池
+	ipPool := NewIPPool("172.20.0.0/16", "172.20.0.1")
+	
 	return &OnlineEditorManager{
 		workspaces:       make(map[string]*Workspace),
 		terminalSessions: make(map[string]*TerminalSession),
@@ -260,7 +282,7 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 		},
 		dockerClient: dockerCli,
 		networkName:  networkName,
-		nextIP:       10, // 从 172.20.0.10 开始分配
+		ipPool:       ipPool,
 		portPool:     make(map[int]bool),
 	}, nil
 }
@@ -273,6 +295,193 @@ func generateWorkspaceID() string {
 // 生成终端会话ID
 func generateTerminalID() string {
 	return fmt.Sprintf("term_%d", time.Now().UnixNano())
+}
+
+// 创建IP池
+func NewIPPool(subnet, gateway string) *IPPool {
+	return &IPPool{
+		subnet:        subnet,
+		gateway:       gateway,
+		usedIPs:       make(map[string]bool),
+		ipToWorkspace: make(map[string]string),
+		nextIPIndex:   10, // 从172.20.0.10开始分配
+	}
+}
+
+// 分配IP地址
+func (pool *IPPool) AllocateIP(workspaceID string) (string, error) {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+
+	// 从nextIPIndex开始查找可用IP
+	for i := pool.nextIPIndex; i < 254; i++ {
+		ip := fmt.Sprintf("172.20.0.%d", i)
+		
+		// 跳过网关IP
+		if ip == pool.gateway {
+			continue
+		}
+		
+		if !pool.usedIPs[ip] {
+			pool.usedIPs[ip] = true
+			pool.ipToWorkspace[ip] = workspaceID
+			pool.nextIPIndex = i + 1
+			return ip, nil
+		}
+	}
+	
+	// 如果从nextIPIndex到254都没有找到，从10开始重新查找
+	for i := 10; i < pool.nextIPIndex; i++ {
+		ip := fmt.Sprintf("172.20.0.%d", i)
+		
+		// 跳过网关IP
+		if ip == pool.gateway {
+			continue
+		}
+		
+		if !pool.usedIPs[ip] {
+			pool.usedIPs[ip] = true
+			pool.ipToWorkspace[ip] = workspaceID
+			pool.nextIPIndex = i + 1
+			return ip, nil
+		}
+	}
+	
+	return "", fmt.Errorf("IP池已满，无法分配新的IP地址")
+}
+
+// 释放IP地址
+func (pool *IPPool) ReleaseIP(ip string) {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+	
+	delete(pool.usedIPs, ip)
+	delete(pool.ipToWorkspace, ip)
+}
+
+// 获取工作空间的IP地址
+func (pool *IPPool) GetWorkspaceIP(workspaceID string) string {
+	pool.mutex.RLock()
+	defer pool.mutex.RUnlock()
+	
+	for ip, wsID := range pool.ipToWorkspace {
+		if wsID == workspaceID {
+			return ip
+		}
+	}
+	return ""
+}
+
+// 检查IP是否已分配
+func (pool *IPPool) IsIPAllocated(ip string) bool {
+	pool.mutex.RLock()
+	defer pool.mutex.RUnlock()
+	
+	return pool.usedIPs[ip]
+}
+
+// 获取已使用的IP统计
+func (pool *IPPool) GetStats() map[string]interface{} {
+	pool.mutex.RLock()
+	defer pool.mutex.RUnlock()
+	
+	return map[string]interface{}{
+		"total_capacity": 244, // 172.20.0.10 - 172.20.0.253
+		"used_count":     len(pool.usedIPs),
+		"available_count": 244 - len(pool.usedIPs),
+		"usage_rate":     float64(len(pool.usedIPs)) / 244.0 * 100,
+	}
+}
+
+// 生成工作空间访问URL
+func (oem *OnlineEditorManager) generateAccessURLs(workspace *Workspace) {
+	if workspace.NetworkIP == "" {
+		return
+	}
+
+	var accessURLs []AccessURL
+	
+	// 常见的开发服务器端口
+	commonPorts := []string{"3000", "8000", "8080", "8081", "4200", "5000", "5173", "5174"}
+	
+	// 处理配置的端口映射
+	portMap := make(map[string]bool)
+	for _, port := range workspace.Ports {
+		accessURL := AccessURL{
+			Port:        port.ContainerPort,
+			Protocol:    "http",
+			InternalURL: fmt.Sprintf("http://%s:%s", workspace.NetworkIP, port.ContainerPort),
+			Status:      "checking",
+		}
+		
+		// 如果有公共访问配置，添加外部URL
+		if port.PublicAccess && port.HostPort != "" {
+			accessURL.ExternalURL = fmt.Sprintf("http://localhost:%s", port.HostPort)
+		}
+		
+		accessURLs = append(accessURLs, accessURL)
+		portMap[port.ContainerPort] = true
+	}
+	
+	// 添加常见端口（如果没有在配置中）
+	for _, port := range commonPorts {
+		if !portMap[port] {
+			accessURL := AccessURL{
+				Port:        port,
+				Protocol:    "http",
+				InternalURL: fmt.Sprintf("http://%s:%s", workspace.NetworkIP, port),
+				Status:      "checking",
+			}
+			accessURLs = append(accessURLs, accessURL)
+		}
+	}
+	
+	workspace.AccessURLs = accessURLs
+	log.Printf("[%s] 生成访问URL: %d个端口", workspace.ID, len(accessURLs))
+}
+
+// 检查端口可用性
+func (oem *OnlineEditorManager) checkPortAvailability(workspace *Workspace) {
+	if workspace.NetworkIP == "" || workspace.Status != "running" {
+		return
+	}
+
+	ctx := context.Background()
+	
+	for i := range workspace.AccessURLs {
+		accessURL := &workspace.AccessURLs[i]
+		
+		// 在容器内检查端口是否有服务监听
+		checkCmd := []string{"sh", "-c", fmt.Sprintf("netstat -tlnp 2>/dev/null | grep ':%s ' || ss -tlnp 2>/dev/null | grep ':%s ' || lsof -i :%s 2>/dev/null", accessURL.Port, accessURL.Port, accessURL.Port)}
+		
+		execConfig := container.ExecOptions{
+			Cmd:          checkCmd,
+			AttachStdout: true,
+			AttachStderr: true,
+			WorkingDir:   "/workspace",
+		}
+
+		execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, execConfig)
+		if err != nil {
+			accessURL.Status = "unavailable"
+			continue
+		}
+
+		execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+		if err != nil {
+			accessURL.Status = "unavailable"
+			continue
+		}
+
+		output, err := io.ReadAll(execAttachResp.Reader)
+		execAttachResp.Close()
+
+		if err == nil && len(output) > 0 {
+			accessURL.Status = "available"
+		} else {
+			accessURL.Status = "unavailable"
+		}
+	}
 }
 
 // 释放端口
@@ -375,6 +584,18 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 	// 阶段2：更新状态为创建容器中
 	oem.updateWorkspaceStatus(workspaceID, "creating")
 
+	// 分配IP地址
+	allocatedIP, err := oem.ipPool.AllocateIP(workspaceID)
+	if err != nil {
+		return fmt.Errorf("分配IP地址失败: %v", err)
+	}
+	log.Printf("[%s] 分配IP地址: %s", workspaceID, allocatedIP)
+
+	// 更新工作空间IP信息
+	oem.mutex.Lock()
+	workspace.NetworkIP = allocatedIP
+	oem.mutex.Unlock()
+
 	// 设置环境变量
 	envs := []string{}
 	if env, ok := imageConfig["env"].(map[string]string); ok {
@@ -401,6 +622,7 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 		"LC_ALL=C.UTF-8",
 		"DEBIAN_FRONTEND=noninteractive",
 		"TZ=Asia/Shanghai",
+		fmt.Sprintf("CONTAINER_IP=%s", allocatedIP), // 添加容器IP环境变量
 	}
 	envs = append(envs, baseEnvs...)
 
@@ -421,21 +643,60 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 		log.Printf("[%s] 清理冲突容器失败: %v", workspaceID, err)
 	}
 
+	// 处理端口映射，基于分配的IP - 默认暴露常用端口
+	exposedPorts := nat.PortSet{}
+	portBindings := nat.PortMap{}
+	
+	// 常用开发端口，默认都暴露
+	commonPorts := []string{"3000", "8000", "8080", "8081", "4200", "5000", "5173", "5174", "9000"}
+	
+	// 先处理配置的端口映射
+	configuredPorts := make(map[string]bool)
+	for _, portMapping := range workspace.Ports {
+		containerPort := nat.Port(fmt.Sprintf("%s/%s", portMapping.ContainerPort, portMapping.Protocol))
+		exposedPorts[containerPort] = struct{}{}
+		configuredPorts[portMapping.ContainerPort] = true
+		
+		// 如果需要公共访问，则绑定到宿主机端口
+		if portMapping.PublicAccess {
+			hostPort := portMapping.HostPort
+			if hostPort == "" {
+				// 自动分配宿主机端口
+				hostPort = portMapping.ContainerPort
+			}
+			portBindings[containerPort] = []nat.PortBinding{
+				{
+					HostIP:   "0.0.0.0",
+					HostPort: hostPort,
+				},
+			}
+		}
+	}
+	
+	// 自动暴露常用端口（但不绑定到宿主机，只是暴露以便容器间访问）
+	for _, port := range commonPorts {
+		if !configuredPorts[port] {
+			containerPort := nat.Port(fmt.Sprintf("%s/tcp", port))
+			exposedPorts[containerPort] = struct{}{}
+		}
+	}
+
 	// 创建容器
 	containerConfig := &container.Config{
 		Image:        images,
 		Env:          envs,
 		Tty:          true,
 		OpenStdin:    true,
-		ExposedPorts: nat.PortSet{},
+		ExposedPorts: exposedPorts,
 		WorkingDir:   "/workspace",
 		// 使用tail命令保持容器运行
 		Cmd: []string{"tail", "-f", "/dev/null"},
 	}
 
 	hostConfig := &container.HostConfig{
-		Mounts:     mounts,
-		Privileged: false,
+		Mounts:       mounts,
+		Privileged:   false,
+		PortBindings: portBindings,
 		// 添加资源限制
 		Resources: container.Resources{
 			Memory:    512 * 1024 * 1024, // 512MB
@@ -443,15 +704,21 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 		},
 	}
 
+	// 配置网络设置，指定固定IP
 	networkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			oem.networkName: {},
+			oem.networkName: {
+				IPAMConfig: &network.EndpointIPAMConfig{
+					IPv4Address: allocatedIP,
+				},
+			},
 		},
 	}
 
 	log.Printf("[%s] 创建容器配置", workspaceID)
 	resp, err := oem.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, workspaceID)
 	if err != nil {
+		oem.ipPool.ReleaseIP(allocatedIP)
 		return fmt.Errorf("创建容器失败: %v", err)
 	}
 	log.Printf("[%s] 容器创建完成: %s", workspaceID, resp.ID)
@@ -466,9 +733,10 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 
 	// 启动容器
 	if err := oem.dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		// 如果启动失败，清理容器
+		// 如果启动失败，清理容器和释放IP
 		log.Printf("[%s] 容器启动失败，清理容器: %v", workspaceID, err)
 		oem.dockerClient.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		oem.ipPool.ReleaseIP(allocatedIP)
 		return fmt.Errorf("启动容器失败: %v", err)
 	}
 	log.Printf("[%s] 容器启动成功", workspaceID)
@@ -512,6 +780,9 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 	oem.mutex.Lock()
 	now := time.Now()
 	workspace.Started = &now
+	
+	// 生成访问URL
+	oem.generateAccessURLs(workspace)
 	oem.mutex.Unlock()
 
 	log.Printf("[%s] 工作空间初始化完成，状态：运行中", workspaceID)
@@ -878,6 +1149,12 @@ func (oem *OnlineEditorManager) DeleteWorkspace(workspaceID string) error {
 				oem.releasePort(hostPort)
 			}
 		}
+	}
+
+	// 释放IP地址
+	if workspace.NetworkIP != "" {
+		oem.ipPool.ReleaseIP(workspace.NetworkIP)
+		log.Printf("[%s] 释放IP地址: %s", workspaceID, workspace.NetworkIP)
 	}
 
 	// 强制删除容器
@@ -1793,6 +2070,14 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	api.HandleFunc("/containers/{containerId}/status", oem.handleGetContainerStatus).Methods("GET")
 	api.HandleFunc("/containers/{containerId}/stats", oem.handleGetContainerStats).Methods("GET")
 
+	// IP池管理
+	api.HandleFunc("/network/ip-pool/stats", oem.handleGetIPPoolStats).Methods("GET")
+	api.HandleFunc("/network/ip-pool/allocations", oem.handleGetIPAllocations).Methods("GET")
+
+	// 端口访问管理
+	api.HandleFunc("/workspaces/{id}/ports/check", oem.handleCheckPorts).Methods("POST")
+	api.HandleFunc("/workspaces/{id}/ports/status", oem.handleGetPortStatus).Methods("GET")
+
 	// 静态文件服务
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./static")))
 
@@ -2294,7 +2579,6 @@ exec /bin/bash --login -i
 				// 处理特殊键序列
 				if len(message) > 0 {
 					// 完整的ASCII码分析和转换
-					log.Printf("[Terminal] 收到WebSocket消息 (长度: %d): %q", len(message), message)
 
 					// 写入到容器终端
 					if _, err := execAttachResp.Conn.Write(message); err != nil {
@@ -2446,6 +2730,85 @@ func (oem *OnlineEditorManager) handleGetContainerStats(w http.ResponseWriter, r
 	}
 
 	json.NewEncoder(w).Encode(stats)
+}
+
+func (oem *OnlineEditorManager) handleGetIPPoolStats(w http.ResponseWriter, r *http.Request) {
+	stats := oem.ipPool.GetStats()
+	json.NewEncoder(w).Encode(stats)
+}
+
+func (oem *OnlineEditorManager) handleGetIPAllocations(w http.ResponseWriter, r *http.Request) {
+	oem.ipPool.mutex.RLock()
+	defer oem.ipPool.mutex.RUnlock()
+
+	allocations := make([]map[string]interface{}, 0)
+	for ip, workspaceID := range oem.ipPool.ipToWorkspace {
+		// 获取工作空间信息
+		oem.mutex.RLock()
+		workspace, exists := oem.workspaces[workspaceID]
+		oem.mutex.RUnlock()
+
+		allocation := map[string]interface{}{
+			"ip":           ip,
+			"workspace_id": workspaceID,
+		}
+
+		if exists {
+			allocation["workspace_name"] = workspace.Name
+			allocation["workspace_status"] = workspace.Status
+			allocation["created"] = workspace.Created
+		}
+
+		allocations = append(allocations, allocation)
+	}
+
+	json.NewEncoder(w).Encode(allocations)
+}
+
+func (oem *OnlineEditorManager) handleCheckPorts(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	workspaceID := vars["id"]
+
+	oem.mutex.RLock()
+	workspace, exists := oem.workspaces[workspaceID]
+	oem.mutex.RUnlock()
+
+	if !exists {
+		http.Error(w, "工作空间不存在", http.StatusNotFound)
+		return
+	}
+
+	if workspace.Status != "running" {
+		http.Error(w, "工作空间未运行", http.StatusBadRequest)
+		return
+	}
+
+	// 异步检查端口状态
+	go func() {
+		oem.checkPortAvailability(workspace)
+	}()
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "checking"})
+}
+
+func (oem *OnlineEditorManager) handleGetPortStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	workspaceID := vars["id"]
+
+	oem.mutex.RLock()
+	workspace, exists := oem.workspaces[workspaceID]
+	oem.mutex.RUnlock()
+
+	if !exists {
+		http.Error(w, "工作空间不存在", http.StatusNotFound)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"workspace_ip": workspace.NetworkIP,
+		"access_urls":  workspace.AccessURLs,
+	})
 }
 
 // 镜像管理相关方法
@@ -2619,25 +2982,37 @@ func main() {
 	port := 8080
 	log.Printf("在线代码编辑器服务器启动在端口 %d", port)
 	log.Println("API 文档:")
-	log.Println("  GET  /api/v1/workspaces - 列出工作空间")
-	log.Println("  POST /api/v1/workspaces - 创建工作空间")
-	log.Println("  GET  /api/v1/workspaces/{id} - 获取工作空间详情")
-	log.Println("  POST /api/v1kspaces/{id}/start - 启动工作空间")
-	log.Println("  POST /api/v1rkspaces/{id}/stop - 停止工作空间")
-	log.Println("  DELETE /api/v1/workspaces/{id} - 删除工作空间")
-	log.Println("  GET  /api/v1kspaces/{id}/files - 列出文件")
-	log.Println("  GET  /api/v1kspaces/{id}/files?path=xxx - 读取文件")
-	log.Println("  POST /api/v1kspaces/{id}/files - 写入文件")
-	log.Println("  DELETE /api/v1kspaces/{id}/files?path=xxx - 删除文件")
-	log.Println("  POST /api/v1aces/{id}/terminal - 创建终端")
-	log.Println("  GET  /api/v1aces/{id}/terminal/{sessionId}/ws - 终端WebSocket")
-	log.Println("  POST /api/v1rkspaces/{id}/exec - 执行命令")
-	log.Println("  POST /api/v1orkspaces/{id}/git - Git操作")
-	log.Println("  GET  /api/v1ages - 列出镜像")
-	log.Println("  POST /api/v1/images/{imageName} - 拉取镜像")
-	log.Println("  DELETE /api/v1images/{imageId} - 删除镜像")
-	log.Println("  GET  /api/v1/containers/{containerId}/status - 获取容器状态")
-	log.Println("  GET  /api/v1/containers/{containerId}/stats - 获取容器统计")
+	log.Println("  工作空间管理:")
+	log.Println("    GET    /api/v1/workspaces - 列出工作空间")
+	log.Println("    POST   /api/v1/workspaces - 创建工作空间")
+	log.Println("    GET    /api/v1/workspaces/{id} - 获取工作空间详情")
+	log.Println("    POST   /api/v1/workspaces/{id}/start - 启动工作空间")
+	log.Println("    POST   /api/v1/workspaces/{id}/stop - 停止工作空间")
+	log.Println("    DELETE /api/v1/workspaces/{id} - 删除工作空间")
+	log.Println("  文件系统:")
+	log.Println("    GET    /api/v1/workspaces/{id}/files - 列出文件")
+	log.Println("    POST   /api/v1/workspaces/{id}/files/read - 读取文件")
+	log.Println("    POST   /api/v1/workspaces/{id}/files/write - 写入文件")
+	log.Println("    POST   /api/v1/workspaces/{id}/files/delete - 删除文件")
+	log.Println("    POST   /api/v1/workspaces/{id}/files/create - 创建文件")
+	log.Println("    POST   /api/v1/workspaces/{id}/files/mkdir - 创建文件夹")
+	log.Println("    POST   /api/v1/workspaces/{id}/files/move - 移动文件")
+	log.Println("  终端和命令:")
+	log.Println("    POST   /api/v1/workspaces/{id}/terminal - 创建终端")
+	log.Println("    GET    /api/v1/workspaces/{id}/terminal/{sessionId}/ws - 终端WebSocket")
+	log.Println("    POST   /api/v1/workspaces/{id}/exec - 执行命令")
+	log.Println("  Git操作:")
+	log.Println("    POST   /api/v1/workspaces/{id}/git - Git操作")
+	log.Println("  镜像管理:")
+	log.Println("    GET    /api/v1/images - 列出镜像")
+	log.Println("    POST   /api/v1/images/{imageName} - 拉取镜像")
+	log.Println("    DELETE /api/v1/images/{imageId} - 删除镜像")
+	log.Println("  容器监控:")
+	log.Println("    GET    /api/v1/containers/{containerId}/status - 获取容器状态")
+	log.Println("    GET    /api/v1/containers/{containerId}/stats - 获取容器统计")
+	log.Println("  网络管理:")
+	log.Println("    GET    /api/v1/network/ip-pool/stats - 获取IP池统计")
+	log.Println("    GET    /api/v1/network/ip-pool/allocations - 获取IP分配信息")
 
 	if err := manager.StartServer(port); err != nil {
 		log.Fatalf("启动服务器失败: %v", err)

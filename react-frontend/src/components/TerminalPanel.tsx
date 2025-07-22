@@ -60,9 +60,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
 
   // 发送数据到WebSocket的函数
   const sendToWebSocket = useCallback((data: string) => {
-    console.log(`[Terminal ${terminalId}] sendToWebSocket 调用:`, data, '状态:', statusRef.current);
     if (statusRef.current === 'connected') {
-      console.log(`[Terminal ${terminalId}] 发送数据到WebSocket:`, data);
       sendCommand(data);
     } else {
       console.log(`[Terminal ${terminalId}] WebSocket未连接，忽略数据:`, data);
@@ -140,7 +138,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
     // 延迟执行 fit 以确保容器有正确的尺寸
     const setupTerminal = () => {
       try {
-        console.log(`[Terminal ${terminalId}] 设置终端尺寸...`);
         fitAddon.fit();
         terminal.clear();
         terminal.write('\x1B[1;36m欢迎使用在线代码编辑器终端\x1B[0m\r\n');
@@ -149,7 +146,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         terminal.write('\x1B[1;36m$ \x1B[0m');
         terminal.focus();
         setIsInitialized(true);
-        console.log(`[Terminal ${terminalId}] 终端初始化完成`);
       } catch (error) {
         console.warn(`[Terminal ${terminalId}] 终端尺寸适配失败:`, error);
         setTimeout(() => {
@@ -175,11 +171,9 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
     // 监听终端输入
     terminal.onData((data) => {
       if (statusRef.current !== 'connected') {
-        console.log(`[Terminal ${terminalId}] 未连接状态，忽略输入:`, data);
         return;
       }
 
-      console.log(`[Terminal ${terminalId}] 处理输入:`, data, '状态:', statusRef.current);
 
       const code = data.charCodeAt(0);
 
@@ -187,7 +181,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
       if (code === 13) {
         terminal.write('\r\n');
         if (currentInputRef.current.trim()) {
-          console.log(`[Terminal ${terminalId}] 发送命令:`, currentInputRef.current);
           sendToWebSocket(currentInputRef.current);
           currentInputRef.current = '';
         }
@@ -317,7 +310,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
     if (isVisible && fitAddonRef.current && terminalInstanceRef.current && isInitialized) {
       setTimeout(() => {
         try {
-          console.log(`[Terminal ${terminalId}] 重新调整终端尺寸...`);
           fitAddonRef.current?.fit();
           terminalInstanceRef.current?.focus();
         } catch (error) {
@@ -335,7 +327,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
       if (fitAddonRef.current && terminalInstanceRef.current) {
         setTimeout(() => {
           try {
-            console.log(`[Terminal ${terminalId}] 父级容器大小变化，重新调整终端尺寸...`);
             fitAddonRef.current?.fit();
           } catch (error) {
             console.warn(`[Terminal ${terminalId}] 终端尺寸调整失败:`, error);
@@ -360,7 +351,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
   // 初始化终端
   useEffect(() => {
     if (isVisible && !isInitialized) {
-      console.log(`[Terminal ${terminalId}] 触发终端初始化...`);
       initializeTerminal();
     }
   }, [isVisible, isInitialized, initializeTerminal, terminalId]);
@@ -375,7 +365,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
     const terminal = terminalInstanceRef.current;
     if (!terminal || !isInitialized) return;
 
-    console.log(`[Terminal ${terminalId}] 状态变化:`, terminalStatus);
 
     if (terminalStatus === 'disconnected') {
       terminal.clear();
@@ -387,7 +376,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
       currentInputRef.current = '';
       setTimeout(() => {
         terminal.focus();
-        console.log(`[Terminal ${terminalId}] 终端已获得焦点`);
       }, 200);
     } else if (terminalStatus === 'connecting') {
       terminal.clear();

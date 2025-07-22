@@ -287,3 +287,43 @@
     display: none;
   }
 } 
+
+.file-tree-item-icon .fa-chevron-right.expanded,
+.file-tree-item-icon .fa-chevron-down.expanded {
+  color: var(--primary-color);
+}
+
+.file-tree-item-icon .fa-spinner {
+  color: var(--primary-color);
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+.file-tree-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.loading-indicator {
+  margin-left: auto;
+  margin-right: 8px;
+  color: var(--primary-color);
+  font-size: 12px;
+}
+
+.loading-indicator .fa-spinner {
+  animation: spin 1s linear infinite;
+}
+
+.file-tree-item.loading {
+  opacity: 0.8;
+}
+
+.file-tree-item.loading .file-tree-item-name {
+  color: var(--text-secondary);
+} 

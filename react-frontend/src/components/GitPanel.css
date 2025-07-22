@@ -1,10 +1,40 @@
-/* Git面板样式 - 简洁现代设计 */
+/* Git面板样式 - 简洁设计 */
 
 .git-panel {
   padding: 20px;
   height: 100%;
   overflow-y: auto;
   background: var(--secondary-color);
+}
+
+/* 空状态 */
+.git-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 50%;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.git-empty-state i {
+  font-size: 48px;
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.git-empty-state h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.git-empty-state p {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.7;
 }
 
 .git-section {
@@ -18,7 +48,7 @@
   margin-bottom: 20px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
   padding-bottom: 8px;
   border-bottom: 2px solid var(--primary-color);
 }
@@ -28,15 +58,96 @@
   color: var(--primary-color);
 }
 
-.git-actions {
+.btn-icon {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--primary-color);
+}
+
+.btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.current-branch {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--tertiary-color);
+  border-radius: 6px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+}
+
+.current-branch i {
+  color: var(--primary-color);
+}
+
+.git-status-summary {
+  margin-bottom: 20px;
+}
+
+.status-clean {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--success-color);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 12px;
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: 4px;
+}
+
+.status-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 4px;
+}
+
+.status-item.staged {
+  color: var(--success-color);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.status-item.modified {
+  color: var(--warning-color);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.status-item.untracked {
+  color: var(--info-color);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.git-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   margin-bottom: 24px;
 }
 
 .git-actions .btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 10px 12px;
@@ -46,12 +157,9 @@
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
-  text-decoration: none;
-  outline: none;
   background: var(--tertiary-color);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  min-height: 36px;
   gap: 6px;
 }
 
@@ -61,38 +169,45 @@
   color: var(--primary-color);
 }
 
-.git-actions .btn:active:not(:disabled) {
-  background: var(--quaternary-color);
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-}
-
 .git-actions .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
 }
 
-.git-actions .btn i {
-  font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin: 0;
-}
-
-.git-status {
+.git-output {
   background: var(--darker-bg);
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  padding: 12px;
   margin-bottom: 20px;
   max-height: 200px;
   overflow-y: auto;
 }
 
-.git-status pre {
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--tertiary-color);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 2px;
+}
+
+.btn-close:hover {
+  color: var(--error-color);
+}
+
+.git-output pre {
   margin: 0;
   font-size: 12px;
   color: var(--text-secondary);
@@ -100,13 +215,14 @@
   word-break: break-word;
   font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
   line-height: 1.4;
+  padding: 12px;
 }
 
 .commit-input {
   margin-bottom: 16px;
 }
 
-.commit-input input {
+.commit-input textarea {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border-color);
@@ -115,15 +231,17 @@
   color: var(--text-primary);
   font-size: 13px;
   transition: all 0.2s ease;
+  font-family: inherit;
+  resize: vertical;
 }
 
-.commit-input input:focus {
+.commit-input textarea:focus {
   outline: none;
   border-color: var(--primary-color);
   background: var(--secondary-color);
 }
 
-.commit-input input::placeholder {
+.commit-input textarea::placeholder {
   color: var(--text-secondary);
   opacity: 0.7;
 }
@@ -142,34 +260,19 @@
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 44px;
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--info-color);
 }
 
-.btn-primary:active:not(:disabled) {
-  transform: translateY(0);
-}
-
 .btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  transform: none;
-}
-
-.btn-primary i {
-  font-size: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin: 0;
 }
 
 .form-control {
@@ -199,31 +302,6 @@
   }
   
   .git-actions {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 6px;
-  }
-  
-  .git-actions .btn {
-    padding: 8px 10px;
-    font-size: 12px;
-    min-height: 32px;
-  }
-  
-  .btn-primary {
-    padding: 10px 14px;
-    font-size: 13px;
-    min-height: 40px;
-  }
-}
-
-@media (max-width: 480px) {
-  .git-actions {
     grid-template-columns: 1fr;
-  }
-  
-  .git-actions .btn {
-    padding: 10px 12px;
-    font-size: 13px;
-    min-height: 36px;
   }
 } 

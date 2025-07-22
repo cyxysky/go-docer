@@ -71,7 +71,6 @@ export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children, te
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/api/v1/workspaces/${currentWorkspace}/terminal/${terminalData.id}/ws`;
 
-      console.log(`[Terminal ${terminalId}] 连接WebSocket:`, wsUrl);
       console.log(`[Terminal ${terminalId}] 终端ID:`, terminalData.id);
 
       const ws = new WebSocket(wsUrl);
@@ -96,14 +95,11 @@ export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children, te
       ws.onmessage = function (event) {
         if (typeof event.data === 'string') {
           let asc = event.data.split('').map(c => c.charCodeAt(0));
-          console.log('string', asc, String.fromCodePoint(...asc.slice(7, asc.length)))
           writeToTerminalRef.current(String.fromCodePoint(...asc.slice(7, asc.length)));
         } else if (event.data instanceof ArrayBuffer) {
           const text = String.fromCodePoint(...new Uint8Array(event.data));
-          console.log(text)
           writeToTerminalRef.current(text);
         } else {
-          console.log(typeof event.data)
           writeToTerminalRef.current(String.fromCodePoint(event.data));
         }
       };
@@ -143,7 +139,6 @@ export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children, te
   }, []);
 
   const sendCommand = useCallback((command: string) => {
-    console.log(`[Terminal ${terminalId}] sendCommand 被调用:`, command);
     console.log(`[Terminal ${terminalId}] WebSocket状态:`, webSocketRef.current?.readyState);
 
     if (!webSocketRef.current || webSocketRef.current.readyState !== WebSocket.OPEN) {
@@ -151,16 +146,12 @@ export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children, te
       return;
     }
 
-    console.log(`[Terminal ${terminalId}] 发送命令:`, command);
 
     if (command.length === 1 && (command.charCodeAt(0) < 32 || command.charCodeAt(0) === 127)) {
-      console.log(`[Terminal ${terminalId}] 发送特殊按键:`, command);
       webSocketRef.current.send(command);
     } else if (command.startsWith('\x1b[')) {
-      console.log(`[Terminal ${terminalId}] 发送转义序列:`, command);
       webSocketRef.current.send(command);
     } else {
-      console.log(`[Terminal ${terminalId}] 发送普通命令:`, command + '\n');
       webSocketRef.current.send(command + '\n');
     }
   }, [terminalId]);

@@ -83,12 +83,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
     const latestOpenTabs = openTabsRef.current;
     const tab = latestOpenTabs.get(tabId);
     
-    console.log('🔍 保存文件调试信息:');
-    console.log('工作空间:', workspace);
-    console.log('标签页ID:', tabId);
-    console.log('所有标签页:', Array.from(latestOpenTabs.keys()));
-    console.log('找到的标签页:', tab);
-    
     if (!tab) {
       throw new Error('标签页不存在');
     }
@@ -104,10 +98,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
 
   // 只在组件挂载时创建编辑器实例
   useEffect(() => {
-    console.log('=== 开始创建Monaco编辑器 ===');
-    console.log('DOM元素:', editorRef.current);
-    console.log('当前编辑器实例:', monacoEditorRef.current);
-    
     if (!editorRef.current) {
       console.error('DOM元素不存在！');
       return;
@@ -120,14 +110,11 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
 
     // 检查容器高度
     const containerHeight = editorRef.current.offsetHeight;
-    console.log('容器高度:', containerHeight);
     
     if (containerHeight === 0) {
-      console.log('容器高度为0，等待下一帧再创建...');
       // 如果容器高度为0，等待下一帧再尝试
       requestAnimationFrame(() => {
         if (editorRef.current && !monacoEditorRef.current) {
-          console.log('延迟创建编辑器，容器高度:', editorRef.current.offsetHeight);
           createEditor();
         }
       });
@@ -138,7 +125,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
 
     function createEditor() {
       try {
-        console.log('正在创建Monaco编辑器...');
         
         // 创建Monaco编辑器实例
         const editor = monaco.editor.create(editorRef.current!, {
@@ -178,18 +164,14 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
           colorDecorators: true
         });
 
-        console.log('✅ Monaco编辑器创建成功！', editor);
         monacoEditorRef.current = editor;
 
         // 监听内容变化
         editor.onDidChangeModelContent(() => {
-          console.log('📝 内容变化');
           const currentActiveTab = activeTabRef.current; // 使用ref获取最新值
-          console.log('🎯 当前活动标签页:', currentActiveTab);
           
           if (currentActiveTab) {
             const content = editor.getValue();
-            console.log('📄 更新标签页内容:', currentActiveTab, '内容长度:', content.length);
             updateTabContent(currentActiveTab, content);
             
             // 自动保存：延迟2秒后保存
@@ -200,9 +182,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
               const latestActiveTab = activeTabRef.current; // 再次获取最新值
               if (latestActiveTab) {
                 try {
-                  console.log('💾 开始自动保存文件:', latestActiveTab);
                   saveFileDirectly(latestActiveTab); // 使用新的保存方法
-                  console.log('✅ 自动保存成功:', latestActiveTab);
                 } catch (error) {
                   console.error('❌ 自动保存失败:', error);
                 }
@@ -219,20 +199,16 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
           try {
             const currentActiveTab = activeTabRef.current; // 使用ref获取最新值
-            console.log('💾 快捷键保存触发，活动标签页:', currentActiveTab);
             if (currentActiveTab) {
               saveFileDirectly(currentActiveTab); // 使用新的保存方法
-              console.log('✅ 快捷键保存成功:', currentActiveTab);
             }
           } catch (error) {
             console.error('❌ 快捷键保存失败:', error);
           }
         });
 
-        console.log('🎉 编辑器初始化完成！');
 
         return () => {
-          console.log('🧹 清理Monaco编辑器实例');
           if (editor) {
             editor.dispose();
           }
@@ -271,8 +247,16 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
       
       // 只有当内容不同时才更新，避免光标位置重置
       if (currentValue !== tab.content) {
-        editor.setValue(tab.content);
-        console.log('📄 标签页内容已更新:', activeTab);
+        try {
+          editor.setValue(tab.content);
+        } catch (error) {
+          console.warn('设置编辑器内容时出现警告，尝试替代方法:', error);
+          // 使用替代方法设置内容
+          const model = editor.getModel();
+          if (model) {
+            model.setValue(tab.content);
+          }
+        }
       }
 
       // 根据文件扩展名设置语言
@@ -309,7 +293,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
       const model = editor.getModel();
       if (model) {
         monaco.editor.setModelLanguage(model, language);
-        console.log('🔤 语言已设置为:', language);
       }
     } catch (error) {
       console.error('❌ 更新编辑器内容失败:', error);

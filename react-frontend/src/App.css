@@ -417,28 +417,82 @@ body {
   background: var(--text-secondary);
 }
 
-
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+  outline: none;
+  background: var(--primary-color);
+  color: white;
+  position: relative;
+  overflow: hidden;
+  min-height: 32px;
+  text-align: center;
+  width: fit-content;
+  gap: 4px;
 }
 
-.btn-sm {
-  padding: 4px 8px;
-  font-size: 11px;
+.btn:not(:disabled)::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn:not(:disabled):hover::before {
+  left: 100%;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--quaternary-color);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .btn-secondary {
   background: var(--tertiary-color);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .btn-secondary:hover:not(:disabled) {
   background: var(--quaternary-color);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
+
+.btn i {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 0;
+}
+
 
 /* 确保可调整大小的面板正确显示 */
 .resizable-panel {
