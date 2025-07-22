@@ -27,3 +27,5 @@ dist-ssr
 ./react-frontend/package-lock.json
 ./react-frontend/dist
 ./react-frontend/dist.rar
+
+./workspace

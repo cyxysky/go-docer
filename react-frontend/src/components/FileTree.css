@@ -4,7 +4,7 @@
   overflow-y: auto;
   font-size: 13px;
   line-height: 1.4;
-  padding: 4px 0;
+  padding: 4px 8px;
   min-height: 0; /* 确保flex子元素可以正确收缩 */
 }
 

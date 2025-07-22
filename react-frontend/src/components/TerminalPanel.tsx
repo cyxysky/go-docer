@@ -58,6 +58,35 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
 
+  // 命令历史
+  const commandHistoryRef = useRef<string[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const tempInputRef = useRef<string>(''); // 临时保存当前输入，用于历史导航
+  const cursorPositionRef = useRef<number>(0); // 光标在当前行的位置
+
+  // 重新绘制当前输入行
+  const redrawCurrentLine = (terminal: Terminal, input: string, cursorPos: number) => {
+    // 保存当前光标位置
+    terminal.write('\x1b[s');
+    // 移动到行首
+    terminal.write('\r');
+    // 清除整行
+    terminal.write('\x1b[K');
+    // 重新写入完整的提示符和输入内容
+    terminal.write('*root@online-editor:/workspace$ ');
+    if (input) {
+      terminal.write(input);
+    }
+    // 计算光标应该在的位置（提示符长度 + 光标位置）
+    const promptLength = '*root@online-editor:/workspace$ '.length;
+    const targetPosition = promptLength + cursorPos;
+    // 移动到行首，然后移动到目标位置
+    terminal.write('\r');
+    if (targetPosition > 0) {
+      terminal.write(`\x1b[${targetPosition}C`);
+    }
+  };
+
   // 发送数据到WebSocket的函数
   const sendToWebSocket = useCallback((data: string) => {
     if (statusRef.current === 'connected') {
@@ -181,26 +210,83 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
       if (code === 13) {
         terminal.write('\r\n');
         if (currentInputRef.current.trim()) {
+          // 添加到命令历史
+          const command = currentInputRef.current.trim();
+          if (command && (commandHistoryRef.current.length === 0 || commandHistoryRef.current[commandHistoryRef.current.length - 1] !== command)) {
+            commandHistoryRef.current.push(command);
+            // 限制历史记录长度
+            if (commandHistoryRef.current.length > 100) {
+              commandHistoryRef.current.shift();
+            }
+          }
+          historyIndexRef.current = -1;
+          tempInputRef.current = '';
+          
           sendToWebSocket(currentInputRef.current);
           currentInputRef.current = '';
+          cursorPositionRef.current = 0;
+        } else {
+          sendToWebSocket('\r');
         }
         return;
       }
 
       // 处理退格键
       if (code === 127 || code === 8) {
-        if (currentInputRef.current.length > 0) {
-          terminal.write('\b \b');
-          currentInputRef.current = currentInputRef.current.slice(0, -1);
+        if (cursorPositionRef.current > 0) {
+          const input = currentInputRef.current;
+          const pos = cursorPositionRef.current;
+          
+          // 删除光标前的字符
+          currentInputRef.current = input.slice(0, pos - 1) + input.slice(pos);
+          cursorPositionRef.current--;
+          
+          // 重新绘制当前行
+          redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
         }
         return;
       }
 
-      // 处理 Ctrl+C (中断命令)
+      // 处理 Ctrl+C (复制或中断命令)
       if (code === 3) {
+        // 检查是否有选中的文本
+        const selection = terminal.getSelection();
+        if (selection) {
+          // 复制选中的文本到剪贴板
+          navigator.clipboard.writeText(selection).then(() => {
+            console.log('文本已复制到剪贴板');
+          }).catch(err => {
+            console.error('复制失败:', err);
+          });
+          return;
+        } else {
+          // 没有选中文本，发送中断信号
         terminal.write('^C\r\n');
         currentInputRef.current = '';
+          historyIndexRef.current = -1;
+          tempInputRef.current = '';
         sendToWebSocket('\x03');
+          return;
+        }
+      }
+
+      // 处理 Ctrl+V (粘贴)
+      if (code === 22) {
+        navigator.clipboard.readText().then(text => {
+          if (text) {
+            const input = currentInputRef.current;
+            const pos = cursorPositionRef.current;
+            
+            // 在光标位置插入粘贴的文本
+            currentInputRef.current = input.slice(0, pos) + text + input.slice(pos);
+            cursorPositionRef.current += text.length;
+            
+            // 重新绘制当前行
+            redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+          }
+        }).catch(err => {
+          console.error('粘贴失败:', err);
+        });
         return;
       }
 
@@ -217,20 +303,60 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
       }
 
       // 处理方向键
-      if (data === '\x1b[A') { // 上箭头
-        sendToWebSocket('\x1b[A');
+      if (data === '\x1b[A') { // 上箭头 - 历史命令
+        if (commandHistoryRef.current.length > 0) {
+          // 保存当前输入（如果是第一次按上键）
+          if (historyIndexRef.current === -1) {
+            tempInputRef.current = currentInputRef.current;
+          }
+          
+          // 导航历史
+          if (historyIndexRef.current < commandHistoryRef.current.length - 1) {
+            historyIndexRef.current++;
+            const historyCommand = commandHistoryRef.current[commandHistoryRef.current.length - 1 - historyIndexRef.current];
+            
+            // 更新当前输入和光标位置
+            currentInputRef.current = historyCommand;
+            cursorPositionRef.current = historyCommand.length;
+            
+            // 重新绘制当前行
+            redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+          }
+        }
         return;
       }
-      if (data === '\x1b[B') { // 下箭头
-        sendToWebSocket('\x1b[B');
+      if (data === '\x1b[B') { // 下箭头 - 历史命令
+        if (historyIndexRef.current > -1) {
+          historyIndexRef.current--;
+          
+          if (historyIndexRef.current === -1) {
+            // 恢复原始输入
+            currentInputRef.current = tempInputRef.current;
+            cursorPositionRef.current = tempInputRef.current.length;
+          } else {
+            // 显示历史命令
+            const historyCommand = commandHistoryRef.current[commandHistoryRef.current.length - 1 - historyIndexRef.current];
+            currentInputRef.current = historyCommand;
+            cursorPositionRef.current = historyCommand.length;
+          }
+          
+          // 重新绘制当前行
+          redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+        }
         return;
       }
-      if (data === '\x1b[C') { // 右箭头
-        sendToWebSocket('\x1b[C');
+      if (data === '\x1b[C') { // 右箭头 - 本地光标移动
+        if (cursorPositionRef.current < currentInputRef.current.length) {
+          cursorPositionRef.current++;
+          terminal.write('\x1b[C');
+        }
         return;
       }
-      if (data === '\x1b[D') { // 左箭头
-        sendToWebSocket('\x1b[D');
+      if (data === '\x1b[D') { // 左箭头 - 本地光标移动
+        if (cursorPositionRef.current > 0) {
+          cursorPositionRef.current--;
+          terminal.write('\x1b[D');
+        }
         return;
       }
 
@@ -242,11 +368,25 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
 
       // 处理普通字符输入
       if (code >= 32 && code <= 126) {
-        currentInputRef.current += data;
-        terminal.write(data);
+        const input = currentInputRef.current;
+        const pos = cursorPositionRef.current;
+        
+        // 在光标位置插入字符
+        currentInputRef.current = input.slice(0, pos) + data + input.slice(pos);
+        cursorPositionRef.current++;
+        
+        // 重新绘制当前行
+        redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
       } else if (code >= 128) {
-        currentInputRef.current += data;
-        terminal.write(data);
+        const input = currentInputRef.current;
+        const pos = cursorPositionRef.current;
+        
+        // 在光标位置插入字符
+        currentInputRef.current = input.slice(0, pos) + data + input.slice(pos);
+        cursorPositionRef.current++;
+        
+        // 重新绘制当前行
+        redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
       }
     });
 

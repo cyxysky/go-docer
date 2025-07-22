@@ -200,6 +200,7 @@ body {
 
 .sidebar-tab-content.active {
   display: flex;
+  flex-grow: 1;
 }
 
 .sidebar-header {

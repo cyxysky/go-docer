@@ -53,6 +53,7 @@ export const workspaceAPI = {
     image: string;
     git_repo?: string;
     git_branch?: string;
+    tools?: string[];
   }) => request('/workspaces', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -69,6 +70,26 @@ export const workspaceAPI = {
   // 删除工作空间
   deleteWorkspace: (workspaceId: string) => 
     request(`/workspaces/${workspaceId}`, { method: 'DELETE' }),
+
+  // 更新端口绑定
+  updatePortBindings: (workspaceId: string, ports: Array<{containerPort: string, hostPort: string, protocol: string}>) =>
+    request(`/workspaces/${workspaceId}/ports`, {
+      method: 'PUT',
+      body: JSON.stringify({ ports: ports.map(p => ({
+        container_port: p.containerPort,
+        host_port: p.hostPort,
+        protocol: p.protocol,
+        public_access: p.hostPort !== ''
+      })) }),
+    }),
+
+  // 切换收藏状态
+  toggleFavorite: (workspaceId: string) =>
+    request(`/workspaces/${workspaceId}/favorite`, { method: 'POST' }),
+
+  // 测试端口
+  testPort: (workspaceId: string, port: string) =>
+    request(`/workspaces/${workspaceId}/test-port/${port}`, { method: 'POST' }),
 };
 
 // 文件相关API
