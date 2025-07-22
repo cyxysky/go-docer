@@ -22,8 +22,9 @@
 }
 
 .image-toolbar .btn:hover {
-  background: var(--border-color, #333);
-  color: var(--text-primary, #cccccc);
+  background: var(--quaternary-color);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 

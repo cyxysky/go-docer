@@ -816,14 +816,16 @@ func (oem *OnlineEditorManager) StartWorkspace(workspaceID string) error {
 	if err := oem.updateWorkspacePorts(workspace); err != nil {
 		log.Printf("更新端口映射失败: %v", err)
 	}
-
-	// 检查并安装必要的工具
-	go func() {
-		time.Sleep(5 * time.Second) // 等待容器完全启动
-		if err := oem.installTools(workspaceID); err != nil {
-			log.Printf("安装工具失败: %v", err)
-		}
-	}()
+	// 如果容器处于其他阶段，就不进行安装工具的处理
+	if (workspace.Status != "initializing" && workspace.Status != "pulling" && workspace.Status != "creating" && workspace.Status != "starting") {
+		// 检查并安装必要的工具
+		go func() {
+			time.Sleep(5 * time.Second) // 等待容器完全启动
+			if err := oem.installTools(workspaceID); err != nil {
+				log.Printf("安装工具失败: %v", err)
+			}
+		}()
+	}
 
 	workspace.Status = "running"
 	now := time.Now()
@@ -2254,8 +2256,6 @@ exec /bin/bash --login -i
 					continue
 				}
 
-				log.Printf("[Terminal] 发送数据到WebSocket (长度: %d): %q", len(filteredText), text)
-
 				// 发送过滤后的文本消息
 				if err := conn.WriteMessage(websocket.TextMessage, []byte(text)); err != nil {
 					log.Printf("[Terminal] 发送数据到WebSocket失败: %v", err)
@@ -2270,13 +2270,6 @@ exec /bin/bash --login -i
 
 	// 从WebSocket读取输入并转发到容器
 	go func() {
-		defer func() {
-			select {
-			case done <- struct{}{}:
-			default:
-			}
-		}()
-
 		for {
 			select {
 			case <-done:
@@ -2294,6 +2287,7 @@ exec /bin/bash --login -i
 					} else {
 						log.Printf("[Terminal] WebSocket读取错误: %v", err)
 					}
+					log.Printf("退出循环")
 					return
 				}
 

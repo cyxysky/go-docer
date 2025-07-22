@@ -136,8 +136,9 @@
 }
 
 .btn:hover:not(:disabled) {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  opacity: 0.9;
+  background: var(--quaternary-color);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .btn:active:not(:disabled) {

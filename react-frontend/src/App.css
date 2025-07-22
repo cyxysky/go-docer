@@ -417,27 +417,7 @@ body {
   background: var(--text-secondary);
 }
 
-/* 按钮样式 */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-decoration: none;
-  outline: none;
-  background: var(--primary-color);
-  color: white;
-}
 
-.btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
 
 .btn:disabled {
   opacity: 0.5;

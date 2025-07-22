@@ -62,6 +62,9 @@
 }
 
 .git-actions .btn:active:not(:disabled) {
+  background: var(--quaternary-color);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .git-actions .btn:disabled {

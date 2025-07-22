@@ -30,8 +30,9 @@
 }
 
 .file-toolbar .btn:hover {
-  background: var(--border-color, #333);
-  color: var(--text-primary, #cccccc);
+  background: var(--quaternary-color);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .file-toolbar .btn:active {
@@ -120,7 +121,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1005;
   backdrop-filter: blur(2px);
   animation: fadeIn 0.2s ease;
 }
@@ -219,7 +220,6 @@
 
 .dialog-actions button:first-child:hover:not(:disabled) {
   background: var(--primary-color);
-  opacity: 0.9;
   box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
 }
 

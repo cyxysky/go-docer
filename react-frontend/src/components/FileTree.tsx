@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useFile } from '../contexts/FileContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { getFileIcon } from '../utils';
@@ -27,7 +27,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   onCreateFolder,
   onMoveFile
 }) => {
-  const { files, loadSubFiles } = useFile();
+  const { loadSubFiles } = useFile();
   const { currentWorkspace } = useWorkspace();
   const [showActions, setShowActions] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -36,16 +36,6 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-
-  // 获取当前文件的子文件
-  const getChildFiles = () => {
-    return files.filter(f => {
-      const pathParts = f.path.split('/');
-      const filePathParts = file.path.split('/');
-      return pathParts.length === filePathParts.length + 1 && 
-             f.path.startsWith(file.path + '/');
-    });
-  };
 
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
