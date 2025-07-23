@@ -50,20 +50,6 @@ const StatsPanel: React.FC = () => {
     }
   }, [currentWorkspace, workspace]);
 
-  const checkPorts = useCallback(async () => {
-    if (!currentWorkspace) return;
-    
-    try {
-      await fetch(`/api/v1/workspaces/${currentWorkspace}/ports/check`, {
-        method: 'POST'
-      });
-      // 延迟刷新状态
-      setTimeout(() => fetchStats(), 2000);
-    } catch (error) {
-      console.error('检查端口失败:', error);
-    }
-  }, [currentWorkspace, fetchStats]);
-
   useEffect(() => {
     fetchStats();
     const interval = setInterval(fetchStats, 5000); // 每5秒更新一次
@@ -109,82 +95,6 @@ const StatsPanel: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* 网络信息 */}
-      {workspace.status === 'running' && (
-        <div className="stats-section">
-          <div className="stats-section-title">
-            <i className="fas fa-network-wired"></i>
-            <span>网络信息</span>
-            <button 
-              className="btn-icon"
-              onClick={checkPorts}
-              title="检查端口状态"
-            >
-              <i className="fas fa-sync-alt"></i>
-            </button>
-          </div>
-          
-          {networkInfo && (
-            <div className="network-details">
-              <div className="ip-info">
-                <span className="label">容器IP:</span>
-                <span className="value ip-address">{networkInfo.workspace_ip}</span>
-              </div>
-              
-              {networkInfo.access_urls && networkInfo.access_urls.length > 0 && (
-                <div className="ports-section">
-                  <h4>可用端口</h4>
-                  <div className="ports-list">
-                    {networkInfo.access_urls.map((url, index) => (
-                      <div key={index} className={`port-item ${url.status}`}>
-                        <div className="port-info">
-                          <span className="port-number">:{url.port}</span>
-                          <span className={`status-indicator ${url.status}`}>
-                            <i className={`fas ${
-                              url.status === 'available' ? 'fa-check-circle' : 
-                              url.status === 'checking' ? 'fa-spinner fa-spin' : 
-                              'fa-times-circle'
-                            }`}></i>
-                            {url.status === 'available' ? '可用' : 
-                             url.status === 'checking' ? '检查中' : '不可用'}
-                          </span>
-                        </div>
-                        {url.status === 'available' && (
-                          <div className="port-links">
-                            <a 
-                              href={url.internal_url} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="link-btn internal"
-                              title="容器内访问"
-                            >
-                              <i className="fas fa-external-link-alt"></i>
-                              访问
-                            </a>
-                            {url.external_url && (
-                              <a 
-                                href={url.external_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="link-btn external"
-                                title="外部访问"
-                              >
-                                <i className="fas fa-globe"></i>
-                                外部
-                              </a>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* 资源使用情况 */}
       {workspace.status === 'running' && stats && (

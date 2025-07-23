@@ -63,24 +63,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
   const historyIndexRef = useRef<number>(-1);
   const tempInputRef = useRef<string>(''); // 临时保存当前输入，用于历史导航
   const cursorPositionRef = useRef<number>(0); // 光标在当前行的位置
-  const lastPromptRef = useRef<string>(''); // 保存最后一次的提示符
 
-  // 重新绘制当前输入行 - 只处理用户输入部分，不重绘提示符
-  const redrawCurrentLine = (terminal: Terminal, input: string, cursorPos: number) => {
-    // 清除从当前光标位置到行尾的内容
-    terminal.write('\x1b[K');
-    
-    // 写入用户输入的内容
-    if (input) {
-      terminal.write(input);
-    }
-    
-    // 如果光标不在末尾，需要调整光标位置
-    if (cursorPos < input.length) {
-      const moveBack = input.length - cursorPos;
-      terminal.write(`\x1b[${moveBack}D`);
-    }
-  };
 
   // 发送数据到WebSocket的函数
   const sendToWebSocket = useCallback((data: string) => {

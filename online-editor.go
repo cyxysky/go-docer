@@ -116,6 +116,211 @@ type OnlineEditorManager struct {
 	portPool     map[int]bool   // 端口池管理
 }
 
+// 脚本和命令管理
+type ScriptManager struct {
+	Scripts  map[string]string
+	Commands map[string][]string
+}
+
+// 全局脚本管理器
+var scriptManager = &ScriptManager{
+	Scripts: map[string]string{
+		// 终端初始化脚本
+		"terminal_init": `#!/bin/bash
+# 进入工作目录
+cd /workspace 2>/dev/null || cd /
+
+# 禁用历史扩展，避免！号展开
+set +H
+
+stty -echo
+
+# 禁用括号粘贴模式，避免终端控制字符
+printf '\033[?2004l'
+
+# 设置标准的bash提示符，会自动跟随当前目录变化
+export PS1='root@online-editor:\w $ '
+
+# 清空屏幕并显示欢迎信息
+clear
+echo "🚀 在线代码编辑器终端"
+echo "当前目录: $(pwd)"
+echo "==============================================="
+
+# 直接启动交互式bash，让它处理所有的提示符逻辑
+exec /bin/bash --login -i`,
+
+		// 环境初始化脚本 - 基础版本
+		"env_init_basic": `#!/bin/bash
+# 确保工作目录存在并设置权限
+mkdir -p /workspace
+chmod 755 /workspace
+cd /workspace
+
+# 创建常用目录
+mkdir -p /workspace/tmp
+mkdir -p /workspace/logs
+
+# 设置git安全目录（如果git存在）
+if command -v git >/dev/null 2>&1; then
+	git config --global --add safe.directory /workspace
+	git config --global init.defaultBranch main
+fi
+
+echo "工作目录初始化完成"`,
+
+		// .bashrc配置内容 - 环境初始化版本
+		"bashrc_env_init": `#!/bin/bash
+# Online Code Editor Enhanced Shell Configuration
+
+# 设置别名
+alias ll='ls -alF'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+
+# 开发相关别名
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit'
+alias gp='git push'
+alias gl='git log --oneline'
+alias gd='git diff'
+
+# 设置历史记录
+export HISTSIZE=2000
+export HISTFILESIZE=4000
+export HISTCONTROL=ignoredups:erasedups
+shopt -s histappend
+
+# 设置编辑器
+export EDITOR=nano
+export VISUAL=nano
+
+# 自动完成功能
+if [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+fi
+
+# 函数：快速创建项目结构
+mkproject() {
+    if [ -z "$1" ]; then
+        echo "用法: mkproject <项目名>"
+        return 1
+    fi
+    mkdir -p "$1"/{src,docs,tests,config}
+    cd "$1"
+    echo "# $1" > README.md
+    echo "项目 $1 创建完成"
+}
+
+# 函数：快速Git初始化
+gitinit() {
+    git init
+    echo -e "node_modules/\n.env\n*.log\n.DS_Store" > .gitignore
+    git add .
+    git commit -m "Initial commit"
+    echo "Git仓库初始化完成"
+}
+
+# 切换到工作目录
+cd /workspace 2>/dev/null || cd /`,
+
+		// .bashrc配置内容 - 安装工具版本
+		"bashrc_tool_install": `#!/bin/bash
+# 设置别名
+
+# 设置历史记录
+export HISTSIZE=1000
+export HISTFILESIZE=2000
+export HISTCONTROL=ignoredups:erasedups
+
+# 设置工作目录
+cd /workspace 2>/dev/null || cd /
+
+echo "Welcome to Online Code Editor!"
+echo "Current directory: $(pwd)"
+echo "Available commands: ls, cd, pwd, git, etc."`,
+
+		// 端口测试服务器脚本模板
+		"port_test_server": `
+		echo "启动端口 %s 测试服务器..."
+		nohup python3 -c "
+import http.server
+import socketserver
+import sys
+
+PORT = %s
+try:
+    Handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(('0.0.0.0', PORT), Handler) as httpd:
+        print(f'测试服务器已启动在端口 {PORT}')
+        print('访问 http://localhost:%s 进行测试')
+        httpd.serve_forever()
+except Exception as e:
+    print(f'启动服务器失败: {e}')
+    sys.exit(1)
+" > /tmp/test_server_%s.log 2>&1 &
+		echo "测试服务器已在后台启动，日志文件: /tmp/test_server_%s.log"
+		echo "请等待几秒钟，然后访问 http://localhost:%s"`,
+	},
+
+	Commands: map[string][]string{
+		// 检查工具是否存在
+		"check_tool": {"which"},
+
+		// 端口检查命令模板
+		"port_check_template": {"sh", "-c", "netstat -tlnp 2>/dev/null | grep ':%s ' || ss -tlnp 2>/dev/null | grep ':%s ' || lsof -i :%s 2>/dev/null"},
+
+		// 包管理器安装命令
+		"install_apt": {"/bin/bash", "-c", "apt-get update && apt-get install -y %s"},
+		"install_apk": {"/bin/bash", "-c", "apk add --no-cache %s"},
+		"install_yum": {"/bin/bash", "-c", "yum install -y %s"},
+		"install_dnf": {"/bin/bash", "-c", "dnf install -y %s"},
+	},
+}
+
+// 获取脚本内容
+func (sm *ScriptManager) GetScript(name string) (string, error) {
+	if script, exists := sm.Scripts[name]; exists {
+		return script, nil
+	}
+	return "", fmt.Errorf("脚本不存在: %s", name)
+}
+
+// 获取命令模板
+func (sm *ScriptManager) GetCommand(name string, args ...interface{}) ([]string, error) {
+	if cmdTemplate, exists := sm.Commands[name]; exists {
+		cmd := make([]string, len(cmdTemplate))
+		copy(cmd, cmdTemplate)
+
+		// 格式化命令中的占位符
+		for i, part := range cmd {
+			if strings.Contains(part, "%s") || strings.Contains(part, "%d") {
+				cmd[i] = fmt.Sprintf(part, args...)
+			}
+		}
+		return cmd, nil
+	}
+	return nil, fmt.Errorf("命令模板不存在: %s", name)
+}
+
+// 格式化脚本内容
+func (sm *ScriptManager) FormatScript(name string, args ...interface{}) (string, error) {
+	script, err := sm.GetScript(name)
+	if err != nil {
+		return "", err
+	}
+
+	if len(args) > 0 {
+		return fmt.Sprintf(script, args...), nil
+	}
+	return script, nil
+}
+
 // filterTerminalOutput 过滤终端输出中的控制序列 - 增强版
 func filterTerminalOutput(text string) string {
 	// 如果文本为空或只包含控制字符，直接返回空
@@ -481,7 +686,11 @@ func (oem *OnlineEditorManager) checkPortAvailability(workspace *Workspace) {
 		accessURL := &workspace.AccessURLs[i]
 
 		// 在容器内检查端口是否有服务监听
-		checkCmd := []string{"sh", "-c", fmt.Sprintf("netstat -tlnp 2>/dev/null | grep ':%s ' || ss -tlnp 2>/dev/null | grep ':%s ' || lsof -i :%s 2>/dev/null", accessURL.Port, accessURL.Port, accessURL.Port)}
+		checkCmd, err := scriptManager.GetCommand("port_check_template", accessURL.Port, accessURL.Port, accessURL.Port)
+		if err != nil {
+			accessURL.Status = "unavailable"
+			continue
+		}
 
 		execConfig := container.ExecOptions{
 			Cmd:          checkCmd,
@@ -903,24 +1112,12 @@ func (oem *OnlineEditorManager) initializeEnvironment(workspaceID string) error 
 	log.Printf("[%s] 开始环境初始化...", workspaceID)
 
 	// 1. 创建工作目录并设置权限
-	setupCmd := []string{"/bin/bash", "-c", `
-		# 确保工作目录存在并设置权限
-		mkdir -p /workspace
-		chmod 755 /workspace
-		cd /workspace
-		
-		# 创建常用目录
-		mkdir -p /workspace/tmp
-		mkdir -p /workspace/logs
-		
-		# 设置git安全目录（如果git存在）
-		if command -v git >/dev/null 2>&1; then
-			git config --global --add safe.directory /workspace
-			git config --global init.defaultBranch main
-		fi
-		
-		echo "工作目录初始化完成"
-	`}
+	envInitScript, err := scriptManager.GetScript("env_init_basic")
+	if err != nil {
+		log.Printf("[%s] 获取环境初始化脚本失败: %v", workspaceID, err)
+		return err
+	}
+	setupCmd := []string{"/bin/bash", "-c", envInitScript}
 
 	execConfig := container.ExecOptions{
 		Cmd:          setupCmd,
@@ -943,78 +1140,11 @@ func (oem *OnlineEditorManager) initializeEnvironment(workspaceID string) error 
 	}
 
 	// 2. 创建增强的.bashrc文件
-	bashrcContent := `#!/bin/bash
-# Online Code Editor Enhanced Shell Configuration
-
-# 设置别名
-alias ll='ls -alF'
-alias ..='cd ..'
-alias ...='cd ../..'
-alias ....='cd ../../..'
-alias grep='grep --color=auto'
-alias fgrep='fgrep --color=auto'
-alias egrep='egrep --color=auto'
-
-# 开发相关别名
-alias gs='git status'
-alias ga='git add'
-alias gc='git commit'
-alias gp='git push'
-alias gl='git log --oneline'
-alias gd='git diff'
-
-# 设置历史记录
-export HISTSIZE=2000
-export HISTFILESIZE=4000
-export HISTCONTROL=ignoredups:erasedups
-shopt -s histappend
-
-# 设置编辑器
-export EDITOR=nano
-export VISUAL=nano
-
-# 自动完成功能
-if [ -f /etc/bash_completion ]; then
-    . /etc/bash_completion
-fi
-
-# 函数：快速创建项目结构
-mkproject() {
-    if [ -z "$1" ]; then
-        echo "用法: mkproject <项目名>"
-        return 1
-    fi
-    mkdir -p "$1"/{src,docs,tests,config}
-    cd "$1"
-    echo "# $1" > README.md
-    echo "项目 $1 创建完成"
-}
-
-# 函数：快速Git初始化
-gitinit() {
-    git init
-    echo -e "node_modules/\n.env\n*.log\n.DS_Store" > .gitignore
-    git add .
-    git commit -m "Initial commit"
-    echo "Git仓库初始化完成"
-}
-
-# 欢迎信息
-clear
-echo "=========================================="
-echo "  🚀 在线代码编辑器 - 开发环境"
-echo "=========================================="
-echo "当前目录: $(pwd)"
-echo "可用命令:"
-echo "  - mkproject <name>  : 创建项目结构"
-echo "  - gitinit          : 初始化Git仓库"
-echo "  - ll, la, l        : 文件列表"
-echo "  - gs, ga, gc, gp   : Git快捷命令"
-echo "=========================================="
-
-# 切换到工作目录
-cd /workspace 2>/dev/null || cd /
-`
+	bashrcContent, err := scriptManager.GetScript("bashrc_env_init")
+	if err != nil {
+		log.Printf("[%s] 获取bashrc脚本失败: %v", workspaceID, err)
+		return err
+	}
 
 	// 写入.bashrc文件
 	createBashrcCmd := []string{"/bin/bash", "-c", fmt.Sprintf("cat > /root/.bashrc << 'EOF'\n%s\nEOF", bashrcContent)}
@@ -1062,7 +1192,7 @@ func (oem *OnlineEditorManager) installDevelopmentTools(workspaceID string, envs
 
 	// 检查工具是否存在
 	for _, tool := range requiredTools {
-		checkCmd := []string{"which", tool}
+		checkCmd, _ := scriptManager.GetCommand("check_tool", tool)
 		execConfig := container.ExecOptions{
 			Cmd:          checkCmd,
 			AttachStdout: true,
@@ -2111,21 +2241,11 @@ func (oem *OnlineEditorManager) installTools(workspaceID string) error {
 	}
 
 	// 创建.bashrc文件以改善shell体验
-	bashrcContent := `#!/bin/bash
-# 设置别名
-
-# 设置历史记录
-export HISTSIZE=1000
-export HISTFILESIZE=2000
-export HISTCONTROL=ignoredups:erasedups
-
-# 设置工作目录
-cd /workspace 2>/dev/null || cd /
-
-echo "Welcome to Online Code Editor!"
-echo "Current directory: $(pwd)"
-echo "Available commands: ls, cd, pwd, git, etc."
-`
+	bashrcContent, err := scriptManager.GetScript("bashrc_tool_install")
+	if err != nil {
+		log.Printf("获取bashrc脚本失败: %v", err)
+		return err
+	}
 
 	// 写入.bashrc文件
 	createBashrcCmd := []string{"/bin/bash", "-c", fmt.Sprintf("echo '%s' > /root/.bashrc", bashrcContent)}
@@ -2153,7 +2273,7 @@ echo "Available commands: ls, cd, pwd, git, etc."
 	missingTools := []string{}
 
 	for _, tool := range requiredTools {
-		checkCmd := []string{"which", tool}
+		checkCmd, _ := scriptManager.GetCommand("check_tool", tool)
 		execConfig := container.ExecOptions{
 			Cmd:          checkCmd,
 			AttachStdout: true,
@@ -2182,11 +2302,17 @@ echo "Available commands: ls, cd, pwd, git, etc."
 		log.Printf("缺失工具: %v，尝试安装...", missingTools)
 
 		// 尝试不同的包管理器
+		tools := strings.Join(missingTools, " ")
+		aptCmd, _ := scriptManager.GetCommand("install_apt", tools)
+		yumCmd, _ := scriptManager.GetCommand("install_yum", tools)
+		apkCmd, _ := scriptManager.GetCommand("install_apk", tools)
+		dnfCmd, _ := scriptManager.GetCommand("install_dnf", tools)
+
 		installCommands := [][]string{
-			{"/bin/bash", "-c", "apt-get update && apt-get install -y " + strings.Join(missingTools, " ")},
-			{"/bin/bash", "-c", "yum install -y " + strings.Join(missingTools, " ")},
-			{"/bin/bash", "-c", "apk add --no-cache " + strings.Join(missingTools, " ")},
-			{"/bin/bash", "-c", "dnf install -y " + strings.Join(missingTools, " ")},
+			aptCmd,
+			yumCmd,
+			apkCmd,
+			dnfCmd,
 		}
 
 		success := false
@@ -2699,29 +2825,13 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 		}
 	}
 
-	// 初始化脚本 - 启动标准的交互式bash，让bash自然处理提示符
-	initScript := `#!/bin/bash
-# 进入工作目录
-cd /workspace 2>/dev/null || cd /
-
-# 禁用历史扩展，避免！号展开
-set +H
-
-# 禁用括号粘贴模式，避免终端控制字符
-printf '\033[?2004l'
-
-# 设置标准的bash提示符，会自动跟随当前目录变化
-export PS1='root@online-editor:\w $ '
-
-# 清空屏幕并显示欢迎信息
-clear
-echo "🚀 在线代码编辑器终端"
-echo "当前目录: $(pwd)"
-echo "==============================================="
-
-# 直接启动交互式bash，让它处理所有的提示符逻辑
-exec /bin/bash --login -i
-`
+	// 获取终端初始化脚本
+	initScript, err := scriptManager.GetScript("terminal_init")
+	if err != nil {
+		errorMsg := fmt.Sprintf("\r\n❌ 获取终端脚本失败: %v\r\n", err)
+		conn.WriteMessage(websocket.TextMessage, []byte(errorMsg))
+		return
+	}
 
 	// 创建Exec配置
 	execConfig := container.ExecOptions{
@@ -3052,27 +3162,11 @@ func (oem *OnlineEditorManager) handleTestPort(w http.ResponseWriter, r *http.Re
 	}
 
 	// 在容器内启动一个简单的HTTP服务器进行测试
-	testCmd := fmt.Sprintf(`
-		echo "启动端口 %s 测试服务器..."
-		nohup python3 -c "
-import http.server
-import socketserver
-import sys
-
-PORT = %s
-try:
-    Handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(('0.0.0.0', PORT), Handler) as httpd:
-        print(f'测试服务器已启动在端口 {PORT}')
-        print('访问 http://localhost:%s 进行测试')
-        httpd.serve_forever()
-except Exception as e:
-    print(f'启动服务器失败: {e}')
-    sys.exit(1)
-" > /tmp/test_server_%s.log 2>&1 &
-		echo "测试服务器已在后台启动，日志文件: /tmp/test_server_%s.log"
-		echo "请等待几秒钟，然后访问 http://localhost:%s"
-	`, port, port, port, port, port, port)
+	testCmd, err := scriptManager.FormatScript("port_test_server", port, port, port, port, port, port)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("获取测试脚本失败: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	output, err := oem.ExecuteCommand(workspaceID, []string{"/bin/bash", "-c", testCmd})
 	if err != nil {

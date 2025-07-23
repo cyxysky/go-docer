@@ -324,9 +324,6 @@ const WorkspacePanel: React.FC = () => {
                 <div className="workspace-name">
                   <i className="fas fa-cube"></i>
                   {workspace.name}
-                  {workspace.is_favorite && (
-                    <i className="fas fa-star favorite-star" title="已收藏"></i>
-                  )}
                 </div>
                 <div className="workspace-details">
                   <span className="workspace-image">{workspace.image}</span>
@@ -344,7 +341,7 @@ const WorkspacePanel: React.FC = () => {
                           className="port-link"
                           title={`容器端口 ${port.container_port} → 宿主机端口 ${port.host_port}`}
                         >
-                          :{port.host_port}
+                          {port.host_port}
                         </a>
                       ))}
                     </div>
