@@ -252,10 +252,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
         } catch (error) {
           console.warn('设置编辑器内容时出现警告，尝试替代方法:', error);
           // 使用替代方法设置内容
-          const model = editor.getModel();
-          if (model) {
-            model.setValue(tab.content);
-          }
+          editor.setValue(JSON.stringify(tab.content));
         }
       }
 

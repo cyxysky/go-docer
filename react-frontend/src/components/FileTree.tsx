@@ -5,7 +5,6 @@ import { getFileIcon } from '../utils';
 import type { FileItem } from '../types';
 import FileContextMenu from './FileContextMenu';
 import './FileTree.css';
-
 // 全局展开状态管理
 interface ExpandedState {
   [path: string]: boolean;
