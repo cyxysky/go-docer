@@ -263,12 +263,13 @@
   display: flex;
   gap: 6px;
   align-items: center;
+  flex-direction: row;
 }
 
 /* 端口操作按钮样式 */
 .port-test-button {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border: none;
   border-radius: 6px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -282,13 +283,11 @@
 }
 
 .port-test-button:hover:not(:disabled) {
-  transform: translateY(-1px);
   box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
   background: linear-gradient(135deg, #5a6fd8 0%, #6b4493 100%);
 }
 
 .port-test-button:active:not(:disabled) {
-  transform: translateY(0);
   box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
 }
 
@@ -304,8 +303,8 @@
 }
 
 .port-delete-button {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border: none;
   border-radius: 6px;
   background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
@@ -319,13 +318,11 @@
 }
 
 .port-delete-button:hover {
-  transform: translateY(-1px);
   box-shadow: 0 4px 8px rgba(255, 107, 107, 0.4);
   background: linear-gradient(135deg, #ff5252 0%, #d32f2f 100%);
 }
 
 .port-delete-button:active {
-  transform: translateY(0);
   box-shadow: 0 2px 4px rgba(255, 107, 107, 0.3);
 }
 
@@ -446,7 +443,6 @@
 
 .port-link:hover {
   background: var(--accent-color-hover, #005a9e);
-  transform: translateY(-1px);
 }
 
 /* 响应式设计 */
@@ -601,7 +597,6 @@
 
 .modal-footer .btn-primary:hover {
   background: var(--info-color);
-  transform: translateY(-1px);
 }
 
 .modal-footer .btn-primary i {
@@ -722,7 +717,6 @@
 
 .workspace-item:hover {
   background: var(--quaternary-color, #333);
-  transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   border-color: var(--accent-color, #007acc);
 }
@@ -739,7 +733,6 @@
 }
 
 .workspace-item.active:hover {
-  transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(0, 122, 204, 0.4);
 }
 
@@ -1026,7 +1019,6 @@
 
 .link-btn.internal:hover {
   background: #0ea5e9;
-  transform: translateY(-1px);
 }
 
 .link-btn.external {
@@ -1036,7 +1028,6 @@
 
 .link-btn.external:hover {
   background: var(--info-color);
-  transform: translateY(-1px);
 }
 
 .link-btn i {
@@ -1136,3 +1127,7 @@
     padding: 12px;
   }
 } 
+
+.workspace-search {
+  padding: 16px 0px 0 0px;
+}

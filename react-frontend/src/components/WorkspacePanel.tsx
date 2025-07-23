@@ -265,19 +265,6 @@ const WorkspacePanel: React.FC = () => {
         </button>
         </div>
         
-        <div className="toolbar-center">
-          <div className="search-box">
-            <i className="fas fa-search search-icon"></i>
-            <input
-              type="text"
-              placeholder="搜索工作空间..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
-          </div>
-        </div>
-        
         <div className="toolbar-right">
           <select 
             value={`${sortBy}-${sortOrder}`} 
@@ -296,6 +283,21 @@ const WorkspacePanel: React.FC = () => {
             <option value="status-asc">状态</option>
           </select>
         </div>
+      </div>
+
+      <div className="workspace-search">
+        <div className="toolbar-center">
+            <div className="search-box">
+              <i className="fas fa-search search-icon"></i>
+              <input
+                type="text"
+                placeholder="搜索工作空间..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="search-input"
+              />
+            </div>
+          </div>
       </div>
 
       {/* 工作空间列表 */}
