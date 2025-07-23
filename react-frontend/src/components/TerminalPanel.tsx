@@ -63,27 +63,22 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
   const historyIndexRef = useRef<number>(-1);
   const tempInputRef = useRef<string>(''); // 临时保存当前输入，用于历史导航
   const cursorPositionRef = useRef<number>(0); // 光标在当前行的位置
+  const lastPromptRef = useRef<string>(''); // 保存最后一次的提示符
 
-  // 重新绘制当前输入行
+  // 重新绘制当前输入行 - 只处理用户输入部分，不重绘提示符
   const redrawCurrentLine = (terminal: Terminal, input: string, cursorPos: number) => {
-    // 保存当前光标位置
-    terminal.write('\x1b[s');
-    // 移动到行首
-    terminal.write('\r');
-    // 清除整行
+    // 清除从当前光标位置到行尾的内容
     terminal.write('\x1b[K');
-    // 重新写入完整的提示符和输入内容
-    terminal.write('*root@online-editor:/workspace$ ');
+    
+    // 写入用户输入的内容
     if (input) {
       terminal.write(input);
     }
-    // 计算光标应该在的位置（提示符长度 + 光标位置）
-    const promptLength = '*root@online-editor:/workspace$ '.length;
-    const targetPosition = promptLength + cursorPos;
-    // 移动到行首，然后移动到目标位置
-    terminal.write('\r');
-    if (targetPosition > 0) {
-      terminal.write(`\x1b[${targetPosition}C`);
+    
+    // 如果光标不在末尾，需要调整光标位置
+    if (cursorPos < input.length) {
+      const moveBack = input.length - cursorPos;
+      terminal.write(`\x1b[${moveBack}D`);
     }
   };
 
@@ -241,8 +236,17 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
           currentInputRef.current = input.slice(0, pos - 1) + input.slice(pos);
           cursorPositionRef.current--;
           
-          // 重新绘制当前行
-          redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+          // 简单的退格处理：向左移动，删除字符，重新显示后续内容
+          terminal.write('\b'); // 向左移动光标
+          terminal.write('\x1b[K'); // 清除从光标到行尾的内容
+          
+          // 重新显示删除位置后的内容
+          const remainingText = currentInputRef.current.slice(cursorPositionRef.current);
+          if (remainingText) {
+            terminal.write(remainingText);
+            // 将光标移回正确位置
+            terminal.write(`\x1b[${remainingText.length}D`);
+          }
         }
         return;
       }
@@ -281,8 +285,18 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
             currentInputRef.current = input.slice(0, pos) + text + input.slice(pos);
             cursorPositionRef.current += text.length;
             
-            // 重新绘制当前行
-            redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+            // 简单的插入处理
+            terminal.write('\x1b[K'); // 清除从光标到行尾的内容
+            
+            // 显示从当前位置开始的所有内容
+            const remainingText = currentInputRef.current.slice(pos);
+            terminal.write(remainingText);
+            
+            // 将光标移到正确位置
+            const moveBack = remainingText.length - text.length;
+            if (moveBack > 0) {
+              terminal.write(`\x1b[${moveBack}D`);
+            }
           }
         }).catch(err => {
           console.error('粘贴失败:', err);
@@ -315,12 +329,18 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
             historyIndexRef.current++;
             const historyCommand = commandHistoryRef.current[commandHistoryRef.current.length - 1 - historyIndexRef.current];
             
+            // 清除当前输入行的内容
+            if (currentInputRef.current.length > 0) {
+              terminal.write(`\x1b[${cursorPositionRef.current}D`); // 移动到输入开始位置
+              terminal.write('\x1b[K'); // 清除到行尾
+            }
+            
             // 更新当前输入和光标位置
             currentInputRef.current = historyCommand;
             cursorPositionRef.current = historyCommand.length;
             
-            // 重新绘制当前行
-            redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+            // 显示历史命令
+            terminal.write(historyCommand);
           }
         }
         return;
@@ -329,19 +349,27 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         if (historyIndexRef.current > -1) {
           historyIndexRef.current--;
           
+          let newCommand = '';
           if (historyIndexRef.current === -1) {
             // 恢复原始输入
-            currentInputRef.current = tempInputRef.current;
-            cursorPositionRef.current = tempInputRef.current.length;
+            newCommand = tempInputRef.current;
           } else {
             // 显示历史命令
-            const historyCommand = commandHistoryRef.current[commandHistoryRef.current.length - 1 - historyIndexRef.current];
-            currentInputRef.current = historyCommand;
-            cursorPositionRef.current = historyCommand.length;
+            newCommand = commandHistoryRef.current[commandHistoryRef.current.length - 1 - historyIndexRef.current];
           }
           
-          // 重新绘制当前行
-          redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+          // 清除当前输入行的内容
+          if (currentInputRef.current.length > 0) {
+            terminal.write(`\x1b[${cursorPositionRef.current}D`); // 移动到输入开始位置
+            terminal.write('\x1b[K'); // 清除到行尾
+          }
+          
+          // 更新内容
+          currentInputRef.current = newCommand;
+          cursorPositionRef.current = newCommand.length;
+          
+          // 显示新命令
+          terminal.write(newCommand);
         }
         return;
       }
@@ -375,8 +403,17 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         currentInputRef.current = input.slice(0, pos) + data + input.slice(pos);
         cursorPositionRef.current++;
         
-        // 重新绘制当前行
-        redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+        // 简单的字符插入
+        terminal.write('\x1b[K'); // 清除从光标到行尾
+        
+        // 显示从当前位置开始的所有内容
+        const remainingText = currentInputRef.current.slice(pos);
+        terminal.write(remainingText);
+        
+        // 如果插入的不是在末尾，调整光标位置
+        if (pos < input.length) {
+          terminal.write(`\x1b[${remainingText.length - 1}D`);
+        }
       } else if (code >= 128) {
         const input = currentInputRef.current;
         const pos = cursorPositionRef.current;
@@ -385,8 +422,17 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         currentInputRef.current = input.slice(0, pos) + data + input.slice(pos);
         cursorPositionRef.current++;
         
-        // 重新绘制当前行
-        redrawCurrentLine(terminal, currentInputRef.current, cursorPositionRef.current);
+        // 简单的字符插入
+        terminal.write('\x1b[K'); // 清除从光标到行尾
+        
+        // 显示从当前位置开始的所有内容
+        const remainingText = currentInputRef.current.slice(pos);
+        terminal.write(remainingText);
+        
+        // 如果插入的不是在末尾，调整光标位置
+        if (pos < input.length) {
+          terminal.write(`\x1b[${remainingText.length - 1}D`);
+        }
       }
     });
 

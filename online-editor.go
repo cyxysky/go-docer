@@ -17,7 +17,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	imageTypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
@@ -35,6 +34,7 @@ import (
 type Workspace struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
+	DisplayName string            `json:"display_name"` // 用户输入的显示名称
 	Image       string            `json:"image"`
 	Status      string            `json:"status"`
 	Ports       []PortMapping     `json:"ports"`
@@ -319,71 +319,69 @@ func generateTerminalID() string {
 func (oem *OnlineEditorManager) recoverExistingWorkspaces() error {
 	ctx := context.Background()
 
-	// 1. 获取所有正在运行的容器
+	// 获取所有容器（包括已停止的）
 	containers, err := oem.dockerClient.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return fmt.Errorf("获取容器列表失败: %v", err)
 	}
 
-	// 2. 遍历工作空间目录
-	workspaceDirs, err := os.ReadDir(oem.workspacesDir)
-	if err != nil {
-		return fmt.Errorf("读取工作空间目录失败: %v", err)
-	}
-
-	for _, dir := range workspaceDirs {
-		if !dir.IsDir() {
+	// 只基于容器名称恢复工作空间，不依赖目录
+	for _, cont := range containers {
+		if len(cont.Names) == 0 {
 			continue
 		}
 
-		workspaceID := dir.Name()
-		if !strings.HasPrefix(workspaceID, "ws_") {
+		containerName := strings.TrimPrefix(cont.Names[0], "/")
+
+		// 检查是否是我们的工作空间容器
+		if !strings.HasPrefix(containerName, "ws_") {
 			continue
 		}
 
-		// 3. 检查是否有对应的容器
-		var correspondingContainer *types.Container
-		for _, cont := range containers {
-			if len(cont.Names) > 0 && strings.Contains(cont.Names[0], workspaceID) {
-				correspondingContainer = &cont
-				break
-			}
-		}
+		workspaceID := containerName
 
-		if correspondingContainer == nil {
-			log.Printf("工作空间 %s 没有对应的容器，跳过恢复", workspaceID)
+		// 检查是否已经在管理列表中
+		if _, exists := oem.workspaces[workspaceID]; exists {
 			continue
 		}
 
-		// 4. 恢复工作空间对象
+		// 获取容器详细信息
+		containerInfo, err := oem.dockerClient.ContainerInspect(ctx, cont.ID)
+		if err != nil {
+			log.Printf("获取容器详细信息失败 %s: %v", cont.ID, err)
+			continue
+		}
+
+		// 创建工作空间目录（如果不存在）
+		workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
+		if err := os.MkdirAll(workspaceDir, 0755); err != nil {
+			log.Printf("创建工作空间目录失败 %s: %v", workspaceID, err)
+			continue
+		}
+
+		// 恢复工作空间对象
 		workspace := &Workspace{
 			ID:          workspaceID,
 			Name:        workspaceID, // 临时使用ID作为名称
-			ContainerID: correspondingContainer.ID,
-			Status:      correspondingContainer.State,
-			Created:     time.Unix(correspondingContainer.Created, 0),
+			DisplayName: workspaceID, // 临时使用ID作为显示名称
+			ContainerID: cont.ID,
+			Status:      cont.State,
+			Created:     time.Unix(cont.Created, 0),
 			NetworkName: oem.networkName,
 			Environment: make(map[string]string),
 		}
 
-		// 5. 获取容器详细信息
-		containerInfo, err := oem.dockerClient.ContainerInspect(ctx, correspondingContainer.ID)
-		if err != nil {
-			log.Printf("获取容器详细信息失败 %s: %v", correspondingContainer.ID, err)
-			continue
-		}
-
-		// 6. 恢复镜像信息
+		// 恢复镜像信息
 		workspace.Image = containerInfo.Config.Image
 
-		// 7. 恢复网络IP
+		// 恢复网络IP
 		if containerInfo.NetworkSettings != nil {
 			if endpointSettings, exists := containerInfo.NetworkSettings.Networks[oem.networkName]; exists {
 				workspace.NetworkIP = endpointSettings.IPAddress
 			}
 		}
 
-		// 8. 恢复端口映射
+		// 恢复端口映射
 		if containerInfo.NetworkSettings.Ports != nil {
 			workspace.Ports = []PortMapping{}
 			for containerPort, bindings := range containerInfo.NetworkSettings.Ports {
@@ -399,21 +397,21 @@ func (oem *OnlineEditorManager) recoverExistingWorkspaces() error {
 			}
 		}
 
-		// 9. 设置工作空间目录挂载
+		// 设置工作空间目录挂载
 		workspace.Volumes = []VolumeMount{
 			{
-				HostPath:      filepath.Join(oem.workspacesDir, workspaceID),
+				HostPath:      workspaceDir,
 				ContainerPath: "/workspace",
 				ReadOnly:      false,
 			},
 		}
 
-		// 10. 如果容器正在运行，生成访问URL
+		// 如果容器正在运行，生成访问URL
 		if workspace.Status == "running" {
 			oem.generateAccessURLs(workspace)
 		}
 
-		// 11. 添加到工作空间列表
+		// 添加到工作空间列表
 		oem.workspaces[workspaceID] = workspace
 		log.Printf("恢复工作空间: %s (状态: %s)", workspaceID, workspace.Status)
 	}
@@ -523,8 +521,11 @@ func (oem *OnlineEditorManager) releasePort(port int) {
 
 // 创建工作空间
 func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch string, customPorts []PortMapping, selectedTools []string) (*Workspace, error) {
-	oem.mutex.Lock()
-	defer oem.mutex.Unlock()
+	// 先进行基本验证，不持有锁
+	imageConfig, exists := preloadedImages[images]
+	if !exists {
+		return nil, fmt.Errorf("不支持的镜像: %s", images)
+	}
 
 	workspaceID := generateWorkspaceID()
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
@@ -534,22 +535,13 @@ func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch
 		return nil, fmt.Errorf("创建工作空间目录失败: %v", err)
 	}
 
-	// 获取镜像配置
 	log.Printf("请求的镜像: '%s'", images)
-	log.Printf("支持的镜像列表:")
-	for k := range preloadedImages {
-		log.Printf("  - '%s'", k)
-	}
-	imageConfig, exists := preloadedImages[images]
-	if !exists {
-		return nil, fmt.Errorf("不支持的镜像: %s", images)
-	}
 	log.Printf("镜像配置: %v", imageConfig)
 
 	// 创建工作空间对象 - 初始状态为pending
 	workspace := &Workspace{
-		ID:          workspaceID,
-		Name:        name,
+		ID:          workspaceID, // 内部使用ID作为名称
+		DisplayName: name,        // 用户输入的显示名称
 		Image:       images,
 		Status:      "pending", // 初始状态：等待资源分配
 		Created:     time.Now(),
@@ -579,12 +571,16 @@ func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch
 		workspace.Environment = env
 	}
 
+	// 短暂持有锁，只用于添加到map
+	oem.mutex.Lock()
 	oem.workspaces[workspaceID] = workspace
+	oem.mutex.Unlock()
 
-	// 异步初始化容器
+	// 异步初始化容器，不阻塞响应
 	go func() {
 		if err := oem.initializeContainer(workspace, images, workspaceDir, imageConfig); err != nil {
 			log.Printf("容器初始化失败: %v", err)
+			// 更新状态时使用短锁
 			oem.mutex.Lock()
 			workspace.Status = "failed"
 			oem.mutex.Unlock()
@@ -594,24 +590,48 @@ func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch
 	return workspace, nil
 }
 
-// 初始化容器 - 分阶段进行
+// 初始化容器 - 分阶段进行，增加超时和错误处理
 func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images, workspaceDir string, imageConfig map[string]interface{}) error {
 	workspaceID := workspace.ID
+
+	// 设置总超时时间（5分钟）
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	// 阶段1：更新状态为拉取镜像中
 	oem.updateWorkspaceStatus(workspaceID, "pulling")
 
 	// 拉取镜像（如果本地没有）
-	ctx := context.Background()
 	_, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, images)
 	if err != nil {
 		log.Printf("[%s] 拉取镜像: %s", workspaceID, images)
-		out, err := oem.dockerClient.ImagePull(ctx, images, imageTypes.PullOptions{})
+
+		// 设置拉取镜像的超时（2分钟）
+		pullCtx, pullCancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer pullCancel()
+
+		out, err := oem.dockerClient.ImagePull(pullCtx, images, imageTypes.PullOptions{})
 		if err != nil {
+			oem.updateWorkspaceStatus(workspaceID, "failed")
 			return fmt.Errorf("拉取镜像失败: %v", err)
 		}
 		defer out.Close()
-		io.Copy(io.Discard, out)
+
+		// 读取拉取进度（非阻塞）
+		go func() {
+			io.Copy(io.Discard, out)
+		}()
+
+		// 等待拉取完成或超时
+		select {
+		case <-pullCtx.Done():
+			if pullCtx.Err() == context.DeadlineExceeded {
+				oem.updateWorkspaceStatus(workspaceID, "failed")
+				return fmt.Errorf("拉取镜像超时")
+			}
+		default:
+			// 继续执行
+		}
 	}
 	log.Printf("[%s] 镜像准备完成: %s", workspaceID, images)
 
@@ -719,7 +739,7 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 
 	log.Printf("[%s] 总计暴露端口: %d, 绑定端口: %d", workspaceID, len(exposedPorts), len(portBindings))
 
-	// 创建容器
+	// 创建容器配置
 	containerConfig := &container.Config{
 		Image:        images,
 		Env:          envs,
@@ -746,8 +766,14 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 	networkingConfig := &network.NetworkingConfig{}
 
 	log.Printf("[%s] 创建容器配置", workspaceID)
-	resp, err := oem.dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, workspaceID)
+
+	// 设置创建容器的超时（1分钟）
+	createCtx, createCancel := context.WithTimeout(ctx, 1*time.Minute)
+	defer createCancel()
+
+	resp, err := oem.dockerClient.ContainerCreate(createCtx, containerConfig, hostConfig, networkingConfig, nil, workspaceID)
 	if err != nil {
+		oem.updateWorkspaceStatus(workspaceID, "failed")
 		return fmt.Errorf("创建容器失败: %v", err)
 	}
 	log.Printf("[%s] 容器创建完成: %s", workspaceID, resp.ID)
@@ -761,17 +787,27 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 	oem.updateWorkspaceStatus(workspaceID, "starting")
 
 	// 启动容器
-	if err := oem.dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer startCancel()
+
+	if err := oem.dockerClient.ContainerStart(startCtx, resp.ID, container.StartOptions{}); err != nil {
 		// 如果启动失败，清理容器
 		log.Printf("[%s] 容器启动失败，清理容器: %v", workspaceID, err)
 		oem.dockerClient.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		oem.updateWorkspaceStatus(workspaceID, "failed")
 		return fmt.Errorf("启动容器失败: %v", err)
 	}
 	log.Printf("[%s] 容器启动成功", workspaceID)
 
-	// 等待容器稳定运行
+	// 等待容器稳定运行，使用轮询而不是阻塞等待
 	for attempts := 0; attempts < 10; attempts++ {
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			oem.updateWorkspaceStatus(workspaceID, "failed")
+			return fmt.Errorf("容器启动检查超时")
+		default:
+			time.Sleep(2 * time.Second)
+		}
 
 		containerInfo, err := oem.dockerClient.ContainerInspect(ctx, resp.ID)
 		if err != nil {
@@ -785,6 +821,7 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 		}
 
 		if attempts == 9 {
+			oem.updateWorkspaceStatus(workspaceID, "failed")
 			return fmt.Errorf("容器启动后状态异常: %s", containerInfo.State.Status)
 		}
 	}
@@ -795,11 +832,12 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 	// 等待容器完全启动并初始化环境
 	time.Sleep(3 * time.Second)
 
-	// 初始化容器环境
-	if err := oem.initializeEnvironment(workspaceID); err != nil {
-		log.Printf("[%s] 环境初始化失败: %v", workspaceID, err)
-		// 不返回错误，因为容器已经可以使用
-	}
+	// 异步初始化环境，不阻塞主流程
+	go func() {
+		if err := oem.initializeEnvironment(workspaceID); err != nil {
+			log.Printf("[%s] 环境初始化失败: %v", workspaceID, err)
+		}
+	}()
 
 	// 阶段5：所有初始化完成，状态设为运行中
 	oem.updateWorkspaceStatus(workspaceID, "running")
@@ -1261,10 +1299,11 @@ func (oem *OnlineEditorManager) verifyPortBindings(workspaceID string) error {
 
 // 启动工作空间
 func (oem *OnlineEditorManager) StartWorkspace(workspaceID string) error {
-	oem.mutex.Lock()
-	defer oem.mutex.Unlock()
-
+	// 先获取工作空间信息，使用读锁
+	oem.mutex.RLock()
 	workspace, exists := oem.workspaces[workspaceID]
+	oem.mutex.RUnlock()
+
 	if !exists {
 		return fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
@@ -1282,6 +1321,7 @@ func (oem *OnlineEditorManager) StartWorkspace(workspaceID string) error {
 	if err := oem.updateWorkspacePorts(workspace); err != nil {
 		log.Printf("更新端口映射失败: %v", err)
 	}
+
 	// 如果容器处于其他阶段，就不进行安装工具的处理
 	if workspace.Status != "initializing" && workspace.Status != "pulling" && workspace.Status != "creating" && workspace.Status != "starting" {
 		// 检查并安装必要的工具
@@ -1293,9 +1333,12 @@ func (oem *OnlineEditorManager) StartWorkspace(workspaceID string) error {
 		}()
 	}
 
+	// 使用短锁更新状态
+	oem.mutex.Lock()
 	workspace.Status = "running"
 	now := time.Now()
 	workspace.Started = &now
+	oem.mutex.Unlock()
 
 	// 验证端口绑定
 	if err := oem.verifyPortBindings(workspaceID); err != nil {
@@ -1307,10 +1350,11 @@ func (oem *OnlineEditorManager) StartWorkspace(workspaceID string) error {
 
 // 停止工作空间
 func (oem *OnlineEditorManager) StopWorkspace(workspaceID string) error {
-	oem.mutex.Lock()
-	defer oem.mutex.Unlock()
-
+	// 先获取工作空间信息，使用读锁
+	oem.mutex.RLock()
 	workspace, exists := oem.workspaces[workspaceID]
+	oem.mutex.RUnlock()
+
 	if !exists {
 		return fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
@@ -1324,18 +1368,22 @@ func (oem *OnlineEditorManager) StopWorkspace(workspaceID string) error {
 		return fmt.Errorf("停止容器失败: %v", err)
 	}
 
+	// 使用短锁更新状态
+	oem.mutex.Lock()
 	workspace.Status = "stopped"
 	workspace.Started = nil
+	oem.mutex.Unlock()
 
 	return nil
 }
 
 // 删除工作空间
 func (oem *OnlineEditorManager) DeleteWorkspace(workspaceID string) error {
-	oem.mutex.Lock()
-	defer oem.mutex.Unlock()
-
+	// 先获取工作空间信息，使用读锁
+	oem.mutex.RLock()
 	workspace, exists := oem.workspaces[workspaceID]
+	oem.mutex.RUnlock()
+
 	if !exists {
 		return fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
@@ -1346,12 +1394,12 @@ func (oem *OnlineEditorManager) DeleteWorkspace(workspaceID string) error {
 	for _, p := range workspace.Ports {
 		if p.HostPort != "" {
 			if hostPort, err := strconv.Atoi(p.HostPort); err == nil {
+				oem.mutex.Lock()
 				oem.releasePort(hostPort)
+				oem.mutex.Unlock()
 			}
 		}
 	}
-
-	// 网络资源清理已简化
 
 	// 强制删除容器
 	if err := oem.dockerClient.ContainerRemove(ctx, workspace.ContainerID, container.RemoveOptions{Force: true}); err != nil {
@@ -1364,7 +1412,10 @@ func (oem *OnlineEditorManager) DeleteWorkspace(workspaceID string) error {
 		return fmt.Errorf("删除工作空间目录失败: %v", err)
 	}
 
+	// 最后从map中删除
+	oem.mutex.Lock()
 	delete(oem.workspaces, workspaceID)
+	oem.mutex.Unlock()
 
 	return nil
 }
@@ -1376,7 +1427,9 @@ func (oem *OnlineEditorManager) ListWorkspaces() ([]*Workspace, error) {
 
 	var workspaces []*Workspace
 	for _, workspace := range oem.workspaces {
-		workspaces = append(workspaces, workspace)
+		// 创建工作空间的副本，避免并发访问问题
+		workspaceCopy := *workspace
+		workspaces = append(workspaces, &workspaceCopy)
 	}
 
 	return workspaces, nil
@@ -1392,7 +1445,9 @@ func (oem *OnlineEditorManager) GetWorkspace(workspaceID string) (*Workspace, er
 		return nil, fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
 
-	return workspace, nil
+	// 返回工作空间的副本，避免并发访问问题
+	workspaceCopy := *workspace
+	return &workspaceCopy, nil
 }
 
 // 文件系统操作
@@ -2638,22 +2693,19 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 		}
 	}
 
-	// 初始化脚本 - 启动带有自定义提示符的bash，禁用回显
+	// 初始化脚本 - 启动标准的交互式bash，让bash自然处理提示符
 	initScript := `#!/bin/bash
 # 进入工作目录
 cd /workspace 2>/dev/null || cd /
 
-# 设置简洁的提示符，避免重复显示
-export PS1="root@online-editor:/workspace $"
-
-# 禁用历史扩展
+# 禁用历史扩展，避免！号展开
 set +H
 
-# 禁用括号粘贴模式 - 这是关键！
+# 禁用括号粘贴模式，避免终端控制字符
 printf '\033[?2004l'
 
-# 禁用终端回显
-stty -echo
+# 设置标准的bash提示符，会自动跟随当前目录变化
+export PS1='root@online-editor:\w $ '
 
 # 清空屏幕并显示欢迎信息
 clear
@@ -2661,10 +2713,7 @@ echo "🚀 在线代码编辑器终端"
 echo "当前目录: $(pwd)"
 echo "==============================================="
 
-# 显示初始提示符
-echo -n "root@online-editor:/workspace $ "
-
-# 启动交互式bash
+# 直接启动交互式bash，让它处理所有的提示符逻辑
 exec /bin/bash --login -i
 `
 
@@ -2728,30 +2777,22 @@ exec /bin/bash --login -i
 				// 获取实际数据
 				actualData := buffer[:n]
 
-				// 处理终端输出数据
-				// 首先尝试将数据转换为有效的UTF-8字符串
+				// 基本UTF-8验证，确保数据有效
 				text := string(actualData)
-
-				// 检查UTF-8有效性
 				if !utf8.ValidString(text) {
-					// 如果不是有效的UTF-8，尝试修复
 					text = strings.ToValidUTF8(text, "")
-					// 如果修复后仍然无效，跳过这条数据
-					if !utf8.ValidString(text) {
-						continue
+					if len(text) == 0 {
+						continue // 跳过无效数据
 					}
 				}
 
-				// 过滤控制序列
-				filteredText := filterTerminalOutput(text)
+				// 极简过滤：只移除明确有害的控制序列，保留所有bash输出
+				// 移除括号粘贴模式控制序列（这些会干扰终端显示）
+				filtered := strings.ReplaceAll(text, "\x1b[?2004h", "")
+				filtered = strings.ReplaceAll(filtered, "\x1b[?2004l", "")
 
-				// 如果过滤后为空，跳过
-				if filteredText == "" {
-					continue
-				}
-
-				// 发送过滤后的文本消息
-				if err := conn.WriteMessage(websocket.TextMessage, []byte(text)); err != nil {
+				// 直接发送到WebSocket，让前端完全按照后端的输出显示
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(filtered)); err != nil {
 					log.Printf("[Terminal] 发送数据到WebSocket失败: %v", err)
 					break
 				}
@@ -3313,6 +3354,28 @@ func (oem *OnlineEditorManager) StartCleanupTask() {
 			oem.CleanupExpiredWorkspaces(24 * time.Hour) // 清理超过24的工作空间
 		}
 	}()
+}
+
+// 检查工作空间状态（线程安全）
+func (oem *OnlineEditorManager) GetWorkspaceStatus(workspaceID string) (string, error) {
+	oem.mutex.RLock()
+	workspace, exists := oem.workspaces[workspaceID]
+	oem.mutex.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	return workspace.Status, nil
+}
+
+// 检查工作空间是否存在（线程安全）
+func (oem *OnlineEditorManager) WorkspaceExists(workspaceID string) bool {
+	oem.mutex.RLock()
+	defer oem.mutex.RUnlock()
+
+	_, exists := oem.workspaces[workspaceID]
+	return exists
 }
 
 // 主函数
