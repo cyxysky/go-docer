@@ -5,12 +5,13 @@ import { getFileIcon } from '../utils';
 import type { FileItem } from '../types';
 import FileContextMenu from './FileContextMenu';
 import './FileTree.css';
-// 全局展开状态管理
+
+// 工作空间级别的状态管理
 interface ExpandedState {
   [path: string]: boolean;
 }
 
-// 全局子文件缓存
+// 工作空间级别的子文件缓存
 interface FileCache {
   [path: string]: {
     files: FileItem[];
@@ -18,9 +19,24 @@ interface FileCache {
   };
 }
 
-let globalExpandedState: ExpandedState = {};
-let globalFileCache: FileCache = {};
-const CACHE_DURATION = 30000; // 30秒缓存
+// 按工作空间存储状态和缓存
+const workspaceStates: { [workspaceId: string]: ExpandedState } = {};
+const workspaceCaches: { [workspaceId: string]: FileCache } = {};
+const CACHE_DURATION = 10000; // 减少缓存时间到10秒，提高响应性
+
+// 清理特定工作空间的缓存
+export const clearWorkspaceCache = (workspaceId: string) => {
+  console.log('🧹 清理工作空间缓存:', workspaceId);
+  delete workspaceStates[workspaceId];
+  delete workspaceCaches[workspaceId];
+};
+
+// 清理所有缓存
+export const clearAllCache = () => {
+  console.log('🧹 清理所有文件树缓存');
+  Object.keys(workspaceStates).forEach(key => delete workspaceStates[key]);
+  Object.keys(workspaceCaches).forEach(key => delete workspaceCaches[key]);
+};
 
 interface FileTreeItemProps {
   file: FileItem;
@@ -90,7 +106,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
         }
       };
       setFileCache(newCache);
-      globalFileCache = newCache;
+      workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       console.error('加载文件夹内容失败:', error);
     } finally {
@@ -113,7 +129,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
         [file.path]: !isExpanded
       };
       setExpandedState(newExpandedState);
-      globalExpandedState = newExpandedState;
+      if (currentWorkspace) {
+        workspaceStates[currentWorkspace] = newExpandedState;
+      }
 
       // 如果展开且还没有子文件，则加载
       if (!isExpanded) {
@@ -146,7 +164,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     }
     
     setFileCache(newCache);
-    globalFileCache = newCache;
+    if (currentWorkspace) {
+      workspaceCaches[currentWorkspace] = newCache;
+    }
   };
 
   // 拖拽相关处理
@@ -198,7 +218,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
         delete newCache[sourceParentPath]; // 源目录
       }
       setFileCache(newCache);
-      globalFileCache = newCache;
+      if (currentWorkspace) {
+        workspaceCaches[currentWorkspace] = newCache;
+      }
     }
   };
 
@@ -210,7 +232,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     const newCache = { ...fileCache };
     delete newCache[parentPath];
     setFileCache(newCache);
-    globalFileCache = newCache;
+    if (currentWorkspace) {
+      workspaceCaches[currentWorkspace] = newCache;
+    }
   };
 
   const handleCreateFolderWrapper = (parentPath: string) => {
@@ -220,7 +244,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     const newCache = { ...fileCache };
     delete newCache[parentPath];
     setFileCache(newCache);
-    globalFileCache = newCache;
+    if (currentWorkspace) {
+      workspaceCaches[currentWorkspace] = newCache;
+    }
   };
 
   const paddingLeft = level * 16;
@@ -319,6 +345,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 
 const FileTree: React.FC = () => {
   const { files, openFile, deleteFile, renameFile, createFile, createFolder, moveFile } = useFile();
+  const { currentWorkspace } = useWorkspace();
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -328,15 +355,30 @@ const FileTree: React.FC = () => {
   const [renameFilePath, setRenameFilePath] = useState('');
   const [renameNewName, setRenameNewName] = useState('');
   
-  // 使用全局状态
-  const [expandedState, setExpandedState] = useState<ExpandedState>(globalExpandedState);
-  const [fileCache, setFileCache] = useState<FileCache>(globalFileCache);
+  // 使用工作空间状态和缓存
+  const [expandedState, setExpandedState] = useState<ExpandedState>(workspaceStates[currentWorkspace || ''] || {});
+  const [fileCache, setFileCache] = useState<FileCache>(workspaceCaches[currentWorkspace || ''] || {});
+
+  // 监听工作空间切换，清理状态和缓存
+  useEffect(() => {
+    if (currentWorkspace) {
+      console.log('🔄 FileTree: 工作空间切换到', currentWorkspace);
+      setExpandedState(workspaceStates[currentWorkspace] || {});
+      setFileCache(workspaceCaches[currentWorkspace] || {});
+    } else {
+      console.log('🔄 FileTree: 清空工作空间状态');
+      setExpandedState({});
+      setFileCache({});
+    }
+  }, [currentWorkspace]);
 
   // 监听files变化，更新展开状态
   useEffect(() => {
-    setExpandedState(globalExpandedState);
-    setFileCache(globalFileCache);
-  }, [files]);
+    if (currentWorkspace) {
+      setExpandedState(workspaceStates[currentWorkspace] || {});
+      setFileCache(workspaceCaches[currentWorkspace] || {});
+    }
+  }, [files, currentWorkspace]);
 
   const handleFileClick = (file: FileItem) => {
     if (!file.is_dir) {
@@ -376,7 +418,7 @@ const FileTree: React.FC = () => {
         delete newCache[parentPath];
       }
       setFileCache(newCache);
-      globalFileCache = newCache;
+      workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`重命名失败: ${errorMessage}`);
@@ -407,7 +449,7 @@ const FileTree: React.FC = () => {
       const newCache = { ...fileCache };
       delete newCache[newFileParentPath];
       setFileCache(newCache);
-      globalFileCache = newCache;
+      workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`创建文件失败: ${errorMessage}`);
@@ -428,7 +470,7 @@ const FileTree: React.FC = () => {
       const newCache = { ...fileCache };
       delete newCache[newFileParentPath];
       setFileCache(newCache);
-      globalFileCache = newCache;
+      workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`创建文件夹失败: ${errorMessage}`);
@@ -448,7 +490,7 @@ const FileTree: React.FC = () => {
       delete newCache[targetParentPath];
       
       setFileCache(newCache);
-      globalFileCache = newCache;
+      workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       alert(`移动文件失败: ${errorMessage}`);

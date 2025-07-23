@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import type { FileItem, Tab } from '../types';
 import { fileAPI } from '../services/api';
+import { clearWorkspaceCache, clearAllCache } from '../components/FileTree';
 
 interface FileContextType {
   files: FileItem[];
@@ -39,9 +40,10 @@ export const useFile = () => {
 interface FileProviderProps {
   children: React.ReactNode;
   currentWorkspace: string | null;
+  workspaceStatus?: string; // 添加工作空间状态
 }
 
-export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWorkspace }) => {
+export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWorkspace, workspaceStatus }) => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [currentDirectory, setCurrentDirectory] = useState('');
   const [openTabs, setOpenTabs] = useState<Map<string, Tab>>(new Map());
@@ -59,24 +61,33 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
   openTabsRef.current = openTabs;
 
   const loadFileTree = useCallback(async (workspaceId: string, path: string = '') => {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      console.log('⚠️ 没有工作空间ID，跳过加载');
+      return;
+    }
 
+    console.log(`📁 加载文件树: 工作空间=${workspaceId}, 路径=${path || '/'}`);
     setIsLoading(true);
     setError(null);
+    
     try {
       const data = await fileAPI.getFileTree(workspaceId, path);
+      console.log(`✅ 文件树加载成功: ${Array.isArray(data) ? data.length : 0} 项`);
+      
       // 确保 data 是数组
-      setFiles(Array.isArray(data) ? data : []);
+      const fileList = Array.isArray(data) ? data : [];
+      setFiles(fileList);
       setCurrentDirectory(path);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '加载文件树失败';
+      console.error('❌ 加载文件树失败:', errorMessage, err);
       setError(errorMessage);
       // 设置空数组避免渲染错误
       setFiles([]);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, []); // 移除所有依赖，使其更稳定
 
   const loadSubFiles = useCallback(async (workspaceId: string, path: string): Promise<FileItem[]> => {
     if (!workspaceId) return [];
@@ -370,18 +381,55 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
 
   // 当工作空间改变时，清空文件相关状态并重新加载
   React.useEffect(() => {
+    console.log('🔄 工作空间变化:', currentWorkspace);
+    
     if (!currentWorkspace) {
+      // 清空所有状态
+      console.log('清空文件系统状态');
       setFiles([]);
       setCurrentDirectory('');
       setOpenTabs(new Map());
       setActiveTab(null);
       setCurrentFile(null);
       setError(null);
+      setIsLoading(false);
+      
+      // 清理所有文件树缓存
+      clearAllCache();
     } else {
-      // 当工作空间改变时，自动加载根目录
-      loadFileTree(currentWorkspace, '');
+      // 立即清空当前状态，然后加载新工作空间的文件
+      console.log('🔄 切换到工作空间:', currentWorkspace);
+      
+      // 清理旧的文件树缓存
+      clearAllCache();
+      
+      setFiles([]);
+      setCurrentDirectory('');
+      setError(null);
+      
+      // 立即加载新工作空间的根目录
+      const loadNewWorkspace = async () => {
+        try {
+          console.log('📁 开始加载工作空间文件:', currentWorkspace);
+          await loadFileTree(currentWorkspace, '');
+          console.log('✅ 工作空间文件加载完成');
+        } catch (error) {
+          console.error('❌ 加载工作空间文件失败:', error);
+          setError(error instanceof Error ? error.message : '加载文件失败');
+        }
+      };
+      
+      loadNewWorkspace();
     }
-  }, [currentWorkspace, loadFileTree]);
+  }, [currentWorkspace]); // 移除loadFileTree依赖，避免循环依赖
+
+  // 监听工作空间状态变化，当状态变为running时刷新文件列表
+  React.useEffect(() => {
+    if (currentWorkspace && workspaceStatus === 'running' && files.length === 0) {
+      console.log('🔄 工作空间状态变为running，刷新文件列表');
+      loadFileTree(currentWorkspace, currentDirectory);
+    }
+  }, [workspaceStatus, currentWorkspace, files.length, currentDirectory]);
 
   const value: FileContextType = {
     files,

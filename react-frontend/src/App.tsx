@@ -307,10 +307,15 @@ const App: React.FC = () => {
 
 // 工作空间消费者组件
 const WorkspaceConsumer: React.FC = () => {
-  const { currentWorkspace } = useWorkspace();
+  const { currentWorkspace, workspaces } = useWorkspace();
+  
+  // 获取当前工作空间的状态
+  const currentWorkspaceStatus = currentWorkspace 
+    ? workspaces.find(ws => ws.id === currentWorkspace)?.status 
+    : undefined;
   
   return (
-    <FileProvider currentWorkspace={currentWorkspace}>
+    <FileProvider currentWorkspace={currentWorkspace} workspaceStatus={currentWorkspaceStatus}>
       <ImageProvider>
         <MultiTerminalProvider>
           <AppContent />

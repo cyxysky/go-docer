@@ -1462,9 +1462,10 @@ func (oem *OnlineEditorManager) ListFiles(workspaceID, path string) ([]FileInfo,
 		return nil, fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
 
-	// 如果工作空间未运行，返回错误
-	if workspace.Status != "running" {
-		return nil, fmt.Errorf("工作空间未运行: %s", workspaceID)
+	// 只在工作空间明确失败或停止时才禁止访问文件系统
+	// 允许在pending、creating、starting、initializing、running状态下访问
+	if workspace.Status == "failed" || workspace.Status == "stopped" {
+		return nil, fmt.Errorf("工作空间状态异常，无法访问文件系统。当前状态: %s", workspace.Status)
 	}
 
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
@@ -1481,9 +1482,14 @@ func (oem *OnlineEditorManager) ListFiles(workspaceID, path string) ([]FileInfo,
 		return nil, fmt.Errorf("访问路径超出工作空间范围")
 	}
 
-	// 检查目录是否存在
+	// 检查目录是否存在，如果不存在则创建
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("目录不存在: %s", path)
+		// 尝试创建目录
+		if err := os.MkdirAll(fullPath, 0755); err != nil {
+			return nil, fmt.Errorf("目录不存在且创建失败: %s, 错误: %v", path, err)
+		}
+		// 创建成功后返回空文件列表
+		return []FileInfo{}, nil
 	}
 
 	entries, err := os.ReadDir(fullPath)
@@ -1528,9 +1534,9 @@ func (oem *OnlineEditorManager) ReadFile(workspaceID, filePath string) (string, 
 		return "", fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
 
-	// 如果工作空间未运行，返回错误
-	if workspace.Status != "running" {
-		return "", fmt.Errorf("工作空间未运行: %s", workspaceID)
+	// 只在工作空间明确失败或停止时才禁止访问文件系统
+	if workspace.Status == "failed" || workspace.Status == "stopped" {
+		return "", fmt.Errorf("工作空间状态异常，无法访问文件系统。当前状态: %s", workspace.Status)
 	}
 
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
@@ -1559,9 +1565,9 @@ func (oem *OnlineEditorManager) WriteFile(workspaceID, filePath, content string)
 		return fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
 
-	// 如果工作空间未运行，返回错误
-	if workspace.Status != "running" {
-		return fmt.Errorf("工作空间未运行: %s", workspaceID)
+	// 只在工作空间明确失败或停止时才禁止访问文件系统
+	if workspace.Status == "failed" || workspace.Status == "stopped" {
+		return fmt.Errorf("工作空间状态异常，无法访问文件系统。当前状态: %s", workspace.Status)
 	}
 
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
@@ -1621,9 +1627,9 @@ func (oem *OnlineEditorManager) CreateFile(workspaceID, filePath string) error {
 		return fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
 
-	// 如果工作空间未运行，返回错误
-	if workspace.Status != "running" {
-		return fmt.Errorf("工作空间未运行: %s", workspaceID)
+	// 只在工作空间明确失败或停止时才禁止访问文件系统
+	if workspace.Status == "failed" || workspace.Status == "stopped" {
+		return fmt.Errorf("工作空间状态异常，无法访问文件系统。当前状态: %s", workspace.Status)
 	}
 
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
@@ -1665,9 +1671,9 @@ func (oem *OnlineEditorManager) CreateFolder(workspaceID, folderPath string) err
 		return fmt.Errorf("工作空间不存在: %s", workspaceID)
 	}
 
-	// 如果工作空间未运行，返回错误
-	if workspace.Status != "running" {
-		return fmt.Errorf("工作空间未运行: %s", workspaceID)
+	// 只在工作空间明确失败或停止时才禁止访问文件系统
+	if workspace.Status == "failed" || workspace.Status == "stopped" {
+		return fmt.Errorf("工作空间状态异常，无法访问文件系统。当前状态: %s", workspace.Status)
 	}
 
 	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)

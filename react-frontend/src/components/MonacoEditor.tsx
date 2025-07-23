@@ -145,7 +145,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
             horizontalScrollbarSize: 12,
           },
           folding: true,
-          wordWrap: 'on',
+          wordWrap: 'off',
           renderWhitespace: 'selection',
           selectOnLineNumbers: true,
           contextmenu: true,

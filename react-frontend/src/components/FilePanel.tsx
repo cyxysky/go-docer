@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFile } from '../contexts/FileContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import FileTree from './FileTree';
@@ -20,8 +20,19 @@ const FilePanel: React.FC = () => {
   const [newFileName, setNewFileName] = useState('');
   const [newFolderName, setNewFolderName] = useState('');
 
+  // 监听工作空间变化，提供用户反馈
+  useEffect(() => {
+    if (currentWorkspace) {
+      console.log('🔄 FilePanel: 工作空间已切换到', currentWorkspace);
+    }
+  }, [currentWorkspace]);
+
   const handleRefresh = async () => {
-    if (!currentWorkspace) return;
+    if (!currentWorkspace) {
+      console.log('⚠️ 没有选择工作空间，无法刷新');
+      return;
+    }
+    console.log('🔄 手动刷新文件树');
     await refreshFileTree();
   };
 
