@@ -150,6 +150,13 @@ type OnlineEditorManager struct {
 	downloadsDir   string                   // 下载文件存储目录
 	downloads      map[string]*DownloadInfo // 下载信息管理
 	downloadsMutex sync.RWMutex             // 下载信息锁
+
+	// 新增：自定义镜像管理
+	customImages      map[string]*ImageConfig // 自定义镜像配置
+	customImagesMutex sync.RWMutex            // 自定义镜像锁
+
+	// 新增：镜像源管理
+	registryManager *RegistryManager // 镜像源管理器
 }
 
 // 脚本和命令管理
@@ -439,57 +446,126 @@ func filterTerminalOutput(text string) string {
 	return strings.Join(cleanLines, "\n")
 }
 
+// 镜像配置结构
+type ImageConfig struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Shell       string            `json:"shell"`
+	Environment map[string]string `json:"environment"`
+	Tags        []string          `json:"tags,omitempty"`
+	Size        int64             `json:"size,omitempty"`
+	Created     time.Time         `json:"created,omitempty"`
+	IsCustom    bool              `json:"is_custom"`
+}
+
+// 自定义镜像请求
+type CustomImageRequest struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Shell       string            `json:"shell"`
+	Environment map[string]string `json:"environment"`
+}
+
 // 预加载的镜像配置 - 使用Slim镜像提供更好的兼容性
-var preloadedImages = map[string]map[string]interface{}{
+var preloadedImages = map[string]*ImageConfig{
 	"node:18-slim": {
-		"description": "Node.js 18 开发环境 (Debian Slim)",
-		"shell":       "/bin/bash",
-		"env": map[string]string{
+		Name:        "node:18-slim",
+		Description: "Node.js 18 开发环境 (Debian Slim)",
+		Shell:       "/bin/bash",
+		Environment: map[string]string{
 			"NODE_ENV":          "development",
 			"NPM_CONFIG_PREFIX": "/usr/local",
 		},
+		IsCustom: false,
 	},
 	"python:3.11-slim": {
-		"description": "Python 3.11 开发环境 (Debian Slim)",
-		"shell":       "/bin/bash",
-		"env": map[string]string{
+		Name:        "python:3.11-slim",
+		Description: "Python 3.11 开发环境 (Debian Slim)",
+		Shell:       "/bin/bash",
+		Environment: map[string]string{
 			"PYTHONPATH":       "/workspace",
 			"PYTHONUNBUFFERED": "1",
 			"PIP_NO_CACHE_DIR": "1",
 		},
+		IsCustom: false,
 	},
 	"golang:1.24-slim": {
-		"description": "Go 1.24 开发环境 (Debian Slim)",
-		"shell":       "/bin/bash",
-		"env": map[string]string{
+		Name:        "golang:1.24-slim",
+		Description: "Go 1.24 开发环境 (Debian Slim)",
+		Shell:       "/bin/bash",
+		Environment: map[string]string{
 			"GOPATH":      "/go",
 			"GOROOT":      "/usr/local/go",
 			"CGO_ENABLED": "0",
 		},
+		IsCustom: false,
 	},
 	"openjdk:17-slim": {
-		"description": "Java 17 开发环境 (Debian Slim)",
-		"shell":       "/bin/bash",
-		"env": map[string]string{
+		Name:        "openjdk:17-slim",
+		Description: "Java 17 开发环境 (Debian Slim)",
+		Shell:       "/bin/bash",
+		Environment: map[string]string{
 			"JAVA_HOME":  "/usr/local/openjdk-17",
 			"MAVEN_HOME": "/usr/share/maven",
 		},
+		IsCustom: false,
 	},
 	"php:8.2-cli-slim": {
-		"description": "PHP 8.2 CLI 开发环境 (Debian Slim)",
-		"shell":       "/bin/bash",
-		"env": map[string]string{
+		Name:        "php:8.2-cli-slim",
+		Description: "PHP 8.2 CLI 开发环境 (Debian Slim)",
+		Shell:       "/bin/bash",
+		Environment: map[string]string{
 			"PHP_INI_DIR": "/usr/local/etc/php",
 			"PHP_CFLAGS":  "-fstack-protector-strong -fpic -fpie -O2",
 		},
+		IsCustom: false,
 	},
 	"ruby:3.2-slim": {
-		"description": "Ruby 3.2 开发环境 (Debian Slim)",
-		"shell":       "/bin/bash",
-		"env": map[string]string{
+		Name:        "ruby:3.2-slim",
+		Description: "Ruby 3.2 开发环境 (Debian Slim)",
+		Shell:       "/bin/bash",
+		Environment: map[string]string{
 			"RUBY_VERSION": "3.2",
 			"GEM_HOME":     "/usr/local/bundle",
 		},
+		IsCustom: false,
+	},
+}
+
+// 默认环境变量模板
+var defaultEnvironmentTemplates = map[string]map[string]string{
+	"base": {
+		"PATH":            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"TERM":            "xterm-256color",
+		"HOME":            "/root",
+		"USER":            "root",
+		"SHELL":           "/bin/bash",
+		"LANG":            "C.UTF-8",
+		"LC_ALL":          "C.UTF-8",
+		"DEBIAN_FRONTEND": "noninteractive",
+		"TZ":              "Asia/Shanghai",
+	},
+	"node": {
+		"NODE_ENV":          "development",
+		"NPM_CONFIG_PREFIX": "/usr/local",
+		"NPM_CONFIG_CACHE":  "/tmp/.npm",
+	},
+	"python": {
+		"PYTHONPATH":              "/workspace",
+		"PYTHONUNBUFFERED":        "1",
+		"PIP_NO_CACHE_DIR":        "1",
+		"PYTHONDONTWRITEBYTECODE": "1",
+	},
+	"golang": {
+		"GOPATH":      "/go",
+		"GOROOT":      "/usr/local/go",
+		"CGO_ENABLED": "0",
+		"GOPROXY":     "https://goproxy.cn,direct",
+	},
+	"java": {
+		"JAVA_HOME":   "/usr/local/openjdk-17",
+		"MAVEN_HOME":  "/usr/share/maven",
+		"GRADLE_HOME": "/opt/gradle",
 	},
 }
 
@@ -534,12 +610,15 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 				return true // 允许所有来源
 			},
 		},
-		dockerClient:   dockerCli,
-		networkName:    networkName,
-		portPool:       make(map[int]bool),
-		downloadsDir:   downloadsDir,
-		downloads:      make(map[string]*DownloadInfo),
-		downloadsMutex: sync.RWMutex{},
+		dockerClient:      dockerCli,
+		networkName:       networkName,
+		portPool:          make(map[int]bool),
+		downloadsDir:      downloadsDir,
+		downloads:         make(map[string]*DownloadInfo),
+		downloadsMutex:    sync.RWMutex{},
+		customImages:      make(map[string]*ImageConfig),
+		customImagesMutex: sync.RWMutex{},
+		registryManager:   NewRegistryManager(), // 初始化镜像源管理器
 	}
 
 	// 启动时恢复现有工作空间
@@ -769,11 +848,19 @@ func (oem *OnlineEditorManager) releasePort(port int) {
 }
 
 // 创建工作空间
-func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch string, customPorts []PortMapping, selectedTools []string) (*Workspace, error) {
+func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch string, customPorts []PortMapping, selectedTools []string, customEnvironment map[string]string) (*Workspace, error) {
 	// 先进行基本验证，不持有锁
 	imageConfig, exists := preloadedImages[images]
 	if !exists {
-		return nil, fmt.Errorf("不支持的镜像: %s", images)
+		// 检查自定义镜像
+		oem.customImagesMutex.RLock()
+		customConfig, customExists := oem.customImages[images]
+		oem.customImagesMutex.RUnlock()
+
+		if !customExists {
+			return nil, fmt.Errorf("不支持的镜像: %s", images)
+		}
+		imageConfig = customConfig
 	}
 
 	workspaceID := generateWorkspaceID()
@@ -815,9 +902,17 @@ func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch
 		},
 	}
 
-	// 设置环境变量
-	if env, ok := imageConfig["env"].(map[string]string); ok {
-		workspace.Environment = env
+	// 设置环境变量 - 合并镜像默认环境变量和用户自定义环境变量
+	workspace.Environment = make(map[string]string)
+
+	// 先添加镜像默认环境变量
+	for k, v := range imageConfig.Environment {
+		workspace.Environment[k] = v
+	}
+
+	// 然后添加用户自定义环境变量（会覆盖同名的默认变量）
+	for k, v := range customEnvironment {
+		workspace.Environment[k] = v
 	}
 
 	// 短暂持有锁，只用于添加到map
@@ -840,7 +935,7 @@ func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch
 }
 
 // 初始化容器 - 分阶段进行，增加超时和错误处理
-func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images, workspaceDir string, imageConfig map[string]interface{}) error {
+func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images, workspaceDir string, imageConfig *ImageConfig) error {
 	workspaceID := workspace.ID
 
 	// 设置总超时时间（5分钟）
@@ -892,16 +987,14 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 
 	// 设置环境变量
 	envs := []string{}
-	if env, ok := imageConfig["env"].(map[string]string); ok {
-		for k, v := range env {
-			envs = append(envs, fmt.Sprintf("%s=%s", k, v))
-		}
+	for k, v := range imageConfig.Environment {
+		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 	}
 
 	// 获取镜像配置中的Shell信息
-	defaultShell := "/bin/bash"
-	if shell, ok := imageConfig["shell"].(string); ok {
-		defaultShell = shell
+	defaultShell := imageConfig.Shell
+	if defaultShell == "" {
+		defaultShell = "/bin/bash"
 	}
 
 	// 添加基础环境变量 - 优化Slim镜像兼容性
@@ -1338,10 +1431,8 @@ func (oem *OnlineEditorManager) recreateContainer(workspace *Workspace) error {
 	}
 
 	// 添加镜像特定的环境变量
-	if env, ok := imageConfig["env"].(map[string]string); ok {
-		for k, v := range env {
-			envs = append(envs, fmt.Sprintf("%s=%s", k, v))
-		}
+	for k, v := range imageConfig.Environment {
+		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 	}
 
 	// 处理端口映射 - 与创建时保持一致
@@ -2488,16 +2579,25 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 
 	// 镜像管理
 	api.HandleFunc("/images", oem.handleListImages).Methods("GET")
+	api.HandleFunc("/images/available", oem.handleListAvailableImages).Methods("GET")
+	api.HandleFunc("/images/templates", oem.handleGetEnvironmentTemplates).Methods("GET")
+	api.HandleFunc("/images/custom", oem.handleAddCustomImage).Methods("POST")
+	api.HandleFunc("/images/custom/{name}", oem.handleDeleteCustomImage).Methods("DELETE")
+	api.HandleFunc("/images/custom/{name}", oem.handleUpdateCustomImage).Methods("PUT")
 	api.HandleFunc("/images/{imageName}", oem.handlePullImage).Methods("POST")
 	api.HandleFunc("/images/{imageId}", oem.handleDeleteImage).Methods("DELETE")
+	api.HandleFunc("/images/search/data", oem.handleSearchDockerHub).Methods("POST") // 新增搜索API
+
+	// 镜像源管理
+	api.HandleFunc("/registries", oem.handleGetRegistries).Methods("GET")
+	api.HandleFunc("/registries", oem.handleAddRegistry).Methods("POST")
+	api.HandleFunc("/registries/{code}", oem.handleUpdateRegistry).Methods("PUT")
+	api.HandleFunc("/registries/{code}", oem.handleDeleteRegistry).Methods("DELETE")
+	api.HandleFunc("/registries/{code}/toggle", oem.handleToggleRegistry).Methods("POST")
 
 	// 容器状态监控
 	api.HandleFunc("/containers/{containerId}/status", oem.handleGetContainerStatus).Methods("GET")
 	api.HandleFunc("/containers/{containerId}/stats", oem.handleGetContainerStats).Methods("GET")
-
-	// IP池管理
-	api.HandleFunc("/network/ip-pool/stats", oem.handleGetIPPoolStats).Methods("GET")
-	api.HandleFunc("/network/ip-pool/allocations", oem.handleGetIPAllocations).Methods("GET")
 
 	// 端口访问管理
 	api.HandleFunc("/workspaces/{id}/ports/check", oem.handleCheckPorts).Methods("POST")
@@ -2537,12 +2637,13 @@ func (oem *OnlineEditorManager) handleListWorkspaces(w http.ResponseWriter, r *h
 
 func (oem *OnlineEditorManager) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name      string        `json:"name"`
-		Image     string        `json:"image"`
-		GitRepo   string        `json:"git_repo"`
-		GitBranch string        `json:"git_branch"`
-		Ports     []PortMapping `json:"ports"`
-		Tools     []string      `json:"tools"`
+		Name        string            `json:"name"`
+		Image       string            `json:"image"`
+		GitRepo     string            `json:"git_repo"`
+		GitBranch   string            `json:"git_branch"`
+		Ports       []PortMapping     `json:"ports"`
+		Tools       []string          `json:"tools"`
+		Environment map[string]string `json:"environment"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -2550,7 +2651,12 @@ func (oem *OnlineEditorManager) handleCreateWorkspace(w http.ResponseWriter, r *
 		return
 	}
 
-	workspace, err := oem.CreateWorkspace(req.Name, req.Image, req.GitRepo, req.GitBranch, req.Ports, req.Tools)
+	// 如果没有提供环境变量，初始化为空map
+	if req.Environment == nil {
+		req.Environment = make(map[string]string)
+	}
+
+	workspace, err := oem.CreateWorkspace(req.Name, req.Image, req.GitRepo, req.GitBranch, req.Ports, req.Tools, req.Environment)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2841,8 +2947,8 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 	// 获取镜像配置中的Shell信息
 	defaultShell := "/bin/bash"
 	if imageConfig, exists := preloadedImages[workspace.Image]; exists {
-		if shell, ok := imageConfig["shell"].(string); ok {
-			defaultShell = shell
+		if imageConfig.Shell != "" {
+			defaultShell = imageConfig.Shell
 		}
 	}
 
@@ -3094,6 +3200,118 @@ func (oem *OnlineEditorManager) handleListImages(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(imageList)
 }
 
+// 获取所有可用镜像配置
+func (oem *OnlineEditorManager) handleListAvailableImages(w http.ResponseWriter, r *http.Request) {
+	images, err := oem.GetAvailableImages()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("获取可用镜像失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(images)
+}
+
+// 获取环境变量模板
+func (oem *OnlineEditorManager) handleGetEnvironmentTemplates(w http.ResponseWriter, r *http.Request) {
+	templates := oem.GetEnvironmentTemplates()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(templates)
+}
+
+// 添加自定义镜像
+func (oem *OnlineEditorManager) handleAddCustomImage(w http.ResponseWriter, r *http.Request) {
+	var req CustomImageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	config, err := oem.AddCustomImage(req)
+	if err != nil {
+		http.Error(w, "添加自定义镜像失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(config)
+}
+
+// DeleteCustomImage 删除自定义镜像配置
+func (oem *OnlineEditorManager) DeleteCustomImage(imageName string) error {
+	oem.customImagesMutex.Lock()
+	defer oem.customImagesMutex.Unlock()
+
+	if _, exists := oem.customImages[imageName]; !exists {
+		return fmt.Errorf("custom image configuration not found: %s", imageName)
+	}
+
+	delete(oem.customImages, imageName)
+	return nil
+}
+
+// 删除自定义镜像配置
+func (oem *OnlineEditorManager) handleDeleteCustomImage(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	imageName := vars["name"]
+
+	err := oem.DeleteCustomImage(imageName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// UpdateCustomImage 更新自定义镜像配置
+func (oem *OnlineEditorManager) UpdateCustomImage(imageName string, req CustomImageRequest) (*ImageConfig, error) {
+	oem.customImagesMutex.Lock()
+	defer oem.customImagesMutex.Unlock()
+
+	existingConfig, exists := oem.customImages[imageName]
+	if !exists {
+		return nil, fmt.Errorf("custom image configuration not found: %s", imageName)
+	}
+
+	// 更新配置
+	updatedConfig := &ImageConfig{
+		Name:        imageName, // 不允许修改名称
+		Description: req.Description,
+		Shell:       req.Shell,
+		Environment: req.Environment,
+		Tags:        existingConfig.Tags,
+		Size:        existingConfig.Size,
+		Created:     existingConfig.Created,
+		IsCustom:    true,
+	}
+
+	oem.customImages[imageName] = updatedConfig
+	return updatedConfig, nil
+}
+
+// 更新自定义镜像配置
+func (oem *OnlineEditorManager) handleUpdateCustomImage(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	imageName := vars["name"]
+
+	var req CustomImageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	imageConfig, err := oem.UpdateCustomImage(imageName, req)
+	if err != nil {
+		http.Error(w, "更新镜像配置失败: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(imageConfig)
+}
+
 func (oem *OnlineEditorManager) handlePullImage(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	imageName := vars["imageName"]
@@ -3142,26 +3360,6 @@ func (oem *OnlineEditorManager) handleGetContainerStats(w http.ResponseWriter, r
 	}
 
 	json.NewEncoder(w).Encode(stats)
-}
-
-func (oem *OnlineEditorManager) handleGetIPPoolStats(w http.ResponseWriter, r *http.Request) {
-	// IP池功能已移除，返回简化的网络统计
-	stats := map[string]interface{}{
-		"message": "IP池功能已移除，现在使用简化的端口绑定模式",
-		"mode":    "port_binding",
-	}
-	json.NewEncoder(w).Encode(stats)
-}
-
-func (oem *OnlineEditorManager) handleGetIPAllocations(w http.ResponseWriter, r *http.Request) {
-	// IP分配功能已移除
-	allocations := []map[string]interface{}{
-		{
-			"message": "IP分配功能已移除，现在使用默认Docker网络",
-			"mode":    "port_binding",
-		},
-	}
-	json.NewEncoder(w).Encode(allocations)
 }
 
 func (oem *OnlineEditorManager) handleToggleFavorite(w http.ResponseWriter, r *http.Request) {
@@ -3418,6 +3616,190 @@ func (oem *OnlineEditorManager) UpdateWorkspaceStatus(workspaceID string) error 
 	return nil
 }
 
+// 创建镜像源管理器
+func NewRegistryManager() *RegistryManager {
+	rm := &RegistryManager{
+		registries: make(map[string]*RegistryConfig),
+		mutex:      sync.RWMutex{},
+	}
+
+	// 预设镜像源配置
+	presetRegistries := []*RegistryConfig{
+		{
+			Name:        "Docker Hub (官方)",
+			Code:        "dockerhub",
+			BaseURL:     "docker.io",
+			Description: "Docker官方镜像仓库",
+			Type:        "docker_cli",
+			Enabled:     true,
+			IsDefault:   true,
+		},
+		{
+			Name:        "阿里云容器镜像服务",
+			Code:        "aliyun",
+			BaseURL:     "cr.console.aliyun.com",
+			Description: "阿里云提供的容器镜像服务，国内访问速度快",
+			Type:        "registry",
+			Enabled:     true,
+			IsDefault:   true,
+		},
+		{
+			Name:        "网易云镜像中心",
+			Code:        "netease",
+			BaseURL:     "hub-mirror.c.163.com",
+			Description: "网易云提供的Docker镜像加速服务",
+			Type:        "registry",
+			Enabled:     true,
+			IsDefault:   true,
+		},
+		{
+			Name:        "腾讯云镜像中心",
+			Code:        "tencent",
+			BaseURL:     "mirror.ccs.tencentyun.com",
+			Description: "腾讯云提供的Docker镜像加速服务",
+			Type:        "registry",
+			Enabled:     true,
+			IsDefault:   true,
+		},
+		{
+			Name:        "轩辕云镜像中心",
+			Code:        "xuanyuan",
+			BaseURL:     "docker.xuanyuan.me",
+			Description: "轩辕云提供的Docker镜像加速服务",
+			Type:        "registry",
+			Enabled:     true,
+			IsDefault:   true,
+		},
+	}
+	// 注册预设镜像源
+	for _, registry := range presetRegistries {
+		rm.registries[registry.Code] = registry
+	}
+
+	return rm
+}
+
+// 获取所有镜像源
+func (rm *RegistryManager) GetAllRegistries() []*RegistryConfig {
+	rm.mutex.RLock()
+	defer rm.mutex.RUnlock()
+
+	var registries []*RegistryConfig
+	for _, registry := range rm.registries {
+		registries = append(registries, registry)
+	}
+	return registries
+}
+
+// 获取启用的镜像源
+func (rm *RegistryManager) GetEnabledRegistries() []*RegistryConfig {
+	rm.mutex.RLock()
+	defer rm.mutex.RUnlock()
+
+	var registries []*RegistryConfig
+	for _, registry := range rm.registries {
+		if registry.Enabled {
+			registries = append(registries, registry)
+		}
+	}
+	return registries
+}
+
+// 获取指定镜像源
+func (rm *RegistryManager) GetRegistry(code string) *RegistryConfig {
+	rm.mutex.RLock()
+	defer rm.mutex.RUnlock()
+
+	if registry, exists := rm.registries[code]; exists {
+		return registry
+	}
+	return nil
+}
+
+// 更新镜像源状态
+func (rm *RegistryManager) UpdateRegistryStatus(code string, enabled bool) error {
+	rm.mutex.Lock()
+	defer rm.mutex.Unlock()
+
+	if registry, exists := rm.registries[code]; exists {
+		registry.Enabled = enabled
+		return nil
+	}
+	return fmt.Errorf("镜像源不存在: %s", code)
+}
+
+// 添加镜像源
+func (rm *RegistryManager) AddRegistry(req RegistryRequest) error {
+	rm.mutex.Lock()
+	defer rm.mutex.Unlock()
+
+	// 检查代码是否已存在
+	if _, exists := rm.registries[req.Code]; exists {
+		return fmt.Errorf("镜像源代码已存在: %s", req.Code)
+	}
+
+	// 验证必要字段
+	if req.Name == "" || req.Code == "" || req.BaseURL == "" {
+		return fmt.Errorf("名称、代码和基础URL不能为空")
+	}
+
+	registry := &RegistryConfig{
+		Name:        req.Name,
+		Code:        req.Code,
+		BaseURL:     req.BaseURL,
+		Description: req.Description,
+		Type:        req.Type,
+		Enabled:     true,
+		IsDefault:   false,
+	}
+
+	rm.registries[req.Code] = registry
+	return nil
+}
+
+// 更新镜像源
+func (rm *RegistryManager) UpdateRegistry(code string, req RegistryRequest) error {
+	rm.mutex.Lock()
+	defer rm.mutex.Unlock()
+
+	registry, exists := rm.registries[code]
+	if !exists {
+		return fmt.Errorf("镜像源不存在: %s", code)
+	}
+
+	// 验证必要字段
+	if req.Name == "" || req.BaseURL == "" {
+		return fmt.Errorf("名称和基础URL不能为空")
+	}
+
+	// 更新字段
+	registry.Name = req.Name
+	registry.BaseURL = req.BaseURL
+	registry.Description = req.Description
+	registry.Type = req.Type
+
+	return nil
+}
+
+// 删除镜像源
+func (rm *RegistryManager) DeleteRegistry(code string) error {
+	rm.mutex.Lock()
+	defer rm.mutex.Unlock()
+
+	registry, exists := rm.registries[code]
+	if !exists {
+		return fmt.Errorf("镜像源不存在: %s", code)
+	}
+
+	// 默认镜像源不能删除
+	if registry.IsDefault {
+		return fmt.Errorf("默认镜像源不能删除: %s", code)
+	}
+
+	delete(rm.registries, code)
+	return nil
+}
+
 // 获取容器资源使用情况
 func (oem *OnlineEditorManager) GetContainerStats(containerID string) (map[string]interface{}, error) {
 	ctx := context.Background()
@@ -3445,6 +3827,89 @@ func (oem *OnlineEditorManager) GetContainerStats(containerID string) (map[strin
 		"memory_limit": containerStats.MemoryStats.Limit,
 		"memory_used":  containerStats.MemoryStats.Usage,
 	}, nil
+}
+
+// 添加自定义镜像
+func (oem *OnlineEditorManager) AddCustomImage(req CustomImageRequest) (*ImageConfig, error) {
+	// 验证镜像名称格式
+	if req.Name == "" {
+		return nil, fmt.Errorf("镜像名称不能为空")
+	}
+
+	// 设置默认值
+	if req.Shell == "" {
+		req.Shell = "/bin/bash"
+	}
+	if req.Description == "" {
+		req.Description = fmt.Sprintf("自定义镜像 %s", req.Name)
+	}
+	if req.Environment == nil {
+		req.Environment = make(map[string]string)
+	}
+
+	// 尝试拉取镜像
+	ctx := context.Background()
+	log.Printf("开始拉取自定义镜像: %s", req.Name)
+
+	out, err := oem.dockerClient.ImagePull(ctx, req.Name, imageTypes.PullOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("拉取镜像失败: %v", err)
+	}
+	defer out.Close()
+
+	// 读取拉取输出（非阻塞）
+	go func() {
+		io.Copy(io.Discard, out)
+	}()
+
+	// 获取镜像信息
+	imageInfo, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, req.Name)
+	if err != nil {
+		return nil, fmt.Errorf("获取镜像信息失败: %v", err)
+	}
+
+	// 创建镜像配置
+	config := &ImageConfig{
+		Name:        req.Name,
+		Description: req.Description,
+		Shell:       req.Shell,
+		Environment: req.Environment,
+		Size:        imageInfo.Size,
+		Created:     time.Now(), // 使用当前时间作为添加时间
+		IsCustom:    true,
+	}
+
+	// 保存到自定义镜像列表
+	oem.customImagesMutex.Lock()
+	oem.customImages[req.Name] = config
+	oem.customImagesMutex.Unlock()
+
+	log.Printf("自定义镜像添加成功: %s", req.Name)
+	return config, nil
+}
+
+// 获取所有可用镜像（预加载 + 自定义）
+func (oem *OnlineEditorManager) GetAvailableImages() ([]*ImageConfig, error) {
+	var images []*ImageConfig
+
+	// 添加预加载镜像
+	for _, config := range preloadedImages {
+		images = append(images, config)
+	}
+
+	// 添加自定义镜像
+	oem.customImagesMutex.RLock()
+	for _, config := range oem.customImages {
+		images = append(images, config)
+	}
+	oem.customImagesMutex.RUnlock()
+
+	return images, nil
+}
+
+// 获取环境变量模板
+func (oem *OnlineEditorManager) GetEnvironmentTemplates() map[string]map[string]string {
+	return defaultEnvironmentTemplates
 }
 
 // 优化错误处理和日志记录
@@ -4281,6 +4746,124 @@ func (oem *OnlineEditorManager) handleListDownloads(w http.ResponseWriter, r *ht
 	json.NewEncoder(w).Encode(downloads)
 }
 
+// 获取镜像源列表
+func (oem *OnlineEditorManager) handleGetRegistries(w http.ResponseWriter, r *http.Request) {
+	registries := oem.registryManager.GetAllRegistries()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"registries": registries,
+		"count":      len(registries),
+	})
+}
+
+// 切换镜像源状态
+func (oem *OnlineEditorManager) handleToggleRegistry(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	code := vars["code"]
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := oem.registryManager.UpdateRegistryStatus(code, req.Enabled)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	log.Printf("镜像源状态更新: %s = %t", code, req.Enabled)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"code":    code,
+		"enabled": req.Enabled,
+		"message": fmt.Sprintf("镜像源 %s 已%s", code, map[bool]string{true: "启用", false: "禁用"}[req.Enabled]),
+	})
+}
+
+// 添加镜像源
+func (oem *OnlineEditorManager) handleAddRegistry(w http.ResponseWriter, r *http.Request) {
+	var req RegistryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 设置默认类型
+	if req.Type == "" {
+		req.Type = "registry"
+	}
+
+	err := oem.registryManager.AddRegistry(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("镜像源添加成功: %s (%s)", req.Name, req.Code)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("镜像源 %s 添加成功", req.Name),
+		"code":    req.Code,
+	})
+}
+
+// 更新镜像源
+func (oem *OnlineEditorManager) handleUpdateRegistry(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	code := vars["code"]
+
+	var req RegistryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := oem.registryManager.UpdateRegistry(code, req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	log.Printf("镜像源更新成功: %s", code)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("镜像源 %s 更新成功", req.Name),
+		"code":    code,
+	})
+}
+
+// 删除镜像源
+func (oem *OnlineEditorManager) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	code := vars["code"]
+
+	err := oem.registryManager.DeleteRegistry(code)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("镜像源删除成功: %s", code)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("镜像源 %s 删除成功", code),
+		"code":    code,
+	})
+}
+
 // 主函数
 func main() {
 	// 创建在线编辑器管理器
@@ -4326,8 +4909,15 @@ func main() {
 	log.Println("    POST   /api/v1/workspaces/{id}/git - Git操作")
 	log.Println("  镜像管理:")
 	log.Println("    GET    /api/v1/images - 列出镜像")
+	log.Println("    POST   /api/v1/images/search/data - 搜索镜像")
 	log.Println("    POST   /api/v1/images/{imageName} - 拉取镜像")
 	log.Println("    DELETE /api/v1/images/{imageId} - 删除镜像")
+	log.Println("  镜像源管理:")
+	log.Println("    GET    /api/v1/registries - 获取镜像源列表")
+	log.Println("    POST   /api/v1/registries - 添加镜像源")
+	log.Println("    PUT    /api/v1/registries/{code} - 更新镜像源")
+	log.Println("    DELETE /api/v1/registries/{code} - 删除镜像源")
+	log.Println("    POST   /api/v1/registries/{code}/toggle - 切换镜像源状态")
 	log.Println("  容器监控:")
 	log.Println("    GET    /api/v1/containers/{containerId}/status - 获取容器状态")
 	log.Println("    GET    /api/v1/containers/{containerId}/stats - 获取容器统计")
@@ -4343,4 +4933,213 @@ func main() {
 	if err := manager.StartServer(port); err != nil {
 		log.Fatalf("启动服务器失败: %v", err)
 	}
+}
+
+// Docker镜像搜索相关的数据结构
+type DockerHubSearchRequest struct {
+	Query    string `json:"query"`
+	Limit    int    `json:"limit,omitempty"`
+	Registry string `json:"registry,omitempty"` // 镜像源配置
+}
+
+type DockerHubSearchResult struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Stars       int    `json:"star_count"`
+	Official    bool   `json:"is_official"`
+	Automated   bool   `json:"is_automated"`
+	Pulls       int    `json:"pull_count"`
+}
+
+type DockerHubSearchResponse struct {
+	Results []DockerHubSearchResult `json:"results"`
+	Count   int                     `json:"count"`
+}
+
+// 镜像源配置
+type RegistryConfig struct {
+	Name        string `json:"name"`        // 显示名称
+	Code        string `json:"code"`        // 代码标识
+	BaseURL     string `json:"base_url"`    // 镜像基础URL
+	Description string `json:"description"` // 描述
+	Type        string `json:"type"`        // 类型：docker_cli, api, registry
+	Enabled     bool   `json:"enabled"`     // 是否启用
+	IsDefault   bool   `json:"is_default"`  // 是否为默认源（不可删除）
+}
+
+// 镜像源操作请求
+type RegistryRequest struct {
+	Name        string `json:"name"`
+	Code        string `json:"code"`
+	BaseURL     string `json:"base_url"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+}
+
+// 镜像源管理器
+type RegistryManager struct {
+	registries map[string]*RegistryConfig
+	mutex      sync.RWMutex
+}
+
+// 搜索Docker镜像 - 支持多镜像源
+func (oem *OnlineEditorManager) SearchDockerHub(query string, limit int, registryCode string) ([]DockerHubSearchResult, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 25 // 默认限制25个结果
+	}
+
+	// 如果没有指定镜像源，使用默认的Docker Hub
+	if registryCode == "" {
+		registryCode = "dockerhub"
+	}
+
+	registry := oem.registryManager.GetRegistry(registryCode)
+	if registry == nil || !registry.Enabled {
+		return nil, fmt.Errorf("镜像源不可用: %s", registryCode)
+	}
+
+	log.Printf("使用镜像源'%s'搜索镜像: %s", registry.Name, query)
+
+	// 统一使用Docker CLI搜索
+	return oem.searchWithDockerCLI(query, limit, registry)
+}
+
+// 使用Docker CLI搜索
+func (oem *OnlineEditorManager) searchWithDockerCLI(query string, limit int, registry *RegistryConfig) ([]DockerHubSearchResult, error) {
+	log.Printf("使用Docker CLI搜索镜像: %s (镜像源: %s)", query, registry.Name)
+
+	// 拼接镜像源地址到查询
+	var searchQuery string
+	if registry.Code == "dockerhub" {
+		// Docker Hub直接搜索
+		searchQuery = query
+	} else {
+		// 其他镜像源拼接BaseURL
+		if registry.BaseURL != "" {
+			searchQuery = fmt.Sprintf("%s/%s", registry.BaseURL, query)
+		} else {
+			searchQuery = query
+		}
+	}
+
+	// 直接使用docker search命令
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	fmt.Printf("执行搜索命令: docker search --limit %d %s\n", limit, searchQuery)
+	cmd := exec.CommandContext(ctx, "docker", "search", "--limit", fmt.Sprintf("%d", limit), searchQuery)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("Docker搜索命令失败: %v", err)
+	}
+
+	// 解析表格格式输出
+	lines := strings.Split(string(output), "\n")
+	var results []DockerHubSearchResult
+
+	for i, line := range lines {
+		if i == 0 { // 跳过标题行
+			continue
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// 解析表格行：NAME DESCRIPTION STARS OFFICIAL AUTOMATED
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+
+		baseName := fields[0]
+		var fullImageName string
+
+		// 拼接镜像源地址
+		if registry.Code == "dockerhub" {
+			// Docker Hub保持原名
+			fullImageName = baseName
+		} else {
+			// 其他镜像源拼接地址
+			if registry.BaseURL != "" {
+				fullImageName = fmt.Sprintf("%s/%s", registry.BaseURL, baseName)
+			} else {
+				fullImageName = baseName
+			}
+		}
+
+		stars := 0
+		if len(fields) >= 3 {
+			if starStr := fields[len(fields)-3]; starStr != "" {
+				if s, err := strconv.Atoi(starStr); err == nil {
+					stars = s
+				}
+			}
+		}
+
+		official := false
+		if len(fields) >= 2 {
+			official = strings.Contains(strings.ToLower(line), "[ok]")
+		}
+
+		// 提取描述（去掉NAME和最后几个字段）
+		description := ""
+		if len(fields) > 4 {
+			descFields := fields[1 : len(fields)-3]
+			description = strings.Join(descFields, " ")
+		}
+
+		result := DockerHubSearchResult{
+			Name:        fullImageName,
+			Description: description,
+			Stars:       stars,
+			Official:    official,
+			Automated:   false, // 简单格式难以准确解析
+		}
+
+		results = append(results, result)
+	}
+
+	log.Printf("Docker CLI搜索完成，找到 %d 个结果", len(results))
+	return results, nil
+}
+
+// 处理Docker镜像搜索请求
+func (oem *OnlineEditorManager) handleSearchDockerHub(w http.ResponseWriter, r *http.Request) {
+	log.Printf("======= 收到镜像搜索请求 =======")
+
+	var req DockerHubSearchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("请求解析失败: %v", err)
+		http.Error(w, "请求格式错误: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Query == "" {
+		http.Error(w, "搜索查询不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 设置默认限制
+	if req.Limit <= 0 {
+		req.Limit = 25
+	}
+
+	log.Printf("收到Docker镜像搜索请求: 查询='%s', 限制=%d", req.Query, req.Limit)
+
+	results, err := oem.SearchDockerHub(req.Query, req.Limit, req.Registry)
+	if err != nil {
+		log.Printf("Docker镜像搜索失败: %v", err)
+		http.Error(w, "搜索失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"results": results,
+		"count":   len(results),
+		"query":   req.Query,
+	})
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { getStatusText } from '../utils';
-import { workspaceAPI } from '../services/api';
+import { workspaceAPI, imageAPI } from '../services/api';
 import './WorkspacePanel.css';
 
 const WorkspacePanel: React.FC = () => {
@@ -17,14 +17,23 @@ const WorkspacePanel: React.FC = () => {
   } = useWorkspace();
 
   const [name, setName] = useState('');
-  const [image, setImage] = useState('node:18-slim');
+  const [image, setImage] = useState('');
   const [gitRepo, setGitRepo] = useState('');
   const [gitBranch, setGitBranch] = useState('main');
+  const [availableImages, setAvailableImages] = useState<any[]>([]);
+  const [dockerImages, setDockerImages] = useState<any[]>([]);
+  const [environmentTemplates, setEnvironmentTemplates] = useState<any>({});
+  const [customEnvironment, setCustomEnvironment] = useState<{[key: string]: string}>({});
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showPortModal, setShowPortModal] = useState(false);
   const [selectedWorkspaceForPort, setSelectedWorkspaceForPort] = useState<any>(null);
   const [portBindings, setPortBindings] = useState<Array<{containerPort: string, hostPort: string, protocol: string}>>([]);
+  
+  // 删除确认弹窗
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedWorkspaceForDelete, setSelectedWorkspaceForDelete] = useState<any>(null);
+  const [deletingWorkspaces, setDeletingWorkspaces] = useState<Set<string>>(new Set());
   
   // 创建工作空间时的端口绑定配置
   const [createPortBindings, setCreatePortBindings] = useState<Array<{containerPort: string, hostPort: string, protocol: string}>>([]);
@@ -69,7 +78,88 @@ const WorkspacePanel: React.FC = () => {
   // 初始加载工作空间
   useEffect(() => {
     loadWorkspaces();
+    loadDockerImages();
+    loadAvailableImages();
+    loadEnvironmentTemplates();
   }, [loadWorkspaces]);
+
+  // 加载Docker镜像列表
+  const loadDockerImages = async () => {
+    try {
+      const response = await imageAPI.getImages();
+      setDockerImages(response);
+      // 如果还没有选择镜像，设置为第一个可用镜像
+      if (response.length > 0 && !image) {
+        const firstImage = response[0];
+        const imageName = firstImage.tags && firstImage.tags.length > 0 
+          ? firstImage.tags[0] 
+          : firstImage.id;
+        setImage(imageName);
+      }
+    } catch (error) {
+      console.error('加载Docker镜像失败:', error);
+    }
+  };
+
+  // 加载可用镜像配置（用于环境变量模板）
+  const loadAvailableImages = async () => {
+    try {
+      const response = await workspaceAPI.getAvailableImages();
+      setAvailableImages(response);
+    } catch (error) {
+      console.error('加载可用镜像配置失败:', error);
+    }
+  };
+
+  // 加载环境变量模板
+  const loadEnvironmentTemplates = async () => {
+    try {
+      const templates = await workspaceAPI.getEnvironmentTemplates();
+      setEnvironmentTemplates(templates);
+    } catch (error) {
+      console.error('加载环境变量模板失败:', error);
+    }
+  };
+
+  // 处理镜像选择变化
+  const handleImageChange = (selectedImage: string) => {
+    setImage(selectedImage);
+    
+    // 根据选择的镜像尝试填充环境变量（如果在可用镜像配置中找到）
+    const selectedImageConfig = availableImages.find(img => img.name === selectedImage);
+    if (selectedImageConfig) {
+      setCustomEnvironment({ ...selectedImageConfig.environment });
+    } else {
+      // 如果没有找到配置，清空环境变量
+      setCustomEnvironment({});
+    }
+  };
+
+  // 处理环境变量变化
+  const handleEnvironmentChange = (key: string, value: string) => {
+    setCustomEnvironment(prev => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  // 添加环境变量 - 添加到最前面
+  const addEnvironmentVariable = () => {
+    const newKey = `NEW_VAR_${Date.now()}`;
+    setCustomEnvironment(prev => ({
+      [newKey]: '',
+      ...prev
+    }));
+  };
+
+  // 删除环境变量
+  const removeEnvironmentVariable = (key: string) => {
+    setCustomEnvironment(prev => {
+      const newEnv = { ...prev };
+      delete newEnv[key];
+      return newEnv;
+    });
+  };
 
   
 
@@ -79,10 +169,24 @@ const WorkspacePanel: React.FC = () => {
       // 获取选中的工具列表
       const tools = (Object.keys(selectedTools) as ToolKey[]).filter(tool => selectedTools[tool]);
       
-      await createWorkspace(name, image, gitRepo, gitBranch, tools, createPortBindings);
+      // 准备创建数据，包含环境变量
+      const createData = {
+        name,
+        image,
+        git_repo: gitRepo,
+        git_branch: gitBranch,
+        tools,
+        ports: createPortBindings,
+        environment: customEnvironment
+      };
+      
+      await workspaceAPI.createWorkspace(createData);
+      
+      // 重置表单状态
       setName('');
       setGitRepo('');
       setGitBranch('main');
+      setCustomEnvironment({});
       // 重置工具选择为默认值
       setSelectedTools({
         git: true,
@@ -99,17 +203,25 @@ const WorkspacePanel: React.FC = () => {
       // 重置端口配置
       setCreatePortBindings([]);
       setShowCreateModal(false);
+      
+      // 重新加载工作空间列表
+      await loadWorkspaces();
     } catch (error) {
       console.error('创建工作空间失败:', error);
+      alert('创建工作空间失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await loadWorkspaces();
+      await Promise.all([
+        loadWorkspaces(),
+        loadDockerImages(),
+        loadAvailableImages()
+      ]);
     } catch (error) {
-      console.error('刷新工作空间失败:', error);
+      console.error('刷新失败:', error);
     } finally {
       setIsRefreshing(false);
     }
@@ -213,6 +325,40 @@ const WorkspacePanel: React.FC = () => {
     } catch (error) {
       console.error('端口测试失败:', error);
       alert('端口测试失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    }
+  };
+
+  // 处理删除工作空间确认
+  const handleDeleteConfirm = (workspace: any) => {
+    setSelectedWorkspaceForDelete(workspace);
+    setShowDeleteModal(true);
+  };
+
+  // 执行删除工作空间
+  const handleDeleteWorkspace = async () => {
+    if (!selectedWorkspaceForDelete) return;
+    
+    const workspaceId = selectedWorkspaceForDelete.id;
+    
+    try {
+      // 添加到删除中状态
+      setDeletingWorkspaces(prev => new Set(prev).add(workspaceId));
+      
+      await deleteWorkspace(workspaceId);
+      
+      // 删除成功后关闭弹窗
+      setShowDeleteModal(false);
+      setSelectedWorkspaceForDelete(null);
+    } catch (error) {
+      console.error('删除工作空间失败:', error);
+      alert('删除工作空间失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      // 移除删除中状态
+      setDeletingWorkspaces(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(workspaceId);
+        return newSet;
+      });
     }
   };
 
@@ -390,8 +536,17 @@ const WorkspacePanel: React.FC = () => {
                   <button className="btn" onClick={() => handleOpenPortConfig(workspace)} title="端口配置">
                     <i className="fas fa-network-wired"></i>
                   </button>
-                  <button className="btn" onClick={() => deleteWorkspace(workspace.id)} title="删除工作空间">
-                    <i className="fas fa-trash"></i>
+                  <button 
+                    className="btn btn-danger" 
+                    onClick={() => handleDeleteConfirm(workspace)} 
+                    title="删除工作空间"
+                    disabled={deletingWorkspaces.has(workspace.id)}
+                  >
+                    {deletingWorkspaces.has(workspace.id) ? (
+                      <i className="fas fa-spinner fa-spin"></i>
+                    ) : (
+                      <i className="fas fa-trash"></i>
+                    )}
                   </button>
                 </div>
               </div>
@@ -423,14 +578,21 @@ const WorkspacePanel: React.FC = () => {
               </div>
               <div className="form-group">
                 <label className="form-label">开发环境</label>
-                <select className="form-control" value={image} onChange={(e) => setImage(e.target.value)}>
-                  <option value="node:18-slim">Node.js 18 (Debian Slim)</option>
-                  <option value="python:3.11-slim">Python 3.11 (Debian Slim)</option>
-                  <option value="golang:1.24-slim">Go 1.24 (Debian Slim)</option>
-                  <option value="openjdk:17-slim">Java 17 (Debian Slim)</option>
-                  <option value="php:8.2-cli-slim">PHP 8.2 CLI (Debian Slim)</option>
-                  <option value="ruby:3.2-slim">Ruby 3.2 (Debian Slim)</option>
+                <select className="form-control" value={image} onChange={(e) => handleImageChange(e.target.value)}>
+                  <option value="">请选择镜像</option>
+                  {dockerImages.map((img: any) => {
+                    const imageName = img.tags && img.tags.length > 0 ? img.tags[0] : img.id;
+                    const displayName = img.tags && img.tags.length > 0 
+                      ? img.tags[0] 
+                      : `<未标记>:${img.id.substring(0, 12)}`;
+                    return (
+                      <option key={img.id} value={imageName}>
+                        {displayName}
+                      </option>
+                    );
+                  })}
                 </select>
+                <small>选择Docker中已存在的镜像</small>
               </div>
               
               {/* 基础工具选择 */}
@@ -453,9 +615,6 @@ const WorkspacePanel: React.FC = () => {
                       </label>
                     </div>
                   ))}
-                </div>
-                <div className="tools-info">
-                  <small>💡 默认推荐选择：Git、cURL、Wget、Vim</small>
                 </div>
               </div>
               
@@ -480,9 +639,81 @@ const WorkspacePanel: React.FC = () => {
                 />
               </div>
 
+              {/* 环境变量配置 */}
+              <div className="form-group">
+                <div className="config-section">
+                  <div className="section-header">
+                    <h4>环境变量配置 (可选)</h4>
+                    <button type="button" className="btn btn-small" onClick={addEnvironmentVariable}>
+                      <i className="fas fa-plus"></i> 添加变量
+                    </button>
+                  </div>
+                  
+                  {Object.keys(customEnvironment).length === 0 ? (
+                    <div className="empty-state">
+                      <p>暂无环境变量</p>
+                      <small>选择镜像后会自动填充默认环境变量，您也可以手动添加</small>
+                    </div>
+                  ) : (
+                    <div className="config-list">
+                      {Object.entries(customEnvironment).map(([key, value]) => (
+                        <div key={key} className="config-item">
+                          <input
+                            type="text"
+                            placeholder="变量名"
+                            value={key}
+                            onChange={(e) => {
+                              const newKey = e.target.value;
+                              const newEnv = { ...customEnvironment };
+                              delete newEnv[key];
+                              newEnv[newKey] = value;
+                              setCustomEnvironment(newEnv);
+                            }}
+                            className="form-control config-field field-key"
+                          />
+                          <span className="config-separator">=</span>
+                          <input
+                            type="text"
+                            placeholder="变量值"
+                            value={value}
+                            onChange={(e) => handleEnvironmentChange(key, e.target.value)}
+                            className="form-control config-field field-value"
+                          />
+                          <button
+                            type="button"
+                            className="delete-button"
+                            onClick={() => removeEnvironmentVariable(key)}
+                            title="删除环境变量"
+                          >
+                            <i className="fas fa-times"></i>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="info-section">
+                    <h5>常用环境变量模板</h5>
+                    <div className="template-buttons">
+                      {Object.entries(environmentTemplates).map(([name, template]: [string, any]) => (
+                        <button
+                          key={name}
+                          type="button"
+                          className="btn"
+                          onClick={() => setCustomEnvironment(prev => ({ ...prev, ...template }))}
+                          title={`应用 ${name} 环境变量模板`}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* 端口配置 */}
               <div className="form-group">
-                <div className="port-bindings-section">
+                <div className="config-section">
                   <div className="section-header">
                     <h4>端口配置 (可选)</h4>
                     <button type="button" className="btn btn-small" onClick={handleCreateAddPortBinding}>
@@ -493,71 +724,50 @@ const WorkspacePanel: React.FC = () => {
                   {createPortBindings.length === 0 ? (
                     <div className="empty-state">
                       <p>暂无端口绑定</p>
-                      <button type="button" className="btn btn-primary" onClick={handleCreateAddPortBinding}>
-                        添加第一个端口绑定
-                      </button>
                     </div>
                   ) : (
-                    <div className="port-bindings-list">
+                    <div className="config-list">
                       {createPortBindings.map((binding, index) => (
-                        <div key={index} className="port-binding-item">
-                          <div className="port-binding-fields">
-                            <div className="field-group">
-                              <label>容器端口</label>
-                              <input
-                                type="text"
-                                placeholder="3000"
-                                value={binding.containerPort}
-                                onChange={(e) => handleCreatePortBindingChange(index, 'containerPort', e.target.value)}
-                                className="form-control"
-                              />
-                            </div>
-                            <div className="field-group">
-                              <label>宿主机端口</label>
-                              <input
-                                type="text"
-                                placeholder="3000 (留空自动分配)"
-                                value={binding.hostPort}
-                                onChange={(e) => handleCreatePortBindingChange(index, 'hostPort', e.target.value)}
-                                className="form-control"
-                              />
-                            </div>
-                            <div className="field-group">
-                              <label>协议</label>
-                              <select
-                                value={binding.protocol}
-                                onChange={(e) => handleCreatePortBindingChange(index, 'protocol', e.target.value)}
-                                className="form-control"
-                              >
-                                <option value="tcp">TCP</option>
-                                <option value="udp">UDP</option>
-                              </select>
-                            </div>
-                            <div className="field-group">
-                              <button
-                                type="button"
-                                className="port-delete-button"
-                                onClick={() => handleCreateRemovePortBinding(index)}
-                                title="删除端口绑定"
-                              >
-                                <i className="fas fa-times"></i>
-                              </button>
-                            </div>
-                          </div>
+                        <div key={index} className="config-item port-config-item">
+                          <input
+                            type="text"
+                            placeholder="容器端口"
+                            value={binding.containerPort}
+                            onChange={(e) => handleCreatePortBindingChange(index, 'containerPort', e.target.value)}
+                            className="form-control config-field field-key"
+                            title="容器端口"
+                          />
+                          <span className="config-separator">→</span>
+                          <input
+                            type="text"
+                            placeholder="宿主机端口 (留空自动分配)"
+                            value={binding.hostPort}
+                            onChange={(e) => handleCreatePortBindingChange(index, 'hostPort', e.target.value)}
+                            className="form-control config-field field-value"
+                            title="宿主机端口"
+                          />
+                          <select
+                            value={binding.protocol}
+                            onChange={(e) => handleCreatePortBindingChange(index, 'protocol', e.target.value)}
+                            className="form-control config-field"
+                            title="协议"
+                          >
+                            <option value="tcp">TCP</option>
+                            <option value="udp">UDP</option>
+                          </select>
+                          <button
+                            type="button"
+                            className="delete-button"
+                            onClick={() => handleCreateRemovePortBinding(index)}
+                            title="删除端口绑定"
+                          >
+                            <i className="fas fa-times"></i>
+                          </button>
                         </div>
                       ))}
                     </div>
                   )}
                   
-                  <div className="port-info">
-                    <h5>端口配置说明</h5>
-                    <ul>
-                      <li><code>容器端口</code>：应用在容器内监听的端口</li>
-                      <li><code>宿主机端口</code>：外部访问的端口，留空则自动分配</li>
-                      <li><code>协议</code>：网络协议，通常选择TCP</li>
-                      <li>创建后可通过 <code>localhost:宿主机端口</code> 访问应用</li>
-                    </ul>
-                  </div>
                 </div>
               </div>
             </div>
@@ -584,7 +794,7 @@ const WorkspacePanel: React.FC = () => {
               </button>
             </div>
             <div className="modal-body">
-              <div className="port-bindings-section">
+              <div className="config-section">
                 <div className="section-header">
                   <h4>端口绑定</h4>
                   <button className="btn btn-small" onClick={handleAddPortBinding}>
@@ -600,59 +810,50 @@ const WorkspacePanel: React.FC = () => {
                     </button>
                   </div>
                 ) : (
-                  <div className="port-bindings-list">
+                  <div className="config-list">
                     {portBindings.map((binding, index) => (
-                      <div key={index} className="port-binding-item">
-                        <div className="port-binding-fields">
-                          <div className="field-group">
-                            <label>容器端口</label>
-                            <input
-                              type="text"
-                              placeholder="3000"
-                              value={binding.containerPort}
-                              onChange={(e) => handlePortBindingChange(index, 'containerPort', e.target.value)}
-                              className="form-control"
-                            />
-                          </div>
-                          <div className="field-group">
-                            <label>宿主机端口</label>
-                            <input
-                              type="text"
-                              placeholder="3000 (留空自动分配)"
-                              value={binding.hostPort}
-                              onChange={(e) => handlePortBindingChange(index, 'hostPort', e.target.value)}
-                              className="form-control"
-                            />
-                          </div>
-                          <div className="field-group">
-                            <label>协议</label>
-                            <select
-                              value={binding.protocol}
-                              onChange={(e) => handlePortBindingChange(index, 'protocol', e.target.value)}
-                              className="form-control"
-                            >
-                              <option value="tcp">TCP</option>
-                              <option value="udp">UDP</option>
-                            </select>
-                          </div>
-                          <div className="field-group">
-                            <button
-                              className="port-test-button"
-                              onClick={() => handleTestPort(binding.containerPort)}
-                              title="测试此端口"
-                              disabled={!binding.hostPort}
-                            >
-                              <i className="fas fa-rocket"></i>
-                            </button>
-                            <button
-                              className="port-delete-button"
-                              onClick={() => handleRemovePortBinding(index)}
-                              title="删除端口绑定"
-                            >
-                              <i className="fas fa-times"></i>
-                            </button>
-                          </div>
-                        </div>
+                      <div key={index} className="config-item port-config-item">
+                        <input
+                          type="text"
+                          placeholder="容器端口"
+                          value={binding.containerPort}
+                          onChange={(e) => handlePortBindingChange(index, 'containerPort', e.target.value)}
+                          className="form-control config-field field-key"
+                          title="容器端口"
+                        />
+                        <span className="config-separator">→</span>
+                        <input
+                          type="text"
+                          placeholder="宿主机端口 (留空自动分配)"
+                          value={binding.hostPort}
+                          onChange={(e) => handlePortBindingChange(index, 'hostPort', e.target.value)}
+                          className="form-control config-field field-value"
+                          title="宿主机端口"
+                        />
+                        <select
+                          value={binding.protocol}
+                          onChange={(e) => handlePortBindingChange(index, 'protocol', e.target.value)}
+                          className="form-control config-field"
+                          title="协议"
+                        >
+                          <option value="tcp">TCP</option>
+                          <option value="udp">UDP</option>
+                        </select>
+                        <button
+                          className="test-button"
+                          onClick={() => handleTestPort(binding.containerPort)}
+                          title="测试此端口"
+                          disabled={!binding.hostPort}
+                        >
+                          <i className="fas fa-rocket"></i>
+                        </button>
+                        <button
+                          className="delete-button"
+                          onClick={() => handleRemovePortBinding(index)}
+                          title="删除端口绑定"
+                        >
+                          <i className="fas fa-times"></i>
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -665,6 +866,63 @@ const WorkspacePanel: React.FC = () => {
               </button>
               <button className="btn btn-primary" onClick={handleSavePortConfig}>
                 <i className="fas fa-save"></i> 保存配置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除确认弹窗 */}
+      {showDeleteModal && selectedWorkspaceForDelete && (
+        <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
+          <div className="modal-content modal-confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>确认删除工作空间</h3>
+              <button className="modal-close" onClick={() => setShowDeleteModal(false)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="confirm-content">
+                <div className="confirm-icon">
+                  <i className="fas fa-exclamation-triangle"></i>
+                </div>
+                <div className="confirm-text">
+                  <p>您确定要删除工作空间 <strong>"{selectedWorkspaceForDelete.display_name}"</strong> 吗？</p>
+                  <p className="warning-text">此操作将会：</p>
+                  <ul className="warning-list">
+                    <li>删除容器及其所有运行数据</li>
+                    <li>删除工作空间内的所有文件</li>
+                    <li>释放所占用的端口资源</li>
+                    <li><strong>此操作不可恢复</strong></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deletingWorkspaces.has(selectedWorkspaceForDelete.id)}
+              >
+                取消
+              </button>
+              <button 
+                className="btn btn-danger" 
+                onClick={handleDeleteWorkspace}
+                disabled={deletingWorkspaces.has(selectedWorkspaceForDelete.id)}
+              >
+                {deletingWorkspaces.has(selectedWorkspaceForDelete.id) ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i>
+                    删除中...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-trash"></i>
+                    确认删除
+                  </>
+                )}
               </button>
             </div>
           </div>

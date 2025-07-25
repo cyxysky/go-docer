@@ -104,8 +104,13 @@
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .file-tree-error {
@@ -133,8 +138,13 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .dialog-content {
@@ -153,6 +163,7 @@
     opacity: 0;
     transform: scale(0.9) translateY(-20px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -253,7 +264,7 @@
     min-width: 280px;
     padding: 20px;
   }
-  
+
   .export-dialog.large-dialog {
     min-width: 90vw;
     max-width: 95vw;
@@ -261,15 +272,15 @@
     max-height: 90vh;
     padding: 16px;
   }
-  
+
   .file-selector-container {
     height: 250px;
   }
-  
+
   .dialog-actions {
     flex-direction: column;
   }
-  
+
   .dialog-actions button {
     width: 100%;
   }
@@ -280,12 +291,12 @@
     min-width: 260px;
     padding: 16px;
   }
-  
+
   .file-toolbar .btn {
     width: 24px;
     height: 24px;
   }
-  
+
   .file-toolbar .btn i {
     font-size: 10px;
   }
@@ -330,7 +341,7 @@
 
 .fa-file-alt {
   color: #6c757d;
-} 
+}
 
 /* 导出对话框特殊样式 */
 .export-dialog {
@@ -382,7 +393,7 @@
 
 .form-group input[type="text"] {
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 14px;
@@ -442,7 +453,7 @@
   color: var(--text-primary);
 }
 
-.radio-option input[type="radio"]:checked + span {
+.radio-option input[type="radio"]:checked+span {
   font-weight: 600;
   color: var(--primary-color);
 }
@@ -484,32 +495,7 @@
   margin: 0;
 }
 
-/* 按钮样式增强 */
-.dialog-actions .btn-primary {
-  background: var(--primary-color);
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: center;
-}
 
-.dialog-actions .btn-primary:hover:not(:disabled) {
-  background: var(--primary-color);
-  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
-  transform: translateY(-1px);
-}
-
-.dialog-actions .btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-.dialog-actions .btn-primary i {
-  font-size: 13px;
-}
 
 /* 文件选择器容器 */
 .file-selector-container {
@@ -522,4 +508,4 @@
 .file-selector-container .fs-file-selector {
   border: none;
   border-radius: 0;
-} 
+}
