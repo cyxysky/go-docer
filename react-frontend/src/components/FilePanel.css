@@ -34,7 +34,6 @@
   border-radius: 4px;
   background: transparent;
   color: var(--text-secondary);
-  border: none;
   transition: all 0.2s ease;
 }
 
@@ -269,7 +268,7 @@
     min-width: 90vw;
     max-width: 95vw;
     min-height: 70vh;
-    max-height: 90vh;
+    max-height: 100vh;
     padding: 16px;
   }
 
@@ -353,7 +352,7 @@
   min-width: 600px;
   max-width: 800px;
   min-height: 500px;
-  max-height: 80vh;
+  max-height: 100vh;
   display: flex;
   flex-direction: column;
 }

@@ -79,8 +79,7 @@ const WorkspacePanel: React.FC = () => {
   useEffect(() => {
     loadWorkspaces();
     loadDockerImages();
-    loadAvailableImages();
-    loadEnvironmentTemplates();
+    // 移除自动加载镜像配置，改为在打开创建弹窗时加载
   }, [loadWorkspaces]);
 
   // 加载Docker镜像列表
@@ -106,6 +105,17 @@ const WorkspacePanel: React.FC = () => {
     try {
       const response = await workspaceAPI.getAvailableImages();
       setAvailableImages(response);
+      
+      // 如果还没有选择镜像，设置为第一个可用镜像
+      if (response.length > 0 && !image) {
+        const firstImage = response[0];
+        setImage(firstImage.name);
+        
+        // 设置环境变量
+        if (firstImage.environment) {
+          setCustomEnvironment({ ...firstImage.environment });
+        }
+      }
     } catch (error) {
       console.error('加载可用镜像配置失败:', error);
     }
@@ -125,13 +135,23 @@ const WorkspacePanel: React.FC = () => {
   const handleImageChange = (selectedImage: string) => {
     setImage(selectedImage);
     
-    // 根据选择的镜像尝试填充环境变量（如果在可用镜像配置中找到）
+    // 根据选择的镜像填充环境变量
     const selectedImageConfig = availableImages.find(img => img.name === selectedImage);
-    if (selectedImageConfig) {
+    if (selectedImageConfig && selectedImageConfig.environment) {
       setCustomEnvironment({ ...selectedImageConfig.environment });
     } else {
-      // 如果没有找到配置，清空环境变量
-      setCustomEnvironment({});
+      // 如果没有找到配置，设置默认环境变量
+      setCustomEnvironment({
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "TERM": "xterm-256color",
+        "HOME": "/root",
+        "USER": "root",
+        "SHELL": "/bin/bash",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "DEBIAN_FRONTEND": "noninteractive",
+        "TZ": "Asia/Shanghai",
+      });
     }
   };
 
@@ -162,6 +182,14 @@ const WorkspacePanel: React.FC = () => {
   };
 
   
+
+  // 处理打开创建弹窗
+  const handleOpenCreateModal = () => {
+    setShowCreateModal(true);
+    // 在打开弹窗时加载镜像列表
+    loadAvailableImages();
+    loadEnvironmentTemplates();
+  };
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -426,7 +454,7 @@ const WorkspacePanel: React.FC = () => {
         >
           <i className={`fas ${isRefreshing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
         </button>
-        <button className="btn" onClick={() => setShowCreateModal(true)} title="创建工作空间">
+        <button className="btn" onClick={handleOpenCreateModal} title="创建工作空间">
           <i className="fas fa-plus"></i>
         </button>
         </div>
@@ -515,29 +543,29 @@ const WorkspacePanel: React.FC = () => {
                 </div>
                 <div className="workspace-actions">
                   <button 
-                    className={`btn favorite-btn ${workspace.is_favorite ? 'favorited' : ''}`} 
+                    className={`btn action-button-green  ${workspace.is_favorite ? 'favorited' : ''}`} 
                     onClick={() => handleToggleFavorite(workspace.id)} 
                     title={workspace.is_favorite ? "取消收藏" : "收藏工作空间"}
                   >
                     <i className={workspace.is_favorite ? 'fas fa-star' : 'far fa-star'}></i>
                   </button>
-                  <button className="btn" onClick={() => selectWorkspace(workspace.id)} title="选择工作空间">
+                  <button className="btn action-button-blue" onClick={() => selectWorkspace(workspace.id)} title="选择工作空间">
                     <i className="fas fa-folder-open"></i>
                   </button>
+                  <button className="btn action-button-blue" onClick={() => handleOpenPortConfig(workspace)} title="端口配置">
+                    <i className="fas fa-network-wired"></i>
+                  </button>
                   {workspace.status !== 'running' ? (
-                    <button className="btn" onClick={() => startWorkspace(workspace.id)} title="启动工作空间">
+                    <button className="btn action-button-green" onClick={() => startWorkspace(workspace.id)} title="启动工作空间">
                       <i className="fas fa-play"></i>
                     </button>
                   ) : (
-                    <button className="btn" onClick={() => stopWorkspace(workspace.id)} title="停止工作空间">
+                    <button className="btn action-button-warning" onClick={() => stopWorkspace(workspace.id)} title="停止工作空间">
                       <i className="fas fa-stop"></i>
                     </button>
                   )}
-                  <button className="btn" onClick={() => handleOpenPortConfig(workspace)} title="端口配置">
-                    <i className="fas fa-network-wired"></i>
-                  </button>
                   <button 
-                    className="btn btn-danger" 
+                    className="btn action-button-red" 
                     onClick={() => handleDeleteConfirm(workspace)} 
                     title="删除工作空间"
                     disabled={deletingWorkspaces.has(workspace.id)}
@@ -839,14 +867,6 @@ const WorkspacePanel: React.FC = () => {
                           <option value="tcp">TCP</option>
                           <option value="udp">UDP</option>
                         </select>
-                        <button
-                          className="test-button"
-                          onClick={() => handleTestPort(binding.containerPort)}
-                          title="测试此端口"
-                          disabled={!binding.hostPort}
-                        >
-                          <i className="fas fa-rocket"></i>
-                        </button>
                         <button
                           className="delete-button"
                           onClick={() => handleRemovePortBinding(index)}

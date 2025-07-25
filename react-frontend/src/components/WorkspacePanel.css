@@ -87,7 +87,6 @@
   border-radius: 4px;
   background: transparent;
   color: var(--text-secondary);
-  border: none;
   cursor: pointer;
   transition: all 0.2s ease;
   display: inline-flex;
@@ -241,7 +240,7 @@
 }
 
 .favorite-btn.favorited {
-  color: #f6e05e;
+  color: var(--success-color) !important;
 }
 
 .favorite-btn:hover {
@@ -349,53 +348,52 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
+  margin: 12px 0;
   flex-wrap: wrap;
+  justify-content: space-between;
 }
 
 .workspace-image {
   font-size: 12px;
   color: var(--text-secondary);
-  background: var(--dark-bg);
-  padding: 4px 8px;
-  border-radius: 4px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
 .workspace-status {
   font-size: 11px;
   padding: 4px 8px;
-  border-radius: 12px;
+  border-radius: 4px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .workspace-status.running {
-  background: #10b981;
-  color: white;
+  border: 1px solid #10b981;
+  color: #10b981;
 }
 
 .workspace-status.stopped {
-  background: #6b7280;
-  color: white;
+  border: 1px solid #6b7280;
+  color: #6b7280;
 }
 
 .workspace-status.creating {
-  background: #f59e0b;
-  color: white;
+  border: 1px solid #f59e0b;
+  color: #f59e0b;
   animation: pulse 1.5s infinite;
 }
 
 .workspace-status.error {
-  background: #ef4444;
-  color: white;
+  border: 1px solid #ef4444;
+  color: #ef4444;
 }
 
 .workspace-actions {
   display: flex;
   gap: 6px;
   align-items: center;
+  justify-content: space-between;
 }
 
 .workspace-actions .btn {

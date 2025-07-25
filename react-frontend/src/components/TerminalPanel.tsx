@@ -615,7 +615,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         </div>
         <div className="terminal-controls">
           <button
-            className="btn btn-sm"
+            className="btn btn-sm action-button-green"
             onClick={handleConnect}
             title="连接终端"
             disabled={terminalStatus === 'connecting' || terminalStatus === 'connected'}
@@ -623,7 +623,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
             <i className="fas fa-play"></i>
           </button>
           <button
-            className="btn btn-sm"
+            className="btn btn-sm action-button-warning"
             onClick={handleClear}
             title="清屏"
             disabled={terminalStatus !== 'connected'}
@@ -631,7 +631,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
             <i className="fas fa-trash"></i>
           </button>
           <button
-            className="btn btn-sm"
+            className="btn btn-sm action-button-red"
             onClick={handleDisconnect}
             title="断开连接"
             disabled={terminalStatus !== 'connected'}

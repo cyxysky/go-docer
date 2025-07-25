@@ -43,6 +43,7 @@ const ImagePanel: React.FC = () => {
   });
 
   useEffect(() => {
+    loadImages(); // 加载镜像列表
     loadAvailableImages();
     loadEnvironmentTemplates();
     loadRegistries();
@@ -325,7 +326,9 @@ const ImagePanel: React.FC = () => {
         <button className="btn btn-sm" onClick={loadImages} title="刷新镜像列表">
           <i className="fas fa-sync-alt"></i>
         </button>
-        <button 
+        {
+          /**
+          <button 
           className="btn btn-sm btn-info" 
           onClick={() => setShowImageSearchModal(true)} 
           title="搜索Docker镜像"
@@ -339,6 +342,8 @@ const ImagePanel: React.FC = () => {
         >
           <i className="fas fa-cog"></i>
         </button>
+           */
+        }
         <button 
           className="btn btn-sm btn-primary" 
           onClick={() => setShowAddCustomModal(true)} 
@@ -358,25 +363,23 @@ const ImagePanel: React.FC = () => {
             </div>
           ) : (
             images.map((image: any) => {
-              // 查找对应的可用镜像配置
-              const imageName = image.tags && image.tags.length > 0 ? image.tags[0] : image.id;
-              const imageConfig = availableImages.find(config => config.name === imageName);
+              // 为每个标签创建一个镜像项
+              const tags = image.tags && image.tags.length > 0 ? image.tags : [`<未标记>:${image.id.substring(0, 12)}`];
               
-              return (
-                <div key={image.id} className="image-item">
-                  <div className="image-header">
-                    <div className="image-name">
-                      {image.tags && image.tags.length > 0 ? image.tags[0] : `<未标记>:${image.id.substring(0, 12)}`}
-                      {imageConfig && (
-                        <span className={`config-badge ${imageConfig.is_custom ? 'custom' : 'builtin'}`}>
-                          {imageConfig.is_custom ? '自定义配置' : '预设配置'}
-                        </span>
-                      )}
-                    </div>
+              return tags.map((tag: string, tagIndex: number) => {
+                // 查找对应的可用镜像配置
+                const imageConfig = availableImages.find(config => config.name === tag);
+                
+                return (
+                  <div key={`${image.id}-${tagIndex}`} className="image-item">
+                    <div className="image-header">
+                      <div className="image-name">
+                        {tag}
+                      </div>
                     <div className="image-actions">
                       {imageConfig && (
                         <button 
-                          className="btn-small " 
+                          className="btn btn-sm" 
                           onClick={() => handleEditImageConfig(imageConfig)}
                           title="编辑配置"
                         >
@@ -385,7 +388,7 @@ const ImagePanel: React.FC = () => {
                       )}
                       {imageConfig && imageConfig.is_custom && (
                         <button 
-                          className="btn-small btn-danger-outline" 
+                          className="btn btn-sm action-button-red" 
                           onClick={() => handleDeleteImageConfig(imageConfig.name)}
                           title="删除配置"
                         >
@@ -393,7 +396,7 @@ const ImagePanel: React.FC = () => {
                         </button>
                       )}
                       <button 
-                        className="btn-small " 
+                        className="btn btn-sm action-button-red" 
                         onClick={() => deleteImage(image.id)} 
                         title="删除镜像"
                       >
@@ -417,7 +420,8 @@ const ImagePanel: React.FC = () => {
                   </div>
                 </div>
               );
-            })
+            });
+          }).flat()
           )}
         </div>
       </div>

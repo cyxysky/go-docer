@@ -110,13 +110,11 @@
   border-radius: 4px;
   background: transparent;
   color: var(--text-secondary);
-  border: none;
   transition: all 0.2s ease;
 }
 
 .terminal-controls .btn:hover:not(:disabled) {
   background: var(--border-color, #333);
-  color: var(--text-primary, #cccccc);
 }
 
 .terminal-controls .btn:disabled {

@@ -4,6 +4,25 @@
 
 echo "🚀 开始构建在线代码编辑器..."
 
+#配置docker
+sudo tee /etc/docker/daemon.json <<-'EOF'
+{
+    "registry-mirrors": [
+        "https://docker.xuanyuan.me",
+        "https://registry.docker-cn.com",
+        "https://docker.mirrors.ustc.edu.cn",
+        "https://hub-mirror.c.163.com",
+        "https://mirror.baidubce.com",
+        "https://ccr.ccs.tencentyun.com"
+    ]
+}
+EOF
+
+sudo systemctl daemon-reload		#重启daemon进程
+sudo systemctl restart docker		#重启docker
+docker info
+
+
 # 配置GOPROXY
 go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
 

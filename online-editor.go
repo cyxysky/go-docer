@@ -157,6 +157,7 @@ type OnlineEditorManager struct {
 
 	// 新增：镜像源管理
 	registryManager *RegistryManager // 镜像源管理器
+
 }
 
 // 脚本和命令管理
@@ -466,71 +467,7 @@ type CustomImageRequest struct {
 	Environment map[string]string `json:"environment"`
 }
 
-// 预加载的镜像配置 - 使用Slim镜像提供更好的兼容性
-var preloadedImages = map[string]*ImageConfig{
-	"node:18-slim": {
-		Name:        "node:18-slim",
-		Description: "Node.js 18 开发环境 (Debian Slim)",
-		Shell:       "/bin/bash",
-		Environment: map[string]string{
-			"NODE_ENV":          "development",
-			"NPM_CONFIG_PREFIX": "/usr/local",
-		},
-		IsCustom: false,
-	},
-	"python:3.11-slim": {
-		Name:        "python:3.11-slim",
-		Description: "Python 3.11 开发环境 (Debian Slim)",
-		Shell:       "/bin/bash",
-		Environment: map[string]string{
-			"PYTHONPATH":       "/workspace",
-			"PYTHONUNBUFFERED": "1",
-			"PIP_NO_CACHE_DIR": "1",
-		},
-		IsCustom: false,
-	},
-	"golang:1.24-slim": {
-		Name:        "golang:1.24-slim",
-		Description: "Go 1.24 开发环境 (Debian Slim)",
-		Shell:       "/bin/bash",
-		Environment: map[string]string{
-			"GOPATH":      "/go",
-			"GOROOT":      "/usr/local/go",
-			"CGO_ENABLED": "0",
-		},
-		IsCustom: false,
-	},
-	"openjdk:17-slim": {
-		Name:        "openjdk:17-slim",
-		Description: "Java 17 开发环境 (Debian Slim)",
-		Shell:       "/bin/bash",
-		Environment: map[string]string{
-			"JAVA_HOME":  "/usr/local/openjdk-17",
-			"MAVEN_HOME": "/usr/share/maven",
-		},
-		IsCustom: false,
-	},
-	"php:8.2-cli-slim": {
-		Name:        "php:8.2-cli-slim",
-		Description: "PHP 8.2 CLI 开发环境 (Debian Slim)",
-		Shell:       "/bin/bash",
-		Environment: map[string]string{
-			"PHP_INI_DIR": "/usr/local/etc/php",
-			"PHP_CFLAGS":  "-fstack-protector-strong -fpic -fpie -O2",
-		},
-		IsCustom: false,
-	},
-	"ruby:3.2-slim": {
-		Name:        "ruby:3.2-slim",
-		Description: "Ruby 3.2 开发环境 (Debian Slim)",
-		Shell:       "/bin/bash",
-		Environment: map[string]string{
-			"RUBY_VERSION": "3.2",
-			"GEM_HOME":     "/usr/local/bundle",
-		},
-		IsCustom: false,
-	},
-}
+// 预定义镜像配置已删除，现在完全基于Docker中的实际镜像
 
 // 默认环境变量模板
 var defaultEnvironmentTemplates = map[string]map[string]string{
@@ -637,6 +574,29 @@ func generateWorkspaceID() string {
 // 生成终端会话ID
 func generateTerminalID() string {
 	return fmt.Sprintf("term_%d", time.Now().UnixNano())
+}
+
+// 使用Docker CLI拉取镜像，支持镜像加速器
+func (oem *OnlineEditorManager) pullImageWithFallback(ctx context.Context, originalImage string) (string, error) {
+	log.Printf("使用Docker CLI拉取镜像: %s", originalImage)
+
+	// 设置超时
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	// 使用docker pull命令，这会自动使用配置的镜像加速器
+	cmd := exec.CommandContext(ctx, "docker", "pull", originalImage)
+
+	// 获取输出
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Docker pull失败: %v, 输出: %s", err, string(output))
+		return "", fmt.Errorf("拉取镜像失败: %v", err)
+	}
+
+	log.Printf("Docker pull成功: %s", originalImage)
+
+	return originalImage, nil
 }
 
 // 恢复现有工作空间
@@ -850,17 +810,34 @@ func (oem *OnlineEditorManager) releasePort(port int) {
 // 创建工作空间
 func (oem *OnlineEditorManager) CreateWorkspace(name, images, gitRepo, gitBranch string, customPorts []PortMapping, selectedTools []string, customEnvironment map[string]string) (*Workspace, error) {
 	// 先进行基本验证，不持有锁
-	imageConfig, exists := preloadedImages[images]
-	if !exists {
-		// 检查自定义镜像
-		oem.customImagesMutex.RLock()
-		customConfig, customExists := oem.customImages[images]
-		oem.customImagesMutex.RUnlock()
+	var imageConfig *ImageConfig
 
-		if !customExists {
-			return nil, fmt.Errorf("不支持的镜像: %s", images)
-		}
+	// 检查自定义镜像
+	oem.customImagesMutex.RLock()
+	customConfig, customExists := oem.customImages[images]
+	oem.customImagesMutex.RUnlock()
+
+	if customExists {
 		imageConfig = customConfig
+	} else {
+		// 如果不是自定义镜像，创建一个默认配置
+		imageConfig = &ImageConfig{
+			Name:        images,
+			Description: fmt.Sprintf("Docker镜像: %s", images),
+			Shell:       "/bin/bash",
+			Environment: map[string]string{
+				"PATH":            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+				"TERM":            "xterm-256color",
+				"HOME":            "/root",
+				"USER":            "root",
+				"SHELL":           "/bin/bash",
+				"LANG":            "C.UTF-8",
+				"LC_ALL":          "C.UTF-8",
+				"DEBIAN_FRONTEND": "noninteractive",
+				"TZ":              "Asia/Shanghai",
+			},
+			IsCustom: false,
+		}
 	}
 
 	workspaceID := generateWorkspaceID()
@@ -950,31 +927,10 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 	if err != nil {
 		log.Printf("[%s] 拉取镜像: %s", workspaceID, images)
 
-		// 设置拉取镜像的超时（2分钟）
-		pullCtx, pullCancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer pullCancel()
-
-		out, err := oem.dockerClient.ImagePull(pullCtx, images, imageTypes.PullOptions{})
-		if err != nil {
+		// 使用回退机制拉取镜像
+		if _, err := oem.pullImageWithFallback(ctx, images); err != nil {
 			oem.updateWorkspaceStatus(workspaceID, "failed")
 			return fmt.Errorf("拉取镜像失败: %v", err)
-		}
-		defer out.Close()
-
-		// 读取拉取进度（非阻塞）
-		go func() {
-			io.Copy(io.Discard, out)
-		}()
-
-		// 等待拉取完成或超时
-		select {
-		case <-pullCtx.Done():
-			if pullCtx.Err() == context.DeadlineExceeded {
-				oem.updateWorkspaceStatus(workspaceID, "failed")
-				return fmt.Errorf("拉取镜像超时")
-			}
-		default:
-			// 继续执行
 		}
 	}
 	log.Printf("[%s] 镜像准备完成: %s", workspaceID, images)
@@ -1410,9 +1366,34 @@ func (oem *OnlineEditorManager) recreateContainer(workspace *Workspace) error {
 	workspaceID := workspace.ID
 
 	// 获取镜像配置
-	imageConfig, exists := preloadedImages[workspace.Image]
-	if !exists {
-		return fmt.Errorf("不支持的镜像: %s", workspace.Image)
+	var imageConfig *ImageConfig
+
+	// 检查自定义镜像
+	oem.customImagesMutex.RLock()
+	customConfig, customExists := oem.customImages[workspace.Image]
+	oem.customImagesMutex.RUnlock()
+
+	if customExists {
+		imageConfig = customConfig
+	} else {
+		// 如果不是自定义镜像，创建一个默认配置
+		imageConfig = &ImageConfig{
+			Name:        workspace.Image,
+			Description: fmt.Sprintf("Docker镜像: %s", workspace.Image),
+			Shell:       "/bin/bash",
+			Environment: map[string]string{
+				"PATH":            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+				"TERM":            "xterm-256color",
+				"HOME":            "/root",
+				"USER":            "root",
+				"SHELL":           "/bin/bash",
+				"LANG":            "C.UTF-8",
+				"LC_ALL":          "C.UTF-8",
+				"DEBIAN_FRONTEND": "noninteractive",
+				"TZ":              "Asia/Shanghai",
+			},
+			IsCustom: false,
+		}
 	}
 
 	// 设置环境变量
@@ -2946,11 +2927,13 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 
 	// 获取镜像配置中的Shell信息
 	defaultShell := "/bin/bash"
-	if imageConfig, exists := preloadedImages[workspace.Image]; exists {
-		if imageConfig.Shell != "" {
-			defaultShell = imageConfig.Shell
-		}
+
+	// 检查自定义镜像
+	oem.customImagesMutex.RLock()
+	if customConfig, exists := oem.customImages[workspace.Image]; exists && customConfig.Shell != "" {
+		defaultShell = customConfig.Shell
 	}
+	oem.customImagesMutex.RUnlock()
 
 	// 设置完整的环境变量
 	envs := []string{
@@ -3554,13 +3537,8 @@ func (oem *OnlineEditorManager) handleUpdatePortBindings(w http.ResponseWriter, 
 // 镜像管理相关方法
 func (oem *OnlineEditorManager) PullImage(imageName string) error {
 	ctx := context.Background()
-	out, err := oem.dockerClient.ImagePull(ctx, imageName, imageTypes.PullOptions{})
-	if err != nil {
-		return fmt.Errorf("拉取镜像失败: %v", err)
-	}
-	defer out.Close()
-	io.Copy(io.Discard, out)
-	return nil
+	_, err := oem.pullImageWithFallback(ctx, imageName)
+	return err
 }
 
 func (oem *OnlineEditorManager) DeleteImage(imageID string) error {
@@ -3851,19 +3829,13 @@ func (oem *OnlineEditorManager) AddCustomImage(req CustomImageRequest) (*ImageCo
 	ctx := context.Background()
 	log.Printf("开始拉取自定义镜像: %s", req.Name)
 
-	out, err := oem.dockerClient.ImagePull(ctx, req.Name, imageTypes.PullOptions{})
+	actualImageName, err := oem.pullImageWithFallback(ctx, req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("拉取镜像失败: %v", err)
 	}
-	defer out.Close()
-
-	// 读取拉取输出（非阻塞）
-	go func() {
-		io.Copy(io.Discard, out)
-	}()
 
 	// 获取镜像信息
-	imageInfo, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, req.Name)
+	imageInfo, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, actualImageName)
 	if err != nil {
 		return nil, fmt.Errorf("获取镜像信息失败: %v", err)
 	}
@@ -3888,21 +3860,101 @@ func (oem *OnlineEditorManager) AddCustomImage(req CustomImageRequest) (*ImageCo
 	return config, nil
 }
 
-// 获取所有可用镜像（预加载 + 自定义）
+// 获取所有可用镜像配置
 func (oem *OnlineEditorManager) GetAvailableImages() ([]*ImageConfig, error) {
 	var images []*ImageConfig
 
-	// 添加预加载镜像
-	for _, config := range preloadedImages {
-		images = append(images, config)
-	}
-
-	// 添加自定义镜像
+	// 添加自定义镜像配置
 	oem.customImagesMutex.RLock()
 	for _, config := range oem.customImages {
 		images = append(images, config)
 	}
 	oem.customImagesMutex.RUnlock()
+
+	// 添加Docker中的实际镜像
+	ctx := context.Background()
+	dockerImages, err := oem.dockerClient.ImageList(ctx, imageTypes.ListOptions{})
+	if err != nil {
+		oem.logError("获取Docker镜像列表", err)
+		return images, nil // 即使Docker镜像获取失败，也返回自定义配置
+	}
+
+	for _, dockerImage := range dockerImages {
+		// 获取镜像详细信息（暂时不使用，但保留用于未来扩展）
+		_, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, dockerImage.ID)
+		if err != nil {
+			continue
+		}
+
+		// 获取镜像标签
+		var tags []string
+		if len(dockerImage.RepoTags) > 0 {
+			tags = dockerImage.RepoTags
+		} else {
+			tags = []string{dockerImage.ID[:12]} // 使用短ID作为标签
+		}
+
+		// 为每个标签创建一个配置
+		for _, tag := range tags {
+			// 检查是否已经存在（避免重复）
+			exists := false
+			for _, existingImage := range images {
+				if existingImage.Name == tag {
+					exists = true
+					break
+				}
+			}
+
+			if !exists {
+				// 为Docker镜像设置默认环境变量
+				envVars := map[string]string{
+					"PATH":            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+					"TERM":            "xterm-256color",
+					"HOME":            "/root",
+					"USER":            "root",
+					"SHELL":           "/bin/bash",
+					"LANG":            "C.UTF-8",
+					"LC_ALL":          "C.UTF-8",
+					"DEBIAN_FRONTEND": "noninteractive",
+					"TZ":              "Asia/Shanghai",
+				}
+
+				// 根据镜像名称设置特定的环境变量
+				if strings.Contains(tag, "node") {
+					envVars["NODE_ENV"] = "development"
+					envVars["NPM_CONFIG_PREFIX"] = "/usr/local"
+				} else if strings.Contains(tag, "python") {
+					envVars["PYTHONPATH"] = "/workspace"
+					envVars["PYTHONUNBUFFERED"] = "1"
+					envVars["PIP_NO_CACHE_DIR"] = "1"
+				} else if strings.Contains(tag, "golang") {
+					envVars["GOPATH"] = "/go"
+					envVars["GOROOT"] = "/usr/local/go"
+					envVars["CGO_ENABLED"] = "0"
+				} else if strings.Contains(tag, "openjdk") || strings.Contains(tag, "java") {
+					envVars["JAVA_HOME"] = "/usr/local/openjdk-17"
+					envVars["MAVEN_HOME"] = "/usr/share/maven"
+				} else if strings.Contains(tag, "php") {
+					envVars["PHP_INI_DIR"] = "/usr/local/etc/php"
+					envVars["PHP_CFLAGS"] = "-fstack-protector-strong -fpic -fpie -O2"
+				} else if strings.Contains(tag, "ruby") {
+					envVars["RUBY_VERSION"] = "3.2"
+					envVars["GEM_HOME"] = "/usr/local/bundle"
+				}
+
+				images = append(images, &ImageConfig{
+					Name:        tag,
+					Description: fmt.Sprintf("Docker镜像: %s", tag),
+					Shell:       "/bin/bash",
+					Environment: envVars,
+					Tags:        []string{tag},
+					Size:        dockerImage.Size,
+					Created:     time.Unix(dockerImage.Created, 0),
+					IsCustom:    false,
+				})
+			}
+		}
+	}
 
 	return images, nil
 }
@@ -4884,6 +4936,11 @@ func main() {
 
 	// 启动HTTP服务器
 	port := 8080
+	if portEnv := os.Getenv("PORT"); portEnv != "" {
+		if p, err := strconv.Atoi(portEnv); err == nil {
+			port = p
+		}
+	}
 	log.Printf("在线代码编辑器服务器启动在端口 %d", port)
 	log.Println("API 文档:")
 	log.Println("  工作空间管理:")

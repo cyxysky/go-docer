@@ -96,7 +96,7 @@
   width: 28px;
   height: 28px;
   background: transparent;
-  border: 1px solid var(--border-color, #333);
+  border: 1px solid transparent;
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-secondary, #888);
@@ -107,7 +107,7 @@
 }
 
 .terminal-tab-add:hover {
-  background: var(--hover-bg, #3d3d3d);
+  background: var(--border-color, #333);
   border-color: var(--primary-color, #007acc);
   color: var(--primary-color, #007acc);
 }
