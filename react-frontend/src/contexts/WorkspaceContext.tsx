@@ -8,7 +8,7 @@ interface WorkspaceContextType {
   isLoading: boolean;
   error: string | null;
   loadWorkspaces: () => Promise<void>;
-  createWorkspace: (name: string, image: string, gitRepo: string, gitBranch: string, tools?: string[]) => Promise<void>;
+  createWorkspace: (name: string, image: string, gitRepo: string, gitBranch: string, tools?: string[], ports?: Array<{containerPort: string, hostPort: string, protocol: string}>) => Promise<void>;
   selectWorkspace: (id: string) => void;
   startWorkspace: (id: string) => Promise<void>;
   stopWorkspace: (id: string) => Promise<void>;
@@ -50,7 +50,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
     }
   }, []);
 
-  const createWorkspace = useCallback(async (name: string, image: string, gitRepo: string, gitBranch: string, tools?: string[]) => {
+  const createWorkspace = useCallback(async (name: string, image: string, gitRepo: string, gitBranch: string, tools?: string[], ports?: Array<{containerPort: string, hostPort: string, protocol: string}>) => {
     setError(null);
     try {
       await workspaceAPI.createWorkspace({
@@ -58,7 +58,8 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
         image,
         git_repo: gitRepo || undefined,
         git_branch: gitBranch,
-        tools: tools || undefined
+        tools: tools || undefined,
+        ports: ports || undefined
       });
       await loadWorkspaces(); // 重新加载数据
     } catch (err) {

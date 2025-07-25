@@ -26,6 +26,9 @@ const WorkspacePanel: React.FC = () => {
   const [selectedWorkspaceForPort, setSelectedWorkspaceForPort] = useState<any>(null);
   const [portBindings, setPortBindings] = useState<Array<{containerPort: string, hostPort: string, protocol: string}>>([]);
   
+  // 创建工作空间时的端口绑定配置
+  const [createPortBindings, setCreatePortBindings] = useState<Array<{containerPort: string, hostPort: string, protocol: string}>>([]);
+  
   // 搜索和排序
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'created' | 'name' | 'status'>('created');
@@ -76,7 +79,7 @@ const WorkspacePanel: React.FC = () => {
       // 获取选中的工具列表
       const tools = (Object.keys(selectedTools) as ToolKey[]).filter(tool => selectedTools[tool]);
       
-      await createWorkspace(name, image, gitRepo, gitBranch, tools);
+      await createWorkspace(name, image, gitRepo, gitBranch, tools, createPortBindings);
       setName('');
       setGitRepo('');
       setGitBranch('main');
@@ -93,6 +96,8 @@ const WorkspacePanel: React.FC = () => {
         zip: false,
         unzip: false
       });
+      // 重置端口配置
+      setCreatePortBindings([]);
       setShowCreateModal(false);
     } catch (error) {
       console.error('创建工作空间失败:', error);
@@ -116,6 +121,21 @@ const WorkspacePanel: React.FC = () => {
       ...prev,
       [toolKey]: !prev[toolKey]
     }));
+  };
+
+  // 创建工作空间时的端口配置处理函数
+  const handleCreateAddPortBinding = () => {
+    setCreatePortBindings(prev => [...prev, { containerPort: '', hostPort: '', protocol: 'tcp' }]);
+  };
+
+  const handleCreateRemovePortBinding = (index: number) => {
+    setCreatePortBindings(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleCreatePortBindingChange = (index: number, field: string, value: string) => {
+    setCreatePortBindings(prev => prev.map((binding, i) => 
+      i === index ? { ...binding, [field]: value } : binding
+    ));
   };
 
   // 打开端口配置弹窗
@@ -323,7 +343,7 @@ const WorkspacePanel: React.FC = () => {
               >
                 <div className="workspace-name">
                   <i className="fas fa-cube"></i>
-                  {workspace.name}
+                  {workspace.display_name}
                 </div>
                 <div className="workspace-details">
                   <span className="workspace-image">{workspace.image}</span>
@@ -458,6 +478,87 @@ const WorkspacePanel: React.FC = () => {
                   value={gitBranch}
                   onChange={(e) => setGitBranch(e.target.value)}
                 />
+              </div>
+
+              {/* 端口配置 */}
+              <div className="form-group">
+                <div className="port-bindings-section">
+                  <div className="section-header">
+                    <h4>端口配置 (可选)</h4>
+                    <button type="button" className="btn btn-small" onClick={handleCreateAddPortBinding}>
+                      <i className="fas fa-plus"></i> 添加端口
+                    </button>
+                  </div>
+                  
+                  {createPortBindings.length === 0 ? (
+                    <div className="empty-state">
+                      <p>暂无端口绑定</p>
+                      <button type="button" className="btn btn-primary" onClick={handleCreateAddPortBinding}>
+                        添加第一个端口绑定
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="port-bindings-list">
+                      {createPortBindings.map((binding, index) => (
+                        <div key={index} className="port-binding-item">
+                          <div className="port-binding-fields">
+                            <div className="field-group">
+                              <label>容器端口</label>
+                              <input
+                                type="text"
+                                placeholder="3000"
+                                value={binding.containerPort}
+                                onChange={(e) => handleCreatePortBindingChange(index, 'containerPort', e.target.value)}
+                                className="form-control"
+                              />
+                            </div>
+                            <div className="field-group">
+                              <label>宿主机端口</label>
+                              <input
+                                type="text"
+                                placeholder="3000 (留空自动分配)"
+                                value={binding.hostPort}
+                                onChange={(e) => handleCreatePortBindingChange(index, 'hostPort', e.target.value)}
+                                className="form-control"
+                              />
+                            </div>
+                            <div className="field-group">
+                              <label>协议</label>
+                              <select
+                                value={binding.protocol}
+                                onChange={(e) => handleCreatePortBindingChange(index, 'protocol', e.target.value)}
+                                className="form-control"
+                              >
+                                <option value="tcp">TCP</option>
+                                <option value="udp">UDP</option>
+                              </select>
+                            </div>
+                            <div className="field-group">
+                              <button
+                                type="button"
+                                className="port-delete-button"
+                                onClick={() => handleCreateRemovePortBinding(index)}
+                                title="删除端口绑定"
+                              >
+                                <i className="fas fa-times"></i>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="port-info">
+                    <h5>端口配置说明</h5>
+                    <ul>
+                      <li><code>容器端口</code>：应用在容器内监听的端口</li>
+                      <li><code>宿主机端口</code>：外部访问的端口，留空则自动分配</li>
+                      <li><code>协议</code>：网络协议，通常选择TCP</li>
+                      <li>创建后可通过 <code>localhost:宿主机端口</code> 访问应用</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="modal-footer">

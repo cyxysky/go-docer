@@ -54,9 +54,18 @@ export const workspaceAPI = {
     git_repo?: string;
     git_branch?: string;
     tools?: string[];
+    ports?: Array<{containerPort: string, hostPort: string, protocol: string}>;
   }) => request('/workspaces', {
     method: 'POST',
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      ports: data.ports?.map(p => ({
+        container_port: p.containerPort,
+        host_port: p.hostPort,
+        protocol: p.protocol,
+        public_access: p.hostPort !== ''
+      }))
+    }),
   }),
   
   // 启动工作空间

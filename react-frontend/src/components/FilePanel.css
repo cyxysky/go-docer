@@ -11,10 +11,19 @@
 .file-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);
   min-height: 40px;
+}
+
+/* 工具栏分割线 */
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-color);
+  margin: 0 4px;
 }
 
 .file-toolbar .btn {
@@ -35,10 +44,6 @@
   color: var(--primary-color);
 }
 
-.file-toolbar .btn:active {
-  transform: translateY(0);
-}
-
 .file-toolbar .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -54,6 +59,7 @@
 .file-toolbar .btn i {
   font-size: 12px;
 }
+
 
 /* 文件树容器 */
 .file-tree {
@@ -171,7 +177,7 @@
   border-radius: 2px;
 }
 
-.dialog-content input {
+.dialog-content input[type="text"] {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border-color);
@@ -184,14 +190,14 @@
   transition: all 0.2s ease;
 }
 
-.dialog-content input:focus {
+.dialog-content input[type="text"]:focus {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
   background: var(--secondary-color);
 }
 
-.dialog-content input::placeholder {
+.dialog-content input[type="text"]::placeholder {
   color: var(--text-secondary);
   opacity: 0.7;
 }
@@ -246,6 +252,18 @@
   .dialog-content {
     min-width: 280px;
     padding: 20px;
+  }
+  
+  .export-dialog.large-dialog {
+    min-width: 90vw;
+    max-width: 95vw;
+    min-height: 70vh;
+    max-height: 90vh;
+    padding: 16px;
+  }
+  
+  .file-selector-container {
+    height: 250px;
   }
   
   .dialog-actions {
@@ -312,4 +330,196 @@
 
 .fa-file-alt {
   color: #6c757d;
+} 
+
+/* 导出对话框特殊样式 */
+.export-dialog {
+  min-width: 400px;
+  max-width: 500px;
+}
+
+.export-dialog.large-dialog {
+  min-width: 600px;
+  max-width: 800px;
+  min-height: 500px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.export-dialog.large-dialog .dialog-actions {
+  margin-top: auto;
+}
+
+.export-dialog h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.export-dialog h3 i {
+  font-size: 18px;
+  color: var(--primary-color);
+}
+
+.export-dialog h3::before {
+  display: none;
+}
+
+/* 表单组样式 */
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group .form-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.form-group input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 14px;
+  background: var(--tertiary-color);
+  color: var(--text-primary);
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.form-group input[type="text"]:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
+  background: var(--secondary-color);
+}
+
+.form-group small {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  opacity: 0.8;
+}
+
+/* 单选按钮组 */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: normal;
+}
+
+.radio-option:hover {
+  background: var(--quaternary-color);
+  border-color: var(--primary-color);
+}
+
+.radio-option input[type="radio"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--primary-color);
+}
+
+.radio-option span {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.radio-option input[type="radio"]:checked + span {
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+/* 导出信息提示 */
+.export-info {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(0, 123, 255, 0.05);
+  border: 1px solid rgba(0, 123, 255, 0.2);
+  border-radius: 6px;
+  margin: 20px 0;
+}
+
+.export-info i {
+  font-size: 16px;
+  color: var(--primary-color);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.export-info div {
+  flex: 1;
+}
+
+.export-info strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.export-info p {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* 按钮样式增强 */
+.dialog-actions .btn-primary {
+  background: var(--primary-color);
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.dialog-actions .btn-primary:hover:not(:disabled) {
+  background: var(--primary-color);
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.dialog-actions .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.dialog-actions .btn-primary i {
+  font-size: 13px;
+}
+
+/* 文件选择器容器 */
+.file-selector-container {
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  height: 300px;
+  overflow: hidden;
+}
+
+.file-selector-container .fs-file-selector {
+  border: none;
+  border-radius: 0;
 } 

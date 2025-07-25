@@ -1,6 +1,9 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -99,6 +102,34 @@ type GitOperation struct {
 	Files   []string `json:"files"`
 }
 
+// 导出相关的数据结构
+type ExportRequest struct {
+	Type          string   `json:"type"`           // "files" 或 "image"
+	Path          string   `json:"path"`           // 导出文件时的路径，空则导出整个工作空间
+	SelectedFiles []string `json:"selected_files"` // 选中的文件和文件夹列表
+	Format        string   `json:"format"`         // "zip" 或 "tar.gz"
+	ImageName     string   `json:"image_name"`     // 导出镜像时的新镜像名称
+	ImageTag      string   `json:"image_tag"`      // 导出镜像时的标签
+}
+
+type ExportResponse struct {
+	Success    bool   `json:"success"`
+	Message    string `json:"message"`
+	DownloadID string `json:"download_id"` // 用于下载的唯一标识
+	FileName   string `json:"file_name"`
+	FileSize   int64  `json:"file_size"`
+	ExportType string `json:"export_type"`
+}
+
+type DownloadInfo struct {
+	FilePath   string    `json:"file_path"`
+	FileName   string    `json:"file_name"`
+	FileSize   int64     `json:"file_size"`
+	ExportType string    `json:"export_type"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
 // 简化网络管理，移除IP池，直接使用端口绑定
 
 // 在线编辑器管理器
@@ -114,6 +145,11 @@ type OnlineEditorManager struct {
 	dockerClient *client.Client // Docker 客户端
 	networkName  string         // 工作空间网络名称
 	portPool     map[int]bool   // 端口池管理
+
+	// 新增：导出下载管理
+	downloadsDir   string                   // 下载文件存储目录
+	downloads      map[string]*DownloadInfo // 下载信息管理
+	downloadsMutex sync.RWMutex             // 下载信息锁
 }
 
 // 脚本和命令管理
@@ -468,9 +504,10 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 	baseDir := filepath.Join(currentDir, "workspace")
 	workspacesDir := filepath.Join(baseDir, "workspaces")
 	imagesDir := filepath.Join(baseDir, "images")
+	downloadsDir := filepath.Join(baseDir, "downloads")
 
 	// 创建目录
-	dirs := []string{baseDir, workspacesDir, imagesDir}
+	dirs := []string{baseDir, workspacesDir, imagesDir, downloadsDir}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("创建目录失败 %s: %v", dir, err)
@@ -497,9 +534,12 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 				return true // 允许所有来源
 			},
 		},
-		dockerClient: dockerCli,
-		networkName:  networkName,
-		portPool:     make(map[int]bool),
+		dockerClient:   dockerCli,
+		networkName:    networkName,
+		portPool:       make(map[int]bool),
+		downloadsDir:   downloadsDir,
+		downloads:      make(map[string]*DownloadInfo),
+		downloadsMutex: sync.RWMutex{},
 	}
 
 	// 启动时恢复现有工作空间
@@ -2470,6 +2510,12 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	// 端口测试
 	api.HandleFunc("/workspaces/{id}/test-port/{port}", oem.handleTestPort).Methods("POST")
 
+	// 新增：导出和下载功能
+	api.HandleFunc("/workspaces/{id}/export", oem.handleExportWorkspace).Methods("POST")
+	api.HandleFunc("/downloads", oem.handleListDownloads).Methods("GET")
+	api.HandleFunc("/downloads/{downloadId}/status", oem.handleGetDownloadStatus).Methods("GET")
+	api.HandleFunc("/downloads/{downloadId}/file", oem.handleDownload).Methods("GET")
+
 	// 静态文件服务
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./static")))
 
@@ -3451,7 +3497,8 @@ func (oem *OnlineEditorManager) StartCleanupTask() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			oem.CleanupExpiredWorkspaces(24 * time.Hour) // 清理超过24的工作空间
+			oem.CleanupExpiredWorkspaces(24 * time.Hour) // 清理超过24小时的工作空间
+			oem.CleanupExpiredDownloads()                // 清理过期的下载文件
 		}
 	}()
 }
@@ -3476,6 +3523,762 @@ func (oem *OnlineEditorManager) WorkspaceExists(workspaceID string) bool {
 
 	_, exists := oem.workspaces[workspaceID]
 	return exists
+}
+
+// 导出功能实现
+
+// 生成唯一的下载ID
+func generateDownloadID() string {
+	return fmt.Sprintf("dl_%d", time.Now().UnixNano())
+}
+
+// 导出工作空间文件
+func (oem *OnlineEditorManager) ExportWorkspaceFiles(workspaceID, exportPath, format string, selectedFiles []string) (*ExportResponse, error) {
+	oem.mutex.RLock()
+	_, exists := oem.workspaces[workspaceID]
+	oem.mutex.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	// 验证格式
+	if format != "zip" && format != "tar.gz" {
+		format = "zip" // 默认使用zip格式
+	}
+
+	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
+	sourceDir := workspaceDir
+
+	// 如果指定了路径，使用指定路径
+	if exportPath != "" && exportPath != "." {
+		sourceDir = filepath.Join(workspaceDir, exportPath)
+		// 检查路径是否存在且在工作空间内
+		if !strings.HasPrefix(sourceDir, workspaceDir) {
+			return nil, fmt.Errorf("导出路径超出工作空间范围")
+		}
+		if _, err := os.Stat(sourceDir); os.IsNotExist(err) {
+			return nil, fmt.Errorf("导出路径不存在: %s", exportPath)
+		}
+	}
+
+	// 如果有选中文件列表，验证所有路径
+	if len(selectedFiles) > 0 {
+		for _, file := range selectedFiles {
+			fullPath := filepath.Join(workspaceDir, file)
+			if !strings.HasPrefix(fullPath, workspaceDir) {
+				return nil, fmt.Errorf("文件路径超出工作空间范围: %s", file)
+			}
+		}
+	}
+
+	downloadID := generateDownloadID()
+
+	// 生成文件名
+	fileName := fmt.Sprintf("%s_%s", workspaceID, time.Now().Format("20060102_150405"))
+	if len(selectedFiles) > 0 {
+		fileName = fmt.Sprintf("%s_selected_%s", workspaceID, time.Now().Format("20060102_150405"))
+	} else if exportPath != "" && exportPath != "." {
+		// 使用路径名作为文件名的一部分
+		pathName := strings.ReplaceAll(exportPath, "/", "_")
+		fileName = fmt.Sprintf("%s_%s_%s", workspaceID, pathName, time.Now().Format("20060102_150405"))
+	}
+
+	var outputPath string
+	var err error
+
+	if format == "zip" {
+		fileName += ".zip"
+		outputPath = filepath.Join(oem.downloadsDir, fileName)
+		err = oem.createZipArchive(sourceDir, outputPath, selectedFiles)
+	} else {
+		fileName += ".tar.gz"
+		outputPath = filepath.Join(oem.downloadsDir, fileName)
+		err = oem.createTarGzArchive(sourceDir, outputPath, selectedFiles)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("创建归档文件失败: %v", err)
+	}
+
+	// 获取文件大小
+	fileInfo, err := os.Stat(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("获取文件信息失败: %v", err)
+	}
+
+	// 保存下载信息
+	downloadInfo := &DownloadInfo{
+		FilePath:   outputPath,
+		FileName:   fileName,
+		FileSize:   fileInfo.Size(),
+		ExportType: "files",
+		CreatedAt:  time.Now(),
+		ExpiresAt:  time.Now().Add(1 * time.Hour), // 24小时后过期
+	}
+
+	oem.downloadsMutex.Lock()
+	oem.downloads[downloadID] = downloadInfo
+	oem.downloadsMutex.Unlock()
+
+	return &ExportResponse{
+		Success:    true,
+		Message:    "文件导出成功",
+		DownloadID: downloadID,
+		FileName:   fileName,
+		FileSize:   fileInfo.Size(),
+		ExportType: "files",
+	}, nil
+}
+
+// 导出工作空间镜像
+func (oem *OnlineEditorManager) ExportWorkspaceImage(workspaceID, imageName, imageTag string) (*ExportResponse, error) {
+	oem.mutex.RLock()
+	workspace, exists := oem.workspaces[workspaceID]
+	oem.mutex.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	if workspace.Status != "running" && workspace.Status != "stopped" {
+		return nil, fmt.Errorf("工作空间状态不适合导出镜像，当前状态: %s", workspace.Status)
+	}
+
+	ctx := context.Background()
+
+	// 设置默认镜像名称和标签
+	if imageName == "" {
+		imageName = fmt.Sprintf("exported_%s", workspaceID)
+	}
+	if imageTag == "" {
+		imageTag = time.Now().Format("20060102_150405")
+	}
+
+	newImageName := fmt.Sprintf("%s:%s", imageName, imageTag)
+
+	log.Printf("[%s] 开始导出镜像: %s", workspaceID, newImageName)
+
+	// 提交容器为镜像
+	commitResp, err := oem.dockerClient.ContainerCommit(ctx, workspace.ContainerID, container.CommitOptions{
+		Reference: newImageName,
+		Comment:   fmt.Sprintf("Exported from workspace %s", workspaceID),
+		Author:    "Online Code Editor",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("提交容器为镜像失败: %v", err)
+	}
+
+	log.Printf("[%s] 镜像提交完成: %s", workspaceID, commitResp.ID)
+
+	// 导出镜像为tar文件
+	downloadID := generateDownloadID()
+	fileName := fmt.Sprintf("%s_%s.tar", imageName, imageTag)
+	outputPath := filepath.Join(oem.downloadsDir, fileName)
+
+	imageReader, err := oem.dockerClient.ImageSave(ctx, []string{newImageName})
+	if err != nil {
+		return nil, fmt.Errorf("导出镜像失败: %v", err)
+	}
+	defer imageReader.Close()
+
+	// 创建输出文件
+	outputFile, err := os.Create(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("创建输出文件失败: %v", err)
+	}
+	defer outputFile.Close()
+
+	// 复制镜像数据到文件
+	written, err := io.Copy(outputFile, imageReader)
+	if err != nil {
+		return nil, fmt.Errorf("写入镜像文件失败: %v", err)
+	}
+
+	log.Printf("[%s] 镜像导出完成: %s (%d bytes)", workspaceID, fileName, written)
+
+	// 保存下载信息
+	downloadInfo := &DownloadInfo{
+		FilePath:   outputPath,
+		FileName:   fileName,
+		FileSize:   written,
+		ExportType: "image",
+		CreatedAt:  time.Now(),
+		ExpiresAt:  time.Now().Add(1 * time.Hour), // 1小时后过期
+	}
+
+	oem.downloadsMutex.Lock()
+	oem.downloads[downloadID] = downloadInfo
+	oem.downloadsMutex.Unlock()
+
+	return &ExportResponse{
+		Success:    true,
+		Message:    fmt.Sprintf("镜像导出成功: %s", newImageName),
+		DownloadID: downloadID,
+		FileName:   fileName,
+		FileSize:   written,
+		ExportType: "image",
+	}, nil
+}
+
+// 创建ZIP归档
+func (oem *OnlineEditorManager) createZipArchive(sourceDir, outputPath string, selectedFiles []string) error {
+	zipFile, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("创建zip文件失败: %v", err)
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	// 如果有选中文件列表，只处理选中的文件
+	if len(selectedFiles) > 0 {
+		return oem.addSelectedFilesToZip(zipWriter, sourceDir, selectedFiles)
+	}
+
+	// 否则处理整个目录
+	return filepath.Walk(sourceDir, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// 跳过隐藏文件和目录（可选）
+		if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// 计算相对路径
+		relPath, err := filepath.Rel(sourceDir, filePath)
+		if err != nil {
+			return err
+		}
+
+		// 跳过根目录本身
+		if relPath == "." {
+			return nil
+		}
+
+		// 创建zip头
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+
+		if info.IsDir() {
+			header.Name += "/"
+			_, err := zipWriter.CreateHeader(header)
+			return err
+		} else {
+			header.Method = zip.Deflate
+			writer, err := zipWriter.CreateHeader(header)
+			if err != nil {
+				return err
+			}
+
+			file, err := os.Open(filePath)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			_, err = io.Copy(writer, file)
+			return err
+		}
+	})
+}
+
+// 添加选中的文件到ZIP归档
+func (oem *OnlineEditorManager) addSelectedFilesToZip(zipWriter *zip.Writer, sourceDir string, selectedFiles []string) error {
+	addedPaths := make(map[string]bool) // 避免重复添加
+
+	for _, selectedFile := range selectedFiles {
+		fullPath := filepath.Join(sourceDir, selectedFile)
+
+		// 检查文件/目录是否存在
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			log.Printf("警告: 跳过不存在的文件 %s: %v", selectedFile, err)
+			continue
+		}
+
+		if info.IsDir() {
+			// 添加目录及其所有内容
+			err = filepath.Walk(fullPath, func(filePath string, fileInfo os.FileInfo, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+
+				// 计算相对于工作空间的路径
+				relPath, err := filepath.Rel(sourceDir, filePath)
+				if err != nil {
+					return err
+				}
+
+				// 避免重复添加
+				if addedPaths[relPath] {
+					return nil
+				}
+				addedPaths[relPath] = true
+
+				// 创建zip头
+				header, err := zip.FileInfoHeader(fileInfo)
+				if err != nil {
+					return err
+				}
+				header.Name = relPath
+
+				if fileInfo.IsDir() {
+					header.Name += "/"
+					_, err := zipWriter.CreateHeader(header)
+					return err
+				} else {
+					header.Method = zip.Deflate
+					writer, err := zipWriter.CreateHeader(header)
+					if err != nil {
+						return err
+					}
+
+					file, err := os.Open(filePath)
+					if err != nil {
+						return err
+					}
+					defer file.Close()
+
+					_, err = io.Copy(writer, file)
+					return err
+				}
+			})
+			if err != nil {
+				return err
+			}
+		} else {
+			// 添加单个文件
+			if addedPaths[selectedFile] {
+				continue
+			}
+			addedPaths[selectedFile] = true
+
+			// 确保父目录被添加
+			parentDir := filepath.Dir(selectedFile)
+			if parentDir != "." && !addedPaths[parentDir] {
+				// 递归添加父目录
+				parts := strings.Split(parentDir, string(filepath.Separator))
+				currentPath := ""
+				for _, part := range parts {
+					if currentPath == "" {
+						currentPath = part
+					} else {
+						currentPath = filepath.Join(currentPath, part)
+					}
+
+					if !addedPaths[currentPath] {
+						addedPaths[currentPath] = true
+						header := &zip.FileHeader{
+							Name: currentPath + "/",
+						}
+						_, err := zipWriter.CreateHeader(header)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+
+			// 添加文件
+			header, err := zip.FileInfoHeader(info)
+			if err != nil {
+				return err
+			}
+			header.Name = selectedFile
+			header.Method = zip.Deflate
+
+			writer, err := zipWriter.CreateHeader(header)
+			if err != nil {
+				return err
+			}
+
+			file, err := os.Open(fullPath)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			_, err = io.Copy(writer, file)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// 创建tar.gz归档
+func (oem *OnlineEditorManager) createTarGzArchive(sourceDir, outputPath string, selectedFiles []string) error {
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("创建tar.gz文件失败: %v", err)
+	}
+	defer file.Close()
+
+	gzWriter := gzip.NewWriter(file)
+	defer gzWriter.Close()
+
+	tarWriter := tar.NewWriter(gzWriter)
+	defer tarWriter.Close()
+
+	// 如果有选中文件列表，只处理选中的文件
+	if len(selectedFiles) > 0 {
+		return oem.addSelectedFilesToTar(tarWriter, sourceDir, selectedFiles)
+	}
+
+	// 否则处理整个目录
+	return filepath.Walk(sourceDir, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// 跳过隐藏文件和目录（可选）
+		if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// 计算相对路径
+		relPath, err := filepath.Rel(sourceDir, filePath)
+		if err != nil {
+			return err
+		}
+
+		// 跳过根目录本身
+		if relPath == "." {
+			return nil
+		}
+
+		// 创建tar头
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return err
+		}
+
+		if !info.IsDir() {
+			file, err := os.Open(filePath)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			_, err = io.Copy(tarWriter, file)
+			return err
+		}
+
+		return nil
+	})
+}
+
+// 添加选中的文件到TAR归档
+func (oem *OnlineEditorManager) addSelectedFilesToTar(tarWriter *tar.Writer, sourceDir string, selectedFiles []string) error {
+	addedPaths := make(map[string]bool) // 避免重复添加
+
+	for _, selectedFile := range selectedFiles {
+		fullPath := filepath.Join(sourceDir, selectedFile)
+
+		// 检查文件/目录是否存在
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			log.Printf("警告: 跳过不存在的文件 %s: %v", selectedFile, err)
+			continue
+		}
+
+		if info.IsDir() {
+			// 添加目录及其所有内容
+			err = filepath.Walk(fullPath, func(filePath string, fileInfo os.FileInfo, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+
+				// 计算相对于工作空间的路径
+				relPath, err := filepath.Rel(sourceDir, filePath)
+				if err != nil {
+					return err
+				}
+
+				// 避免重复添加
+				if addedPaths[relPath] {
+					return nil
+				}
+				addedPaths[relPath] = true
+
+				// 创建tar头
+				header, err := tar.FileInfoHeader(fileInfo, "")
+				if err != nil {
+					return err
+				}
+				header.Name = relPath
+
+				if err := tarWriter.WriteHeader(header); err != nil {
+					return err
+				}
+
+				if !fileInfo.IsDir() {
+					file, err := os.Open(filePath)
+					if err != nil {
+						return err
+					}
+					defer file.Close()
+
+					_, err = io.Copy(tarWriter, file)
+					return err
+				}
+
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		} else {
+			// 添加单个文件
+			if addedPaths[selectedFile] {
+				continue
+			}
+			addedPaths[selectedFile] = true
+
+			// 确保父目录被添加
+			parentDir := filepath.Dir(selectedFile)
+			if parentDir != "." && !addedPaths[parentDir] {
+				// 递归添加父目录
+				parts := strings.Split(parentDir, string(filepath.Separator))
+				currentPath := ""
+				for _, part := range parts {
+					if currentPath == "" {
+						currentPath = part
+					} else {
+						currentPath = filepath.Join(currentPath, part)
+					}
+
+					if !addedPaths[currentPath] {
+						addedPaths[currentPath] = true
+						header := &tar.Header{
+							Name:     currentPath + "/",
+							Mode:     0755,
+							Typeflag: tar.TypeDir,
+						}
+						if err := tarWriter.WriteHeader(header); err != nil {
+							return err
+						}
+					}
+				}
+			}
+
+			// 添加文件
+			header, err := tar.FileInfoHeader(info, "")
+			if err != nil {
+				return err
+			}
+			header.Name = selectedFile
+
+			if err := tarWriter.WriteHeader(header); err != nil {
+				return err
+			}
+
+			file, err := os.Open(fullPath)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			_, err = io.Copy(tarWriter, file)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// 获取下载信息
+func (oem *OnlineEditorManager) GetDownloadInfo(downloadID string) (*DownloadInfo, error) {
+	oem.downloadsMutex.RLock()
+	defer oem.downloadsMutex.RUnlock()
+
+	downloadInfo, exists := oem.downloads[downloadID]
+	if !exists {
+		return nil, fmt.Errorf("下载ID不存在: %s", downloadID)
+	}
+
+	// 检查是否过期
+	if time.Now().After(downloadInfo.ExpiresAt) {
+		return nil, fmt.Errorf("下载链接已过期")
+	}
+
+	return downloadInfo, nil
+}
+
+// 清理过期的下载文件
+func (oem *OnlineEditorManager) CleanupExpiredDownloads() {
+	oem.downloadsMutex.Lock()
+	defer oem.downloadsMutex.Unlock()
+
+	now := time.Now()
+	for downloadID, downloadInfo := range oem.downloads {
+		if now.After(downloadInfo.ExpiresAt) {
+			// 删除文件
+			if err := os.Remove(downloadInfo.FilePath); err != nil {
+				log.Printf("删除过期下载文件失败 %s: %v", downloadInfo.FilePath, err)
+			}
+			// 从map中删除
+			delete(oem.downloads, downloadID)
+			log.Printf("清理过期下载: %s", downloadID)
+		}
+	}
+}
+
+// 新增：导出和下载处理器
+
+// 处理导出请求
+func (oem *OnlineEditorManager) handleExportWorkspace(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	workspaceID := vars["id"]
+
+	var req ExportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 验证导出类型
+	if req.Type != "files" && req.Type != "image" {
+		http.Error(w, "不支持的导出类型，只支持 'files' 或 'image'", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	var response *ExportResponse
+	var err error
+
+	if req.Type == "files" {
+		// 导出文件
+		response, err = oem.ExportWorkspaceFiles(workspaceID, req.Path, req.Format, req.SelectedFiles)
+	} else {
+		// 导出镜像
+		response, err = oem.ExportWorkspaceImage(workspaceID, req.ImageName, req.ImageTag)
+	}
+
+	if err != nil {
+		http.Error(w, "导出失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// 处理下载请求
+func (oem *OnlineEditorManager) handleDownload(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	downloadID := vars["downloadId"]
+
+	downloadInfo, err := oem.GetDownloadInfo(downloadID)
+	if err != nil {
+		http.Error(w, "下载链接无效或已过期: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// 检查文件是否存在
+	if _, err := os.Stat(downloadInfo.FilePath); os.IsNotExist(err) {
+		http.Error(w, "下载文件不存在", http.StatusNotFound)
+		return
+	}
+
+	// 打开文件
+	file, err := os.Open(downloadInfo.FilePath)
+	if err != nil {
+		http.Error(w, "无法打开下载文件: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// 设置下载响应头
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadInfo.FileName))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", downloadInfo.FileSize))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	// 流式传输文件内容
+	_, err = io.Copy(w, file)
+	if err != nil {
+		log.Printf("下载文件传输失败 %s: %v", downloadID, err)
+	} else {
+		log.Printf("下载完成: %s (%s)", downloadID, downloadInfo.FileName)
+	}
+}
+
+// 获取下载状态
+func (oem *OnlineEditorManager) handleGetDownloadStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	downloadID := vars["downloadId"]
+
+	downloadInfo, err := oem.GetDownloadInfo(downloadID)
+	if err != nil {
+		http.Error(w, "下载ID不存在或已过期: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"download_id":  downloadID,
+		"file_name":    downloadInfo.FileName,
+		"file_size":    downloadInfo.FileSize,
+		"export_type":  downloadInfo.ExportType,
+		"created_at":   downloadInfo.CreatedAt,
+		"expires_at":   downloadInfo.ExpiresAt,
+		"status":       "ready",
+		"download_url": fmt.Sprintf("/api/v1/downloads/%s/file", downloadID),
+	})
+}
+
+// 列出用户的下载
+func (oem *OnlineEditorManager) handleListDownloads(w http.ResponseWriter, r *http.Request) {
+	oem.downloadsMutex.RLock()
+	defer oem.downloadsMutex.RUnlock()
+
+	var downloads []map[string]interface{}
+	now := time.Now()
+
+	for downloadID, downloadInfo := range oem.downloads {
+		// 跳过已过期的下载
+		if now.After(downloadInfo.ExpiresAt) {
+			continue
+		}
+
+		downloads = append(downloads, map[string]interface{}{
+			"download_id":  downloadID,
+			"file_name":    downloadInfo.FileName,
+			"file_size":    downloadInfo.FileSize,
+			"export_type":  downloadInfo.ExportType,
+			"created_at":   downloadInfo.CreatedAt,
+			"expires_at":   downloadInfo.ExpiresAt,
+			"download_url": fmt.Sprintf("/api/v1/downloads/%s/file", downloadID),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(downloads)
 }
 
 // 主函数
@@ -3531,6 +4334,11 @@ func main() {
 	log.Println("  网络管理:")
 	log.Println("    GET    /api/v1/network/ip-pool/stats - 获取IP池统计")
 	log.Println("    GET    /api/v1/network/ip-pool/allocations - 获取IP分配信息")
+	log.Println("  导出和下载:")
+	log.Println("    POST   /api/v1/workspaces/{id}/export - 导出工作空间文件或镜像")
+	log.Println("    GET    /api/v1/downloads - 列出用户的下载")
+	log.Println("    GET    /api/v1/downloads/{downloadId}/status - 获取下载状态")
+	log.Println("    GET    /api/v1/downloads/{downloadId}/file - 下载文件")
 
 	if err := manager.StartServer(port); err != nil {
 		log.Fatalf("启动服务器失败: %v", err)

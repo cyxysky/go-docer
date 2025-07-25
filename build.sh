@@ -4,6 +4,9 @@
 
 echo "🚀 开始构建在线代码编辑器..."
 
+# 配置GOPROXY
+go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+
 # 检查Go环境
 if ! command -v go &> /dev/null; then
     echo "❌ Go未安装，请先安装Go 1.21+"

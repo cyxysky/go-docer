@@ -1,0 +1,342 @@
+/* 文件选择器样式 */
+.fs-file-selector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--secondary-color);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fs-file-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--tertiary-color);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.fs-selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.fs-btn-link {
+  background: none;
+  border: none;
+  color: var(--primary-color);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.fs-btn-link:hover {
+  background: rgba(0, 123, 255, 0.1);
+  color: var(--primary-color);
+}
+
+.fs-file-selector-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.fs-file-selector-item {
+  user-select: none;
+}
+
+.fs-file-item-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-radius: 6px;
+  margin: 2px 8px;
+  border: 1px solid transparent;
+}
+
+.fs-file-item-row:hover {
+  background: var(--quaternary-color);
+  border-color: rgba(0, 123, 255, 0.2);
+}
+
+.fs-file-item-row.selected {
+  background: linear-gradient(135deg, rgba(0, 123, 255, 0.12), rgba(0, 123, 255, 0.08));
+  border: 1px solid rgba(0, 123, 255, 0.4);
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+}
+
+.fs-expand-btn {
+  background: none;
+  border: none;
+  padding: 3px;
+  margin-right: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fs-expand-btn:hover {
+  background: rgba(0, 123, 255, 0.1);
+  color: var(--primary-color);
+  transform: scale(1.1);
+}
+
+.fs-expand-btn i {
+  font-size: 11px;
+  transition: transform 0.3s ease;
+}
+
+.fs-expand-btn.expanded i {
+  transform: rotate(90deg);
+}
+
+.fs-expand-btn:active {
+  transform: scale(0.95);
+}
+
+.fs-file-item-label {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  margin: 0px !important;
+}
+
+.fs-file-item-label:hover {
+  background: rgba(0, 123, 255, 0.05);
+}
+
+.fs-file-item-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.fs-file-item-label input[type="checkbox"]:hover {
+  transform: scale(1.1);
+}
+
+.fs-file-icon {
+  font-size: 15px;
+  width: 18px;
+  text-align: center;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.fs-file-icon.fas.fa-folder {
+  color: #ffa726;
+}
+
+.fs-file-item-row.selected .fs-file-icon {
+  color: var(--primary-color);
+  transform: scale(1.1);
+}
+
+.fs-file-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.fs-file-item-row.selected .fs-file-name {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.fs-file-size {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: auto;
+  opacity: 0.7;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.fs-file-item-row.selected .fs-file-size {
+  background: rgba(0, 123, 255, 0.1);
+  color: var(--primary-color);
+  opacity: 1;
+}
+
+.fs-file-children {
+  border-left: 2px solid rgba(0, 123, 255, 0.1);
+  margin-left: 22px;
+  position: relative;
+}
+
+.fs-file-children::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, rgba(0, 123, 255, 0.1), transparent);
+}
+
+.fs-selection-summary {
+  padding: 8px 16px;
+  background: var(--tertiary-color);
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* 加载和错误状态 */
+.fs-file-selector-loading,
+.fs-file-selector-error,
+.fs-file-selector-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.fs-file-selector-loading i,
+.fs-file-selector-error i,
+.fs-file-selector-empty i {
+  font-size: 24px;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+.fs-file-selector-loading span,
+.fs-file-selector-error span,
+.fs-file-selector-empty span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fs-file-selector-loading i {
+  animation: fs-spin 1s linear infinite;
+}
+
+.fs-file-selector-error {
+  color: var(--danger-color);
+}
+
+.fs-file-selector-error i {
+  color: var(--danger-color);
+}
+
+@keyframes fs-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 文件类型特定图标颜色 */
+.fs-file-icon.fab.fa-js-square {
+  color: #f7df1e;
+}
+
+.fs-file-icon.fab.fa-python {
+  color: #3776ab;
+}
+
+.fs-file-icon.fab.fa-java {
+  color: #ed8b00;
+}
+
+.fs-file-icon.fab.fa-html5 {
+  color: #e34f26;
+}
+
+.fs-file-icon.fab.fa-css3-alt {
+  color: #1572b6;
+}
+
+.fs-file-icon.fab.fa-markdown {
+  color: #083fa1;
+}
+
+.fs-file-icon.fas.fa-file-code {
+  color: #28a745;
+}
+
+.fs-file-icon.fas.fa-file-alt {
+  color: #6c757d;
+}
+
+.fs-file-icon.fas.fa-file-pdf {
+  color: #dc3545;
+}
+
+.fs-file-icon.fas.fa-file-image {
+  color: #fd7e14;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .fs-file-selector-header {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  
+  .fs-selection-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  
+  .fs-file-item-row {
+    padding: 6px 8px;
+  }
+  
+  .fs-file-name {
+    font-size: 12px;
+  }
+  
+  .fs-file-size {
+    font-size: 10px;
+  }
+}
+
+/* 自定义滚动条 */
+.fs-file-selector-tree::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fs-file-selector-tree::-webkit-scrollbar-track {
+  background: var(--tertiary-color);
+}
+
+.fs-file-selector-tree::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.fs-file-selector-tree::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+} 

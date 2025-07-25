@@ -126,7 +126,7 @@
 }
 
 .tool-checkbox {
-  display: flex;
+  display: flex !important;
   align-items: center;
   cursor: pointer;
   padding: 8px;
