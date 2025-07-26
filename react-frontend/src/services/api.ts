@@ -204,6 +204,41 @@ export const imageAPI = {
       method: 'POST',
       body: JSON.stringify({ query, limit: limit || 25, registry }),
     }),
+
+  // 导入镜像
+  importImage: (file: File, imageName?: string) => {
+    const formData = new FormData();
+    formData.append('image_file', file);
+    if (imageName) {
+      formData.append('image_name', imageName);
+    }
+    
+    return fetch('/api/v1/images/import/images', {
+      method: 'POST',
+      body: formData,
+    }).then(response => {
+      if (!response.ok) {
+        return response.text().then(text => {
+          throw new Error(`API请求失败: ${response.status} - ${text}`);
+        });
+      }
+      return response.json();
+    });
+  },
+
+  // 查询导入状态
+  getImportStatus: (importId: string) => {
+    return fetch(`/api/v1/images/import/status/${importId}`, {
+      method: 'GET',
+    }).then(response => {
+      if (!response.ok) {
+        return response.text().then(text => {
+          throw new Error(`API请求失败: ${response.status} - ${text}`);
+        });
+      }
+      return response.json();
+    });
+  },
 };
 
 // 镜像源相关API

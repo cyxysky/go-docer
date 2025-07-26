@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useFile } from '../contexts/FileContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { useNotification } from './NotificationProvider';
 import { getFileIcon } from '../utils';
 import type { FileItem } from '../types';
 import FileContextMenu from './FileContextMenu';
@@ -346,6 +347,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 const FileTree: React.FC = () => {
   const { files, openFile, deleteFile, renameFile, createFile, createFolder, moveFile } = useFile();
   const { currentWorkspace } = useWorkspace();
+  const { showSuccess, showError, showWarning, showInfo } = useNotification();
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -389,10 +391,11 @@ const FileTree: React.FC = () => {
   const handleDeleteFile = async (filePath: string) => {
     try {
       await deleteFile(filePath);
+      showSuccess('删除成功', '文件删除成功！');
       // 文件删除后会触发刷新，保持展开状态
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      alert(`删除文件失败: ${errorMessage}`);
+      showError('删除失败', `删除文件失败: ${errorMessage}`);
     }
   };
 
@@ -421,7 +424,7 @@ const FileTree: React.FC = () => {
       workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      alert(`重命名失败: ${errorMessage}`);
+      showError('重命名失败', `重命名失败: ${errorMessage}`);
     }
   };
 
@@ -452,7 +455,7 @@ const FileTree: React.FC = () => {
       workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      alert(`创建文件失败: ${errorMessage}`);
+      showError('创建失败', `创建文件失败: ${errorMessage}`);
     }
   };
 
@@ -473,7 +476,7 @@ const FileTree: React.FC = () => {
       workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      alert(`创建文件夹失败: ${errorMessage}`);
+      showError('创建失败', `创建文件夹失败: ${errorMessage}`);
     }
   };
 
@@ -493,7 +496,7 @@ const FileTree: React.FC = () => {
       workspaceCaches[currentWorkspace] = newCache;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      alert(`移动文件失败: ${errorMessage}`);
+      showError('移动失败', `移动文件失败: ${errorMessage}`);
     }
   };
 

@@ -130,6 +130,17 @@ type DownloadInfo struct {
 	ExpiresAt  time.Time `json:"expires_at"`
 }
 
+// 导入任务信息
+type ImportTaskInfo struct {
+	ID          string     `json:"id"`
+	FileName    string     `json:"file_name"`
+	Status      string     `json:"status"` // "importing", "completed", "failed"
+	ImageName   string     `json:"image_name,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
 // 简化网络管理，移除IP池，直接使用端口绑定
 
 // 在线编辑器管理器
@@ -157,6 +168,10 @@ type OnlineEditorManager struct {
 
 	// 新增：镜像源管理
 	registryManager *RegistryManager // 镜像源管理器
+
+	// 新增：导入任务管理
+	importTasks      map[string]*ImportTaskInfo // 导入任务信息管理
+	importTasksMutex sync.RWMutex               // 导入任务锁
 
 }
 
@@ -556,6 +571,7 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 		customImages:      make(map[string]*ImageConfig),
 		customImagesMutex: sync.RWMutex{},
 		registryManager:   NewRegistryManager(), // 初始化镜像源管理器
+		importTasks:       make(map[string]*ImportTaskInfo),
 	}
 
 	// 启动时恢复现有工作空间
@@ -1564,8 +1580,8 @@ func (oem *OnlineEditorManager) StartWorkspace(workspaceID string) error {
 		log.Printf("更新端口映射失败: %v", err)
 	}
 
-	// 如果容器处于其他阶段，就不进行安装工具的处理
-	if workspace.Status != "initializing" && workspace.Status != "pulling" && workspace.Status != "creating" && workspace.Status != "starting" {
+	// 如果容器处于初始化阶段，安装工具
+	if workspace.Status == "initializing" {
 		// 检查并安装必要的工具
 		go func() {
 			time.Sleep(5 * time.Second) // 等待容器完全启动
@@ -2567,7 +2583,9 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	api.HandleFunc("/images/custom/{name}", oem.handleUpdateCustomImage).Methods("PUT")
 	api.HandleFunc("/images/{imageName}", oem.handlePullImage).Methods("POST")
 	api.HandleFunc("/images/{imageId}", oem.handleDeleteImage).Methods("DELETE")
-	api.HandleFunc("/images/search/data", oem.handleSearchDockerHub).Methods("POST") // 新增搜索API
+	api.HandleFunc("/images/search/data", oem.handleSearchDockerHub).Methods("POST")             // 新增搜索API
+	api.HandleFunc("/images/import/images", oem.handleImportImage).Methods("POST")               // 新增镜像导入API
+	api.HandleFunc("/images/import/status/{importId}", oem.handleGetImportStatus).Methods("GET") // 新增镜像导入API
 
 	// 镜像源管理
 	api.HandleFunc("/registries", oem.handleGetRegistries).Methods("GET")
@@ -3319,6 +3337,130 @@ func (oem *OnlineEditorManager) handleDeleteImage(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusOK)
 }
 
+// 处理镜像导入
+func (oem *OnlineEditorManager) handleImportImage(w http.ResponseWriter, r *http.Request) {
+	log.Printf("收到镜像导入请求: %s %s", r.Method, r.URL.Path)
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 解析multipart表单
+	err := r.ParseMultipartForm(32 << 20) // 32MB max
+	if err != nil {
+		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("image_file")
+	if err != nil {
+		http.Error(w, "Failed to get uploaded file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// 检查文件类型
+	if !strings.HasSuffix(header.Filename, ".tar") && !strings.HasSuffix(header.Filename, ".tar.gz") {
+		http.Error(w, "Only .tar and .tar.gz files are supported", http.StatusBadRequest)
+		return
+	}
+
+	// 创建临时文件
+	tempFile, err := os.CreateTemp("", header.Filename+".tar")
+	if err != nil {
+		http.Error(w, "Failed to create temp file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 复制上传的文件到临时文件
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		tempFile.Close()
+		os.Remove(tempFile.Name())
+		http.Error(w, "Failed to save uploaded file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 保存临时文件路径，然后关闭文件
+	tempFilePath := tempFile.Name()
+	tempFile.Close()
+
+	// 获取用户指定的镜像名称
+	userImageName := r.FormValue("image_name")
+	log.Printf("用户指定的镜像名称: %s", userImageName)
+
+	// 生成导入任务ID
+	importID := generateDownloadID() // 复用下载ID生成函数
+
+	// 立即返回响应，表示导入任务已开始
+	log.Printf("返回导入任务响应: %s", importID)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"message":   "镜像导入任务已开始",
+		"import_id": importID,
+		"status":    "importing",
+	})
+
+	// 创建导入任务记录
+	importTask := &ImportTaskInfo{
+		ID:        importID,
+		FileName:  header.Filename,
+		Status:    "importing",
+		CreatedAt: time.Now(),
+	}
+
+	oem.importTasksMutex.Lock()
+	oem.importTasks[importID] = importTask
+	oem.importTasksMutex.Unlock()
+
+	// 异步执行镜像导入
+	go func() {
+		defer os.Remove(tempFilePath) // 在异步处理完成后删除临时文件
+
+		log.Printf("开始异步导入镜像: %s", header.Filename)
+
+		imageName, err := oem.ImportImage(tempFilePath, userImageName)
+
+		// 更新任务状态
+		oem.importTasksMutex.Lock()
+		if task, exists := oem.importTasks[importID]; exists {
+			now := time.Now()
+			task.CompletedAt = &now
+
+			if err != nil {
+				log.Printf("镜像导入失败: %v", err)
+				task.Status = "failed"
+				task.Error = err.Error()
+			} else {
+				log.Printf("镜像导入成功: %s", imageName)
+				task.Status = "completed"
+				task.ImageName = imageName
+			}
+		}
+		oem.importTasksMutex.Unlock()
+	}()
+}
+
+// 处理查询导入状态
+func (oem *OnlineEditorManager) handleGetImportStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	importID := vars["importId"]
+
+	oem.importTasksMutex.RLock()
+	task, exists := oem.importTasks[importID]
+	oem.importTasksMutex.RUnlock()
+
+	if !exists {
+		http.Error(w, "导入任务不存在", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
+}
+
 func (oem *OnlineEditorManager) handleGetContainerStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	containerID := vars["containerId"]
@@ -3548,6 +3690,70 @@ func (oem *OnlineEditorManager) DeleteImage(imageID string) error {
 		return fmt.Errorf("删除镜像失败: %v", err)
 	}
 	return nil
+}
+
+// 导入镜像
+func (oem *OnlineEditorManager) ImportImage(tarFilePath string, userImageName string) (string, error) {
+	// 设置超时上下文，最多等待10分钟
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	log.Printf("开始导入镜像: %s", tarFilePath)
+
+	// 使用Docker CLI命令导入镜像
+	cmd := exec.CommandContext(ctx, "docker", "load", "-i", tarFilePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("镜像导入失败: %v, 输出: %s", err, string(output))
+		return "", fmt.Errorf("failed to load image: %v, output: %s", err, string(output))
+	}
+
+	log.Printf("镜像导入成功，输出: %s", string(output))
+
+	// 如果用户指定了镜像名称，使用用户指定的名称
+	if userImageName != "" {
+		log.Printf("使用用户指定的镜像名称: %s", userImageName)
+
+		// 从输出中提取原始镜像ID
+		outputStr := string(output)
+		var originalImageID string
+		if strings.Contains(outputStr, "Loaded image ID:") {
+			parts := strings.Split(outputStr, "Loaded image ID:")
+			if len(parts) > 1 {
+				originalImageID = strings.TrimSpace(parts[1])
+				originalImageID = strings.Trim(originalImageID, "\n\r\"'")
+			}
+		}
+
+		if originalImageID != "" {
+			// 使用docker tag命令给镜像打标签
+			tagCmd := exec.CommandContext(ctx, "docker", "tag", originalImageID, userImageName)
+			tagOutput, tagErr := tagCmd.CombinedOutput()
+			if tagErr != nil {
+				log.Printf("给镜像打标签失败: %v, 输出: %s", tagErr, string(tagOutput))
+				// 即使打标签失败，也返回原始镜像名称
+				return originalImageID, nil
+			}
+			log.Printf("镜像标签设置成功: %s", userImageName)
+			return userImageName, nil
+		}
+	}
+
+	// 从输出中提取镜像名称
+	outputStr := string(output)
+	if strings.Contains(outputStr, "Loaded image:") {
+		parts := strings.Split(outputStr, "Loaded image:")
+		if len(parts) > 1 {
+			imageName := strings.TrimSpace(parts[1])
+			// 移除可能的换行符和引号
+			imageName = strings.Trim(imageName, "\n\r\"'")
+			log.Printf("提取到镜像名称: %s", imageName)
+			return imageName, nil
+		}
+	}
+
+	log.Printf("未找到镜像名称，使用默认名称")
+	return "imported-image", nil
 }
 
 // 容器状态监控
@@ -4193,7 +4399,8 @@ func (oem *OnlineEditorManager) ExportWorkspaceImage(workspaceID, imageName, ima
 	fileName := fmt.Sprintf("%s_%s.tar", imageName, imageTag)
 	outputPath := filepath.Join(oem.downloadsDir, fileName)
 
-	imageReader, err := oem.dockerClient.ImageSave(ctx, []string{newImageName})
+	// 使用镜像ID进行导出，避免镜像名称冲突问题
+	imageReader, err := oem.dockerClient.ImageSave(ctx, []string{commitResp.ID})
 	if err != nil {
 		return nil, fmt.Errorf("导出镜像失败: %v", err)
 	}
@@ -4213,6 +4420,13 @@ func (oem *OnlineEditorManager) ExportWorkspaceImage(workspaceID, imageName, ima
 	}
 
 	log.Printf("[%s] 镜像导出完成: %s (%d bytes)", workspaceID, fileName, written)
+
+	// 清理临时镜像（可选）
+	go func() {
+		time.Sleep(5 * time.Second) // 等待导出完成
+		oem.dockerClient.ImageRemove(ctx, commitResp.ID, imageTypes.RemoveOptions{})
+		log.Printf("[%s] 临时镜像已清理: %s", workspaceID, commitResp.ID)
+	}()
 
 	// 保存下载信息
 	downloadInfo := &DownloadInfo{
@@ -4968,6 +5182,7 @@ func main() {
 	log.Println("    GET    /api/v1/images - 列出镜像")
 	log.Println("    POST   /api/v1/images/search/data - 搜索镜像")
 	log.Println("    POST   /api/v1/images/{imageName} - 拉取镜像")
+	log.Println("    POST   /api/v1/images/import/images - 导入镜像")
 	log.Println("    DELETE /api/v1/images/{imageId} - 删除镜像")
 	log.Println("  镜像源管理:")
 	log.Println("    GET    /api/v1/registries - 获取镜像源列表")

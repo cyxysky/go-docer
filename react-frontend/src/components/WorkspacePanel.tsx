@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { useNotification } from './NotificationProvider';
 import { getStatusText } from '../utils';
 import { workspaceAPI, imageAPI } from '../services/api';
 import './WorkspacePanel.css';
@@ -15,6 +16,7 @@ const WorkspacePanel: React.FC = () => {
     deleteWorkspace,
     loadWorkspaces
   } = useWorkspace();
+  const { showSuccess, showError, showWarning, showInfo } = useNotification();
 
   const [name, setName] = useState('');
   const [image, setImage] = useState('');
@@ -234,9 +236,10 @@ const WorkspacePanel: React.FC = () => {
       
       // 重新加载工作空间列表
       await loadWorkspaces();
+      showSuccess('创建成功', '工作空间创建成功！');
     } catch (error) {
       console.error('创建工作空间失败:', error);
-      alert('创建工作空间失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('创建失败', '创建工作空间失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
@@ -248,8 +251,10 @@ const WorkspacePanel: React.FC = () => {
         loadDockerImages(),
         loadAvailableImages()
       ]);
+      showSuccess('刷新成功', '工作空间列表刷新成功！');
     } catch (error) {
       console.error('刷新失败:', error);
+      showError('刷新失败', '刷新工作空间列表失败');
     } finally {
       setIsRefreshing(false);
     }
@@ -326,9 +331,10 @@ const WorkspacePanel: React.FC = () => {
       setShowPortModal(false);
       setSelectedWorkspaceForPort(null);
       await loadWorkspaces(); // 重新加载工作空间列表
+      showSuccess('保存成功', '端口配置保存成功！');
     } catch (error) {
       console.error('保存端口配置失败:', error);
-      alert('保存端口配置失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('保存失败', '保存端口配置失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
@@ -337,9 +343,10 @@ const WorkspacePanel: React.FC = () => {
     try {
       await workspaceAPI.toggleFavorite(workspaceId);
       await loadWorkspaces(); // 重新加载工作空间列表
+      showSuccess('操作成功', '收藏状态已更新！');
     } catch (error) {
       console.error('切换收藏状态失败:', error);
-      alert('操作失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('操作失败', '操作失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
@@ -349,10 +356,10 @@ const WorkspacePanel: React.FC = () => {
     
     try {
       const result = await workspaceAPI.testPort(selectedWorkspaceForPort.id, port);
-      alert(`端口测试已启动!\n\n${result.message}\n\n测试URL: ${result.test_url}\n\n${result.note}`);
+      showInfo('端口测试', `端口测试已启动!\n\n${result.message}\n\n测试URL: ${result.test_url}\n\n${result.note}`);
     } catch (error) {
       console.error('端口测试失败:', error);
-      alert('端口测试失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('测试失败', '端口测试失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
@@ -377,9 +384,10 @@ const WorkspacePanel: React.FC = () => {
       // 删除成功后关闭弹窗
       setShowDeleteModal(false);
       setSelectedWorkspaceForDelete(null);
+      showSuccess('删除成功', '工作空间删除成功！');
     } catch (error) {
       console.error('删除工作空间失败:', error);
-      alert('删除工作空间失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('删除失败', '删除工作空间失败: ' + (error instanceof Error ? error.message : '未知错误'));
     } finally {
       // 移除删除中状态
       setDeletingWorkspaces(prev => {

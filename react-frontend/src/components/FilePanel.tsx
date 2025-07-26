@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useFile } from '../contexts/FileContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { useNotification } from './NotificationProvider';
 import FileTree from './FileTree';
 import FileSelector from './FileSelector';
 import './FilePanel.css';
@@ -15,6 +16,7 @@ const FilePanel: React.FC = () => {
     refreshFileTree 
   } = useFile();
   const { currentWorkspace } = useWorkspace();
+  const { showSuccess, showError, showWarning, showInfo } = useNotification();
   
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
@@ -47,10 +49,10 @@ const FilePanel: React.FC = () => {
 
   const handleRefresh = async () => {
     if (!currentWorkspace) {
-      console.log('⚠️ 没有选择工作空间，无法刷新');
+      showWarning('操作受限', '请先选择工作空间');
       return;
     }
-    console.log('🔄 手动刷新文件树');
+    showInfo('刷新中', '正在刷新文件树...');
     await refreshFileTree();
   };
 
@@ -61,9 +63,10 @@ const FilePanel: React.FC = () => {
       await createFile(newFileName.trim());
       setNewFileName('');
       setShowNewFileDialog(false);
+      showSuccess('创建成功', '文件创建成功！');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      alert(`创建文件失败: ${errorMessage}`);
+      showError('创建失败', `创建文件失败: ${errorMessage}`);
     }
   };
 
@@ -74,9 +77,10 @@ const FilePanel: React.FC = () => {
       await createFolder(newFolderName.trim());
       setNewFolderName('');
       setShowNewFolderDialog(false);
+      showSuccess('创建成功', '文件夹创建成功！');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      alert(`创建文件夹失败: ${errorMessage}`);
+      showError('创建失败', `创建文件夹失败: ${errorMessage}`);
     }
   };
 
@@ -86,7 +90,7 @@ const FilePanel: React.FC = () => {
     
     // 验证选择模式
     if (exportMode === 'selected' && selectedFiles.length === 0) {
-      alert('请选择要导出的文件或文件夹');
+      showWarning('选择错误', '请选择要导出的文件或文件夹');
       return;
     }
     
@@ -127,13 +131,14 @@ const FilePanel: React.FC = () => {
         setShowExportFilesDialog(false);
         setExportPath('');
         setSelectedFiles([]);
+        showSuccess('导出成功', '文件导出成功，下载已开始！');
         
       } else {
         throw new Error(result.message || '导出失败');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '导出失败';
-      alert(`导出失败: ${errorMessage}`);
+      showError('导出失败', `导出失败: ${errorMessage}`);
       console.error('文件导出失败:', error);
     } finally {
       setIsExporting(false);
@@ -170,12 +175,13 @@ const FilePanel: React.FC = () => {
         window.open(downloadUrl, '_blank');
         
         setShowExportImageDialog(false);
+        showSuccess('导出成功', '镜像导出成功，下载已开始！');
       } else {
         throw new Error(result.message || '导出失败');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '导出失败';
-      alert(`镜像导出失败: ${errorMessage}`);
+      showError('导出失败', `镜像导出失败: ${errorMessage}`);
       console.error('镜像导出失败:', error);
     } finally {
       setIsExporting(false);

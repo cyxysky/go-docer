@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useNotification } from './NotificationProvider';
 import './GitPanel.css';
 
 interface GitPanelProps {
@@ -16,6 +17,7 @@ interface GitStatus {
 }
 
 const GitPanel: React.FC<GitPanelProps> = ({ currentWorkspace }) => {
+  const { showSuccess, showError, showWarning, showInfo } = useNotification();
   const [commitMessage, setCommitMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
@@ -25,7 +27,7 @@ const GitPanel: React.FC<GitPanelProps> = ({ currentWorkspace }) => {
 
   const handleGitOperation = useCallback(async (operation: string, files?: string[], branch?: string, message?: string) => {
     if (!currentWorkspace) {
-      alert('请先选择工作空间');
+      showWarning('操作受限', '请先选择工作空间');
       return;
     }
 
@@ -55,6 +57,8 @@ const GitPanel: React.FC<GitPanelProps> = ({ currentWorkspace }) => {
       if (operation === 'status') {
         parseGitStatus(result.output);
       } else {
+        // 显示操作成功通知
+        showSuccess('操作成功', `Git ${operation} 操作执行成功！`);
         // 操作成功后刷新状态
         setTimeout(() => {
           handleGitOperation('status');
@@ -110,12 +114,12 @@ const GitPanel: React.FC<GitPanelProps> = ({ currentWorkspace }) => {
 
   const handleCommit = useCallback(() => {
     if (!commitMessage.trim()) {
-      alert('请输入提交信息');
+      showWarning('输入错误', '请输入提交信息');
       return;
     }
     handleGitOperation('commit', [], '', commitMessage);
     setCommitMessage('');
-  }, [commitMessage, handleGitOperation]);
+  }, [commitMessage, handleGitOperation, showWarning]);
 
   // 初始化时获取Git状态
   useEffect(() => {

@@ -822,5 +822,142 @@
   .template-buttons {
     flex-direction: column;
   }
+}
 
+/* 导入镜像相关样式 */
+.file-info {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--quaternary-color, #2a2a2a);
+  border-radius: 6px;
+  border-left: 4px solid var(--info-color, #3b82f6);
+}
+
+.file-info p {
+  margin: 4px 0;
+  font-size: 14px;
+  color: var(--text-primary, #fff);
+}
+
+.import-note {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--quaternary-color, #2a2a2a);
+  border-radius: 6px;
+  border-left: 4px solid var(--warning-color, #f59e0b);
+}
+
+.import-note p {
+  margin: 0 0 12px 0;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+}
+
+.import-note ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.import-note li {
+  margin: 6px 0;
+  font-size: 14px;
+  color: var(--text-secondary, #ccc);
+  line-height: 1.4;
+}
+
+/* 文件上传样式 */
+.form-control[type="file"] {
+  padding: 8px;
+  border: 2px dashed var(--border-color, #444);
+  background: var(--quaternary-color, #2a2a2a);
+  color: var(--text-primary, #fff);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.form-control[type="file"]:hover {
+  border-color: var(--primary-color, #3b82f6);
+  background: var(--quaternary-color, #2a2a2a);
+}
+
+.form-control[type="file"]:focus {
+  outline: none;
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* 成功按钮样式 */
+.btn-success {
+  background: var(--success-color, #10b981);
+  border-color: var(--success-color, #10b981);
+  color: white;
+}
+
+.btn-success:hover {
+  background: var(--success-color-hover, #059669);
+  border-color: var(--success-color-hover, #059669);
+  color: white;
+}
+
+.btn-success:disabled {
+  background: var(--success-color-disabled, #6b7280);
+  border-color: var(--success-color-disabled, #6b7280);
+  color: var(--text-disabled, #9ca3af);
+}
+
+/* 删除确认弹窗样式 */
+.delete-confirm-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.delete-icon {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  background-color: #fff2e8;
+  border: 2px solid #ffa940;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d46b08;
+  font-size: 20px;
+}
+
+.delete-message {
+  flex: 1;
+}
+
+.delete-message p {
+  margin: 8px 0;
+  line-height: 1.5;
+}
+
+.delete-warning {
+  color: #cf1322;
+  font-weight: 600;
+  margin-top: 16px !important;
+  padding: 8px 12px;
+  background-color: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 4px;
+}
+
+.btn-danger {
+  background-color: #ff4d4f;
+  border-color: #ff4d4f;
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #ff7875;
+  border-color: #ff7875;
+}
+
+.btn-danger:active {
+  background-color: #d9363e;
+  border-color: #d9363e;
 }

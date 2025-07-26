@@ -24,8 +24,8 @@
 [data-theme="light"] {
   --primary-color: #0066cc;
   --secondary-color: #f8f8f8;
-  --tertiary-color: #e8e8e8;
-  --quaternary-color: #d8d8d8;
+  --tertiary-color: #f0f0f0;
+  --quaternary-color: #e6e6e6;
   --success-color: #10b981;
   --warning-color: #f59e0b;
   --danger-color: #ef4444;

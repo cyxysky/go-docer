@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useImage } from '../contexts/ImageContext';
 import { formatBytes } from '../utils';
 import { imageAPI, workspaceAPI, registryAPI } from '../services/api';
+import { useNotification } from './NotificationProvider';
 import './ImagePanel.css';
 
 const ImagePanel: React.FC = () => {
   const { images, loadImages, deleteImage } = useImage();
+  const { showSuccess, showError, showWarning, showInfo } = useNotification();
   const [showAddCustomModal, setShowAddCustomModal] = useState(false);
   const [showEditConfigModal, setShowEditConfigModal] = useState(false);
   const [showImageSearchModal, setShowImageSearchModal] = useState(false);
@@ -21,6 +23,14 @@ const ImagePanel: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [registries, setRegistries] = useState<any[]>([]);
   const [selectedRegistry, setSelectedRegistry] = useState('dockerhub');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importImageName, setImportImageName] = useState('');
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [imageToDelete, setImageToDelete] = useState<any>(null);
+  const [showDeleteRegistryConfirmModal, setShowDeleteRegistryConfirmModal] = useState(false);
+  const [registryToDelete, setRegistryToDelete] = useState<any>(null);
   
   // 自定义镜像表单状态
   const [customImageForm, setCustomImageForm] = useState({
@@ -131,7 +141,7 @@ const ImagePanel: React.FC = () => {
   // 提交自定义镜像
   const handleAddCustomImage = async () => {
     if (!customImageForm.name.trim()) {
-      alert('请输入镜像名称');
+      showError('输入错误', '请输入镜像名称');
       return;
     }
 
@@ -152,9 +162,10 @@ const ImagePanel: React.FC = () => {
       // 重新加载镜像列表
       await loadImages();
       await loadAvailableImages();
+      showSuccess('添加成功', '自定义镜像添加成功！');
     } catch (error) {
       console.error('添加自定义镜像失败:', error);
-      alert('添加自定义镜像失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('添加失败', '添加自定义镜像失败: ' + (error instanceof Error ? error.message : '未知错误'));
     } finally {
       setIsAdding(false);
     }
@@ -174,17 +185,13 @@ const ImagePanel: React.FC = () => {
 
   // 删除镜像配置
   const handleDeleteImageConfig = async (imageName: string) => {
-    if (!confirm(`确定要删除镜像 ${imageName} 的配置吗？`)) {
-      return;
-    }
-
     try {
       await imageAPI.deleteCustomImage(imageName);
       await loadAvailableImages();
-      alert('配置删除成功！');
+      showSuccess('删除成功', '配置删除成功！');
     } catch (error) {
       console.error('删除配置失败:', error);
-      alert('删除配置失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('删除失败', '删除配置失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
@@ -193,16 +200,17 @@ const ImagePanel: React.FC = () => {
     try {
       await registryAPI.toggleRegistry(code, enabled);
       await loadRegistries(); // 重新加载镜像源列表
+      showSuccess('操作成功', `镜像源${enabled ? '启用' : '禁用'}成功！`);
     } catch (error) {
       console.error('切换镜像源状态失败:', error);
-      alert('操作失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('操作失败', '操作失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
   // 添加镜像源
   const handleAddRegistry = async () => {
     if (!registryForm.name.trim() || !registryForm.code.trim() || !registryForm.base_url.trim()) {
-      alert('请填写名称、代码和基础URL');
+      showError('输入错误', '请填写名称、代码和基础URL');
       return;
     }
 
@@ -220,10 +228,10 @@ const ImagePanel: React.FC = () => {
       
       setShowAddRegistryModal(false);
       await loadRegistries();
-      alert('镜像源添加成功！');
+      showSuccess('添加成功', '镜像源添加成功！');
     } catch (error) {
       console.error('添加镜像源失败:', error);
-      alert('添加失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('添加失败', '添加失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
@@ -243,7 +251,7 @@ const ImagePanel: React.FC = () => {
   // 更新镜像源
   const handleUpdateRegistry = async () => {
     if (!registryForm.name.trim() || !registryForm.base_url.trim()) {
-      alert('请填写名称和基础URL');
+      showError('输入错误', '请填写名称和基础URL');
       return;
     }
 
@@ -258,31 +266,37 @@ const ImagePanel: React.FC = () => {
       setShowEditRegistryModal(false);
       setEditingRegistry(null);
       await loadRegistries();
-      alert('镜像源更新成功！');
+      showSuccess('更新成功', '镜像源更新成功！');
     } catch (error) {
       console.error('更新镜像源失败:', error);
-      alert('更新失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('更新失败', '更新失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 
-  // 删除镜像源
-  const handleDeleteRegistry = async (code: string, name: string, isDefault: boolean) => {
-    if (isDefault) {
-      alert('默认镜像源不能删除');
+  // 确认删除镜像源
+  const confirmDeleteRegistry = (registry: any) => {
+    if (registry.is_default) {
+      showWarning('操作受限', '默认镜像源不能删除');
       return;
     }
+    setRegistryToDelete(registry);
+    setShowDeleteRegistryConfirmModal(true);
+  };
 
-    if (!confirm(`确定要删除镜像源"${name}"吗？`)) {
-      return;
-    }
-
+  // 执行删除镜像源
+  const executeDeleteRegistry = async () => {
+    if (!registryToDelete) return;
+    
     try {
-      await registryAPI.deleteRegistry(code);
+      await registryAPI.deleteRegistry(registryToDelete.code);
       await loadRegistries();
-      alert('镜像源删除成功！');
+      showSuccess('删除成功', '镜像源删除成功！');
     } catch (error) {
       console.error('删除镜像源失败:', error);
-      alert('删除失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      showError('删除失败', '删除失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      setShowDeleteRegistryConfirmModal(false);
+      setRegistryToDelete(null);
     }
   };
 
@@ -320,6 +334,117 @@ const ImagePanel: React.FC = () => {
     }
   };
 
+  // 处理文件选择
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // 检查文件类型
+      if (!file.name.endsWith('.tar') && !file.name.endsWith('.tar.gz')) {
+        showError('文件格式错误', '只支持 .tar 和 .tar.gz 格式的文件');
+        return;
+      }
+      setImportFile(file);
+    }
+  };
+
+  // 导入镜像
+  const handleImportImage = async () => {
+    if (!importFile) {
+      showError('文件错误', '请选择要导入的镜像文件');
+      return;
+    }
+
+    if (!importImageName.trim()) {
+      showError('输入错误', '请输入镜像名称');
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const response = await imageAPI.importImage(importFile, importImageName);
+      
+      if (response.success) {
+        // 显示导入任务已开始的消息
+        showInfo('导入开始', `镜像导入任务已开始！任务ID: ${response.import_id}`);
+        setShowImportModal(false);
+        setImportFile(null);
+        setImportImageName('');
+        
+        // 开始轮询导入状态
+        pollImportStatus(response.import_id);
+      } else {
+        showError('导入失败', '镜像导入失败: ' + response.message);
+      }
+    } catch (error) {
+      console.error('导入镜像失败:', error);
+      showError('导入失败', '导入镜像失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // 轮询导入状态
+  const pollImportStatus = async (importId: string) => {
+    const maxAttempts = 60; // 最多轮询60次（5分钟）
+    let attempts = 0;
+    
+    const poll = async () => {
+      try {
+        const status = await imageAPI.getImportStatus(importId);
+        
+        if (status.status === 'completed') {
+          showSuccess('导入成功', `镜像导入成功！镜像名称: ${status.image_name}`);
+          await loadImages(); // 重新加载镜像列表
+          return;
+        } else if (status.status === 'failed') {
+          showError('导入失败', `镜像导入失败: ${status.error}`);
+          return;
+        } else if (status.status === 'importing') {
+          // 继续轮询
+          attempts++;
+          if (attempts < maxAttempts) {
+            setTimeout(poll, 5000); // 5秒后再次查询
+          } else {
+            showWarning('导入超时', '导入超时，请稍后手动检查镜像列表');
+          }
+        }
+      } catch (error) {
+        console.error('查询导入状态失败:', error);
+        attempts++;
+        if (attempts < maxAttempts) {
+          setTimeout(poll, 5000);
+        } else {
+          showError('查询失败', '查询导入状态失败，请稍后手动检查镜像列表');
+        }
+      }
+    };
+    
+    // 开始轮询
+    poll();
+  };
+
+  // 确认删除镜像
+  const confirmDeleteImage = (image: any) => {
+    setImageToDelete(image);
+    setShowDeleteConfirmModal(true);
+  };
+
+  // 执行删除镜像
+  const executeDeleteImage = async () => {
+    if (!imageToDelete) return;
+    
+    try {
+      await deleteImage(imageToDelete.id);
+      showSuccess('删除成功', '镜像删除成功！');
+    } catch (error) {
+      console.error('删除镜像失败:', error);
+      showError('删除失败', '删除镜像失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      setShowDeleteConfirmModal(false);
+      setImageToDelete(null);
+    }
+  };
+
   return (
     <>
       <div className="image-toolbar">
@@ -344,6 +469,13 @@ const ImagePanel: React.FC = () => {
         </button>
            */
         }
+        <button 
+          className="btn btn-sm btn-success" 
+          onClick={() => setShowImportModal(true)} 
+          title="导入镜像"
+        >
+          <i className="fas fa-upload"></i>
+        </button>
         <button 
           className="btn btn-sm btn-primary" 
           onClick={() => setShowAddCustomModal(true)} 
@@ -397,7 +529,7 @@ const ImagePanel: React.FC = () => {
                       )}
                       <button 
                         className="btn btn-sm action-button-red" 
-                        onClick={() => deleteImage(image.id)} 
+                        onClick={() => confirmDeleteImage(image)} 
                         title="删除镜像"
                       >
                         <i className="fas fa-trash"></i>
@@ -668,10 +800,10 @@ const ImagePanel: React.FC = () => {
                     });
                     setShowEditConfigModal(false);
                     await loadAvailableImages();
-                    alert('配置更新成功！');
+                    showSuccess('更新成功', '配置更新成功！');
                   } catch (error) {
                     console.error('更新配置失败:', error);
-                    alert('更新配置失败: ' + (error instanceof Error ? error.message : '未知错误'));
+                    showError('更新失败', '更新配置失败: ' + (error instanceof Error ? error.message : '未知错误'));
                   }
                 }}
               >
@@ -885,7 +1017,7 @@ const ImagePanel: React.FC = () => {
                               </button>
                               <button
                                 className="btn-small btn-danger"
-                                onClick={() => handleDeleteRegistry(registry.code, registry.name, registry.is_default)}
+                                onClick={() => confirmDeleteRegistry(registry)}
                                 title="删除镜像源"
                               >
                                 <i className="fas fa-trash"></i>
@@ -1095,6 +1227,171 @@ const ImagePanel: React.FC = () => {
               >
                 <i className="fas fa-save"></i>
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导入镜像弹窗 */}
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>导入镜像</h3>
+              <button className="modal-close" onClick={() => setShowImportModal(false)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">选择镜像文件 *</label>
+                <input 
+                  type="file" 
+                  className="form-control" 
+                  accept=".tar,.tar.gz"
+                  onChange={handleFileSelect}
+                />
+                <small>支持 .tar 和 .tar.gz 格式的镜像文件</small>
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label">镜像名称 *</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  placeholder="例如: my-image:latest"
+                  value={importImageName}
+                  onChange={(e) => setImportImageName(e.target.value)}
+                />
+                <small>为导入的镜像指定一个名称和标签</small>
+              </div>
+              
+              {importFile && (
+                <div className="file-info">
+                  <p><strong>已选择文件:</strong> {importFile.name}</p>
+                  <p><strong>文件大小:</strong> {(importFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+              )}
+              
+              <div className="import-note">
+                <p><strong>说明：</strong></p>
+                <ul>
+                  <li>支持从其他Docker环境导出的镜像文件</li>
+                  <li>导入过程可能需要几分钟时间，请耐心等待</li>
+                  <li>导入成功后，镜像将出现在镜像列表中</li>
+                </ul>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button 
+                className="btn " 
+                onClick={() => setShowImportModal(false)}
+                disabled={isImporting}
+              >
+                取消
+              </button>
+              <button 
+                className="btn btn-success" 
+                onClick={handleImportImage}
+                disabled={isImporting || !importFile}
+              >
+                {isImporting ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i>
+                    导入中...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-upload"></i>
+                    导入镜像
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除确认弹窗 */}
+      {showDeleteConfirmModal && imageToDelete && (
+        <div className="modal-overlay" onClick={() => setShowDeleteConfirmModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>确认删除</h3>
+              <button className="modal-close" onClick={() => setShowDeleteConfirmModal(false)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="delete-confirm-content">
+                <div className="delete-icon">
+                  <i className="fas fa-exclamation-triangle"></i>
+                </div>
+                <div className="delete-message">
+                  <p><strong>确定要删除这个镜像吗？</strong></p>
+                  <p>镜像名称: {imageToDelete.tags && imageToDelete.tags.length > 0 ? imageToDelete.tags[0] : imageToDelete.id.substring(0, 12)}</p>
+                  <p>镜像ID: {imageToDelete.id.substring(0, 12)}</p>
+                  <p className="delete-warning">此操作不可撤销，删除后将无法恢复！</p>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button 
+                className="btn " 
+                onClick={() => setShowDeleteConfirmModal(false)}
+              >
+                取消
+              </button>
+              <button 
+                className="btn btn-danger" 
+                onClick={executeDeleteImage}
+              >
+                <i className="fas fa-trash"></i>
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除镜像源确认弹窗 */}
+      {showDeleteRegistryConfirmModal && registryToDelete && (
+        <div className="modal-overlay" onClick={() => setShowDeleteRegistryConfirmModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>确认删除镜像源</h3>
+              <button className="modal-close" onClick={() => setShowDeleteRegistryConfirmModal(false)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="delete-confirm-content">
+                <div className="delete-icon">
+                  <i className="fas fa-exclamation-triangle"></i>
+                </div>
+                <div className="delete-message">
+                  <p><strong>确定要删除这个镜像源吗？</strong></p>
+                  <p>镜像源名称: {registryToDelete.name}</p>
+                  <p>镜像源代码: {registryToDelete.code}</p>
+                  <p>基础URL: {registryToDelete.base_url}</p>
+                  <p className="delete-warning">此操作不可撤销，删除后将无法恢复！</p>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button 
+                className="btn " 
+                onClick={() => setShowDeleteRegistryConfirmModal(false)}
+              >
+                取消
+              </button>
+              <button 
+                className="btn btn-danger" 
+                onClick={executeDeleteRegistry}
+              >
+                <i className="fas fa-trash"></i>
+                确认删除
               </button>
             </div>
           </div>

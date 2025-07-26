@@ -234,17 +234,8 @@
   background: linear-gradient(90deg, #fffbeb 0%, #ffffff 20%);
 }
 
-.favorite-btn {
-  color: #a0aec0;
-  transition: color 0.2s;
-}
-
-.favorite-btn.favorited {
+ .favorited {
   color: var(--success-color) !important;
-}
-
-.favorite-btn:hover {
-  color: #f6e05e;
 }
 
 /* 端口链接样式 */
@@ -356,6 +347,8 @@
 .workspace-image {
   font-size: 12px;
   color: var(--text-secondary);
+  white-space: wrap;
+  word-break: break-all;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
@@ -394,6 +387,7 @@
   gap: 6px;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
 }
 
 .workspace-actions .btn {

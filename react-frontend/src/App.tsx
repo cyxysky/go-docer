@@ -4,6 +4,7 @@ import { FileProvider, useFile } from './contexts/FileContext';
 import { ImageProvider } from './contexts/ImageContext';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { MultiTerminalProvider } from './contexts/MultiTerminalContext';
+import { NotificationProvider } from './components/NotificationProvider';
 import WorkspacePanel from './components/WorkspacePanel';
 import FilePanel from './components/FilePanel';
 import ImagePanel from './components/ImagePanel';
@@ -298,9 +299,11 @@ const StatusBar: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ThemeProvider>
-      <WorkspaceProvider>
-        <WorkspaceConsumer />
-      </WorkspaceProvider>
+      <NotificationProvider>
+        <WorkspaceProvider>
+          <WorkspaceConsumer />
+        </WorkspaceProvider>
+      </NotificationProvider>
     </ThemeProvider>
   );
 };
