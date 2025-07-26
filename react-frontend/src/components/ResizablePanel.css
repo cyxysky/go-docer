@@ -1,9 +1,8 @@
-/* 可调整大小的面板样式 */
+/* ResizablePanel 组件样式 - 现代化版本 */
 
 .resizable-panel {
   position: relative;
   display: flex;
-  flex-direction: column;
   min-width: 0;
   min-height: 0;
 }
@@ -12,105 +11,178 @@
   flex-direction: row;
 }
 
+.resizable-panel.vertical {
+  flex-direction: column;
+}
+
 .resizable-content {
   flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  position: relative;
 }
 
-.resizable-panel.horizontal .resizable-content {
-  flex-direction: row;
-}
-
-/* 调整大小手柄 */
+/* 拖拽手柄样式 */
 .resize-handle {
-  position: absolute;
+  position: relative;
   background: transparent;
+  transition: all var(--transition-normal);
   z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s ease;
-}
-
-.resize-handle:hover {
-  background: var(--primary-color, #007acc);
-  opacity: 0.3;
-}
-
-.resize-handle.vertical {
-  top: -3px;
-  left: 0;
-  right: 0;
-  height: 6px;
-  cursor: row-resize;
-  flex-direction: row;
+  user-select: none;
+  pointer-events: auto;
 }
 
 .resize-handle.horizontal {
-  top: 0;
-  bottom: 0;
-  right: -3px;
   width: 6px;
   cursor: col-resize;
-  flex-direction: column;
+  margin: 0 -3px;
 }
 
-.resize-handle-line {
-  background: var(--border-color, #3e3e42);
-  transition: background-color 0.2s ease;
+.resize-handle.vertical {
+  height: 6px;
+  cursor: row-resize;
+  margin: -3px 0;
 }
 
-.resize-handle.vertical .resize-handle-line {
-  width: 100%;
-  height: 1px;
+/* 拖拽手柄悬停效果 */
+.resize-handle:hover {
+  background: var(--primary-color);
+  opacity: 0.3;
 }
 
-.resize-handle.horizontal .resize-handle-line {
-  width: 1px;
-  height: 100%;
-}
-
-.resize-handle:hover .resize-handle-line {
-  background: var(--primary-color, #007acc);
-}
-
-/* 调整大小时的样式 */
-.resizable-panel.resizing {
-  user-select: none;
-}
-
-.resizable-panel.resizing .resize-handle {
-  background: var(--primary-color, #007acc);
+.resize-handle.resizing {
+  background: var(--primary-color);
   opacity: 0.5;
 }
 
-.resizable-panel.resizing .resize-handle-line {
-  background: var(--primary-color, #007acc);
+/* 拖拽手柄线条 */
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--border-color);
+  transition: all var(--transition-normal);
+  border-radius: 1px;
 }
 
-/* 确保面板内容不会溢出 */
-.resizable-panel * {
-  box-sizing: border-box;
+.resize-handle.horizontal::before {
+  width: 1px;
+  height: 20px;
 }
 
-/* 防止在调整大小时选中文本 */
-.resizable-panel.resizing,
-.resizable-panel.resizing * {
-  user-select: none !important;
+.resize-handle.vertical::before {
+  width: 20px;
+  height: 1px;
+}
+
+.resize-handle:hover::before,
+.resize-handle.resizing::before {
+  background: var(--primary-color);
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+}
+
+.resize-handle.horizontal:hover::before,
+.resize-handle.horizontal.resizing::before {
+  height: 30px;
+}
+
+.resize-handle.vertical:hover::before,
+.resize-handle.vertical.resizing::before {
+  width: 30px;
+}
+
+/* 拖拽时的视觉反馈 */
+.resize-handle.resizing {
+  background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+}
+
+.resize-handle.horizontal.resizing {
+  background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+}
+
+.resize-handle.vertical.resizing {
+  background: linear-gradient(180deg, transparent, var(--primary-color), transparent);
+}
+
+/* 拖拽时的光标样式 */
+.resize-handle.resizing {
+  cursor: col-resize;
+}
+
+.resize-handle.horizontal.resizing {
+  cursor: col-resize;
+}
+
+.resize-handle.vertical.resizing {
+  cursor: row-resize;
+}
+
+/* 拖拽时的全局样式 */
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.resizing-vertical {
+  cursor: row-resize;
+  user-select: none;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .resize-handle {
+    opacity: 0.8;
+  }
+  
+  .resize-handle:hover {
+    opacity: 1;
+  }
+}
+
+/* 动画效果 */
+.resize-handle {
+  animation: resizeHandleFadeIn 0.2s ease-out;
+}
+
+@keyframes resizeHandleFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 拖拽时的阴影效果 */
+.resize-handle.resizing::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(59, 130, 246, 0.1);
   pointer-events: none;
+  z-index: 999;
 }
 
-.resizable-panel.resizing .resize-handle {
-  pointer-events: all;
+/* 拖拽手柄的触摸优化 */
+@media (hover: none) and (pointer: coarse) {
+  .resize-handle {
+    min-width: 20px;
+    min-height: 20px;
+  }
+  
+  .resize-handle.horizontal {
+    width: 20px;
+    margin: 0 -10px;
+  }
+  
+  .resize-handle.vertical {
+    height: 20px;
+    margin: -10px 0;
+  }
 }
-
-/* 确保拖动时手柄可见 */
-.resizable-panel.resizing .resize-handle {
-  opacity: 1 !important;
-}
-
-/* 底部面板拖拽现在使用独立的实现 */

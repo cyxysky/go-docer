@@ -14,9 +14,10 @@ interface FileItem {
 interface FileSelectorProps {
   onSelectionChange: (selectedFiles: string[]) => void;
   selectedFiles: string[];
+  onReset?: boolean;
 }
 
-const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selectedFiles }) => {
+const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selectedFiles, onReset }) => {
   const { currentWorkspace } = useWorkspace();
   const [fileTree, setFileTree] = useState<FileItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -71,11 +72,26 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
       });
   }, [currentWorkspace]);
 
+  // 重置展开状态
+  const resetExpandedState = () => {
+    setExpandedFolders(new Set());
+  };
+
+  // 监听重置回调
+  useEffect(() => {
+    if (onReset === true) {
+      resetExpandedState();
+    }
+  }, [onReset]);
+
   // 切换文件夹展开/收起
   const toggleFolder = async (folderPath: string) => {
     const newExpanded = new Set(expandedFolders);
     
     if (expandedFolders.has(folderPath)) {
+      // 收起文件夹时，同时收起所有子文件夹
+      const toRemove = Array.from(newExpanded).filter(path => path.startsWith(folderPath + '/'));
+      toRemove.forEach(path => newExpanded.delete(path));
       newExpanded.delete(folderPath);
     } else {
       newExpanded.add(folderPath);
@@ -121,6 +137,9 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
         const toRemove = Array.from(newSelected).filter(path => path.startsWith(itemPath + '/'));
         toRemove.forEach(path => newSelected.delete(path));
       }
+      
+      // 向上递归检查父级文件夹状态
+      updateParentSelection(newSelected, itemPath);
     } else {
       // 选择
       newSelected.add(itemPath);
@@ -150,9 +169,82 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
         
         findAndAddChildren(fileTree);
       }
+      
+      // 向上递归检查父级文件夹状态
+      updateParentSelection(newSelected, itemPath);
     }
     
     onSelectionChange(Array.from(newSelected));
+  };
+
+  // 更新父级文件夹的选择状态
+  const updateParentSelection = (selectedSet: Set<string>, itemPath: string) => {
+    const pathParts = itemPath.split('/');
+    
+    // 从直接父级开始，逐级向上检查
+    for (let i = pathParts.length - 1; i > 0; i--) {
+      const parentPath = pathParts.slice(0, i).join('/');
+      
+      // 检查父级文件夹是否存在且有子项
+      const parentItem = findItemByPath(fileTree, parentPath);
+      if (!parentItem || !parentItem.is_dir || !parentItem.children) {
+        continue;
+      }
+      
+      // 检查父级文件夹的所有子项是否都被选中
+      const allChildrenSelected = parentItem.children.every(child => {
+        const childPath = parentPath ? `${parentPath}/${child.name}` : child.name;
+        return selectedSet.has(childPath);
+      });
+      
+      // 检查父级文件夹的所有子项是否都没有被选中
+      const noChildrenSelected = parentItem.children.every(child => {
+        const childPath = parentPath ? `${parentPath}/${child.name}` : child.name;
+        return !selectedSet.has(childPath);
+      });
+      
+      if (allChildrenSelected) {
+        // 如果所有子项都被选中，选择父级文件夹
+        selectedSet.add(parentPath);
+      } else if (noChildrenSelected) {
+        // 如果没有任何子项被选中，取消选择父级文件夹
+        selectedSet.delete(parentPath);
+      }
+      // 如果部分子项被选中，保持父级文件夹的当前状态不变
+    }
+  };
+
+  // 根据路径查找文件项
+  const findItemByPath = (items: FileItem[], targetPath: string): FileItem | null => {
+    for (const item of items) {
+      if (item.path === targetPath) {
+        return item;
+      }
+      if (item.children) {
+        const found = findItemByPath(item.children, targetPath);
+        if (found) {
+          return found;
+        }
+      }
+    }
+    return null;
+  };
+
+  // 获取所有文件路径（包括文件夹和文件）
+  const getAllFilePaths = (items: FileItem[]): string[] => {
+    const paths: string[] = [];
+    
+    const collectPaths = (fileItems: FileItem[]) => {
+      fileItems.forEach(item => {
+        paths.push(item.path);
+        if (item.children && item.children.length > 0) {
+          collectPaths(item.children);
+        }
+      });
+    };
+    
+    collectPaths(items);
+    return paths;
   };
 
   // 检查项目是否被选中
@@ -172,7 +264,6 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
         if (child.is_dir) {
           if (child.children && child.children.length > 0) {
             // 如果是文件夹且有子项，检查是否整个子树都被选中
-            // 这里不需要检查文件夹本身是否被选中，只要所有子项都被选中即可
             return checkAllChildren(child.children, childPath);
           } else {
             // 空文件夹，检查是否被选中
@@ -209,6 +300,18 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
     return checkAnyChildren(children, folderPath);
   };
 
+  // 检查文件夹是否应该显示为部分选中状态
+  const isPartiallySelected = (folderPath: string, children?: FileItem[]): boolean => {
+    if (!children || children.length === 0) return false;
+    
+    const hasSelected = hasSelectedChildren(folderPath, children);
+    const isFully = isFullySelected(folderPath, children);
+    const isDirectlySelected = selectedFiles.includes(folderPath);
+    
+    // 部分选中：有子项被选中但不是全部，且自己没有被直接选中
+    return hasSelected && !isFully && !isDirectlySelected;
+  };
+
 
 
   // 渲染文件/文件夹项
@@ -219,15 +322,14 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
     
     if (item.is_dir && item.children && item.children.length > 0) {
       const fullySelected = isFullySelected(item.path, item.children);
-      const hasSelected = hasSelectedChildren(item.path, item.children);
       
       // 如果没有被直接选中，但所有子项都被选中，则显示为选中状态
       if (!isSelected && fullySelected) {
         isSelected = true;
       }
       
-      // 部分选中：有子项被选中但不是全部，且自己没有被选中
-      isPartial = hasSelected && !fullySelected && !isItemSelected(item.path);
+      // 使用新的部分选中检查函数
+      isPartial = isPartiallySelected(item.path, item.children);
     }
     
     const isExpanded = expandedFolders.has(item.path);
@@ -236,7 +338,6 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
       <div key={item.path} className="fs-file-selector-item">
         <div 
           className={`fs-file-item-row ${isSelected ? 'selected' : ''}`}
-          style={{ paddingLeft: `${level * 20 + 8}px` }}
         >
           {item.is_dir && (
             <button
@@ -347,7 +448,7 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
           <button
             className="fs-btn-link"
             onClick={() => {
-              const allPaths = fileTree.map(item => item.path);
+              const allPaths = getAllFilePaths(fileTree);
               onSelectionChange(allPaths);
             }}
           >
@@ -366,12 +467,6 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
           fileTree.map(item => renderFileItem(item))
         )}
       </div>
-      
-      {selectedFiles.length > 0 && (
-        <div className="fs-selection-summary">
-          已选择 {selectedFiles.length} 个项目
-        </div>
-      )}
     </div>
   );
 };

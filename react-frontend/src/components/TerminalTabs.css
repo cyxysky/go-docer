@@ -5,7 +5,7 @@
   background: var(--darker-bg, #1e1e1e);
   border-bottom: 1px solid var(--border-color, #333);
   padding: 0 8px;
-  height: 36px;
+  height: 48px;
   min-height: 36px;
   flex-shrink: 0;
 }
@@ -110,24 +110,6 @@
   background: var(--border-color, #333);
   border-color: var(--primary-color, #007acc);
   color: var(--primary-color, #007acc);
-}
-
-/* 滚动条样式 */
-.terminal-tabs-list::-webkit-scrollbar {
-  height: 4px;
-}
-
-.terminal-tabs-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.terminal-tabs-list::-webkit-scrollbar-thumb {
-  background: var(--border-color, #333);
-  border-radius: 2px;
-}
-
-.terminal-tabs-list::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary, #888);
 }
 
 /* 状态颜色 */

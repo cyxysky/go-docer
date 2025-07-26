@@ -448,7 +448,7 @@ const ImagePanel: React.FC = () => {
   return (
     <>
       <div className="image-toolbar">
-        <button className="btn btn-sm" onClick={loadImages} title="刷新镜像列表">
+        <button className="btn btn-sm special-button" onClick={loadImages} title="刷新镜像列表">
           <i className="fas fa-sync-alt"></i>
         </button>
         {
@@ -470,14 +470,14 @@ const ImagePanel: React.FC = () => {
            */
         }
         <button 
-          className="btn btn-sm btn-success" 
+          className="btn btn-sm btn-success special-button" 
           onClick={() => setShowImportModal(true)} 
           title="导入镜像"
         >
           <i className="fas fa-upload"></i>
         </button>
         <button 
-          className="btn btn-sm btn-primary" 
+          className="btn btn-sm btn-primary special-button" 
           onClick={() => setShowAddCustomModal(true)} 
           title="添加自定义镜像"
         >
@@ -511,7 +511,7 @@ const ImagePanel: React.FC = () => {
                     <div className="image-actions">
                       {imageConfig && (
                         <button 
-                          className="btn btn-sm" 
+                          className="btn special-button action-button-blue" 
                           onClick={() => handleEditImageConfig(imageConfig)}
                           title="编辑配置"
                         >
@@ -520,7 +520,7 @@ const ImagePanel: React.FC = () => {
                       )}
                       {imageConfig && imageConfig.is_custom && (
                         <button 
-                          className="btn btn-sm action-button-red" 
+                          className="btn special-button action-button-red" 
                           onClick={() => handleDeleteImageConfig(imageConfig.name)}
                           title="删除配置"
                         >
@@ -528,7 +528,7 @@ const ImagePanel: React.FC = () => {
                         </button>
                       )}
                       <button 
-                        className="btn btn-sm action-button-red" 
+                        className="btn special-button action-button-red" 
                         onClick={() => confirmDeleteImage(image)} 
                         title="删除镜像"
                       >

@@ -1,19 +1,21 @@
-/* 文件选择器样式 */
+/* FileSelector 组件样式 - 现代化版本 */
+
 .fs-file-selector {
   display: flex;
   flex-direction: column;
   height: 100%;
   background: var(--secondary-color);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .fs-file-selector-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 16px 20px;
   background: var(--tertiary-color);
   border-bottom: 1px solid var(--border-color);
   font-size: 14px;
@@ -23,7 +25,7 @@
 
 .fs-selection-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
 }
 
 .fs-btn-link {
@@ -31,21 +33,41 @@
   border: none;
   color: var(--primary-color);
   cursor: pointer;
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 3px;
-  transition: all 0.2s ease;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.fs-btn-link::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.1), transparent);
+  transition: left 0.6s ease;
+}
+
+.fs-btn-link:hover::before {
+  left: 100%;
 }
 
 .fs-btn-link:hover {
-  background: rgba(0, 123, 255, 0.1);
+  background: var(--quaternary-color);
   color: var(--primary-color);
+  transform: translateY(-1px);
 }
 
 .fs-file-selector-tree {
   flex: 1;
   overflow-y: auto;
   padding: 8px 0;
+  background: var(--secondary-color);
 }
 
 .fs-file-selector-item {
@@ -55,50 +77,87 @@
 .fs-file-item-row {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
+  padding: 4px 6px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  border-radius: 6px;
+  height: 40px;
+  transition: all var(--transition-normal);
+  border-radius: var(--radius-md);
   margin: 2px 8px;
   border: 1px solid transparent;
+  position: relative;
+  overflow: hidden;
+}
+
+.fs-file-item-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.05), transparent);
+  transition: left 0.6s ease;
+}
+
+.fs-file-item-row:hover::before {
+  left: 100%;
 }
 
 .fs-file-item-row:hover {
-  background: var(--quaternary-color);
-  border-color: rgba(0, 123, 255, 0.2);
+  background: var(--tertiary-color);
+  border-color: rgba(59, 130, 246, 0.2);
 }
 
 .fs-file-item-row.selected {
-  background: linear-gradient(135deg, rgba(0, 123, 255, 0.12), rgba(0, 123, 255, 0.08));
-  border: 1px solid rgba(0, 123, 255, 0.4);
-  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.08));
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  box-shadow: var(--shadow-sm);
 }
 
 .fs-expand-btn {
   background: none;
   border: none;
-  padding: 3px;
-  margin-right: 6px;
+  padding: 4px;
   color: var(--text-secondary);
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  width: 18px;
-  height: 18px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-normal);
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.fs-expand-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+}
+
+.fs-expand-btn:hover::before {
+  opacity: 1;
 }
 
 .fs-expand-btn:hover {
-  background: rgba(0, 123, 255, 0.1);
   color: var(--primary-color);
   transform: scale(1.1);
 }
 
 .fs-expand-btn i {
-  font-size: 11px;
-  transition: transform 0.3s ease;
+  font-size: 12px;
+  transition: transform var(--transition-normal);
+  position: relative;
+  z-index: 1;
 }
 
 .fs-expand-btn.expanded i {
@@ -112,42 +171,48 @@
 .fs-file-item-label {
   display: flex !important;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: 1;
   cursor: pointer;
-  padding: 3px 6px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-normal);
   margin: 0px !important;
-}
-
-.fs-file-item-label:hover {
-  background: rgba(0, 123, 255, 0.05);
+  position: relative;
+  z-index: 1;
 }
 
 .fs-file-item-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   accent-color: var(--primary-color);
   cursor: pointer;
-  border-radius: 3px;
-  transition: all 0.2s ease;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-normal);
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .fs-file-item-label input[type="checkbox"]:hover {
   transform: scale(1.1);
 }
 
+.fs-file-item-label input[type="checkbox"]:checked {
+  transform: scale(1.05);
+}
+
 .fs-file-icon {
-  font-size: 15px;
-  width: 18px;
+  font-size: 16px;
+  width: 20px;
   text-align: center;
   color: var(--text-secondary);
-  transition: all 0.2s ease;
+  transition: all var(--transition-normal);
+  flex-shrink: 0;
 }
 
 .fs-file-icon.fas.fa-folder {
-  color: #ffa726;
+  color: #fbbf24;
+  filter: drop-shadow(0 1px 2px rgba(251, 191, 36, 0.3));
 }
 
 .fs-file-item-row.selected .fs-file-icon {
@@ -160,7 +225,11 @@
   font-size: 14px;
   color: var(--text-primary);
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: all var(--transition-normal);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fs-file-item-row.selected .fs-file-name {
@@ -169,27 +238,29 @@
 }
 
 .fs-file-size {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   margin-left: auto;
-  opacity: 0.7;
-  background: rgba(0, 0, 0, 0.05);
-  padding: 2px 6px;
-  border-radius: 3px;
+  opacity: 0.8;
+  background: var(--quaternary-color);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: all var(--transition-normal);
+  flex-shrink: 0;
 }
 
 .fs-file-item-row.selected .fs-file-size {
-  background: rgba(0, 123, 255, 0.1);
+  background: rgba(59, 130, 246, 0.1);
   color: var(--primary-color);
   opacity: 1;
 }
 
 .fs-file-children {
-  border-left: 2px solid rgba(0, 123, 255, 0.1);
-  margin-left: 22px;
+  border-left: 2px solid rgba(59, 130, 246, 0.1);
+  margin-left: 24px;
   position: relative;
+  animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .fs-file-children::before {
@@ -199,16 +270,7 @@
   top: 0;
   bottom: 0;
   width: 2px;
-  background: linear-gradient(to bottom, rgba(0, 123, 255, 0.1), transparent);
-}
-
-.fs-selection-summary {
-  padding: 8px 16px;
-  background: var(--tertiary-color);
-  border-top: 1px solid var(--border-color);
-  font-size: 12px;
-  color: var(--text-secondary);
-  text-align: center;
+  background: linear-gradient(to bottom, rgba(59, 130, 246, 0.1), transparent);
 }
 
 /* 加载和错误状态 */
@@ -222,21 +284,23 @@
   padding: 40px 20px;
   color: var(--text-secondary);
   text-align: center;
+  background: var(--secondary-color);
 }
 
 .fs-file-selector-loading i,
 .fs-file-selector-error i,
 .fs-file-selector-empty i {
-  font-size: 24px;
-  margin-bottom: 12px;
+  font-size: 28px;
+  margin-bottom: 16px;
   opacity: 0.6;
 }
 
 .fs-file-selector-loading span,
 .fs-file-selector-error span,
 .fs-file-selector-empty span {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
+  line-height: 1.5;
 }
 
 .fs-file-selector-loading i {
@@ -252,91 +316,125 @@
 }
 
 @keyframes fs-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 文件类型特定图标颜色 */
 .fs-file-icon.fab.fa-js-square {
   color: #f7df1e;
+  filter: drop-shadow(0 1px 2px rgba(247, 223, 30, 0.3));
 }
 
 .fs-file-icon.fab.fa-python {
   color: #3776ab;
+  filter: drop-shadow(0 1px 2px rgba(55, 118, 171, 0.3));
 }
 
 .fs-file-icon.fab.fa-java {
   color: #ed8b00;
+  filter: drop-shadow(0 1px 2px rgba(237, 139, 0, 0.3));
 }
 
 .fs-file-icon.fab.fa-html5 {
   color: #e34f26;
+  filter: drop-shadow(0 1px 2px rgba(227, 79, 38, 0.3));
 }
 
 .fs-file-icon.fab.fa-css3-alt {
   color: #1572b6;
+  filter: drop-shadow(0 1px 2px rgba(21, 114, 182, 0.3));
 }
 
 .fs-file-icon.fab.fa-markdown {
   color: #083fa1;
+  filter: drop-shadow(0 1px 2px rgba(8, 63, 161, 0.3));
 }
 
 .fs-file-icon.fas.fa-file-code {
   color: #28a745;
+  filter: drop-shadow(0 1px 2px rgba(40, 167, 69, 0.3));
 }
 
 .fs-file-icon.fas.fa-file-alt {
   color: #6c757d;
+  filter: drop-shadow(0 1px 2px rgba(108, 117, 125, 0.3));
 }
 
 .fs-file-icon.fas.fa-file-pdf {
   color: #dc3545;
+  filter: drop-shadow(0 1px 2px rgba(220, 53, 69, 0.3));
 }
 
 .fs-file-icon.fas.fa-file-image {
   color: #fd7e14;
+  filter: drop-shadow(0 1px 2px rgba(253, 126, 20, 0.3));
 }
 
 /* 响应式设计 */
 @media (max-width: 768px) {
   .fs-file-selector-header {
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
     align-items: flex-start;
+    padding: 12px;
   }
-  
+
   .fs-selection-actions {
     width: 100%;
     justify-content: flex-end;
+    gap: 8px;
   }
-  
+
   .fs-file-item-row {
     padding: 6px 8px;
+    margin: 1px 6px;
   }
-  
+
   .fs-file-name {
-    font-size: 12px;
+    font-size: 13px;
   }
-  
+
   .fs-file-size {
-    font-size: 10px;
+    font-size: 11px;
+    padding: 2px 6px;
+  }
+
+  .fs-expand-btn {
+    width: 18px;
+    height: 18px;
+    margin-right: 6px;
+  }
+
+  .fs-file-icon {
+    font-size: 14px;
+    width: 18px;
+  }
+
+  .fs-file-item-label {
+    gap: 8px;
+    padding: 3px 6px;
+  }
+
+  .fs-file-item-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
   }
 }
-
-/* 自定义滚动条 */
-.fs-file-selector-tree::-webkit-scrollbar {
-  width: 6px;
-}
-
-.fs-file-selector-tree::-webkit-scrollbar-track {
-  background: var(--tertiary-color);
-}
-
-.fs-file-selector-tree::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 3px;
-}
-
-.fs-file-selector-tree::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-} 

@@ -107,7 +107,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
         }
       };
       setFileCache(newCache);
-      workspaceCaches[currentWorkspace] = newCache;
+      if (currentWorkspace) {
+        workspaceCaches[currentWorkspace] = newCache;
+      }
     } catch (error) {
       console.error('加载文件夹内容失败:', error);
     } finally {
@@ -256,7 +258,6 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     <>
       <div 
         className={`file-tree-item ${file.is_dir ? 'folder' : 'file'} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''} ${isLoadingChildren ? 'loading' : ''}`}
-        style={{ paddingLeft: `${paddingLeft}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         onMouseEnter={() => setShowActions(true)}
@@ -271,39 +272,17 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
         <div className="file-tree-item-content">
           <div className="file-tree-item-icon">
             {file.is_dir ? (
-              <i className={`fas fa-chevron-${isExpanded ? 'down' : 'right'} ${isExpanded ? 'expanded' : ''} ${isLoadingChildren ? 'fa-spin fa-spinner' : ''}`}></i>
+              <i className={`fas fa-chevron-right ${isExpanded ? 'expanded' : ''}`}></i>
             ) : null}
             <i className={file.is_dir ? 'fas fa-folder' : getFileIcon(file.name)}></i>
           </div>
           <span className="file-tree-item-name">{file.name}</span>
           {isLoadingChildren && (
             <span className="loading-indicator">
-              <i className="fas fa-spinner fa-spin"></i>
+              <i className="fas fa-spinner"></i>
             </span>
           )}
         </div>
-        
-        {showActions && (
-          <div className="file-tree-item-actions">
-            <button 
-              className="file-action-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRenameFile(file.path);
-              }}
-              title="重命名"
-            >
-              <i className="fas fa-edit"></i>
-            </button>
-            <button 
-              className="file-action-btn"
-              onClick={handleDelete}
-              title="删除"
-            >
-              <i className="fas fa-trash"></i>
-            </button>
-          </div>
-        )}
       </div>
 
       {file.is_dir && isExpanded && children.length > 0 && (
@@ -351,6 +330,8 @@ const FileTree: React.FC = () => {
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<string>('');
   const [newFileName, setNewFileName] = useState('');
   const [newFolderName, setNewFolderName] = useState('');
   const [newFileParentPath, setNewFileParentPath] = useState('');
@@ -389,13 +370,24 @@ const FileTree: React.FC = () => {
   };
 
   const handleDeleteFile = async (filePath: string) => {
+    setFileToDelete(filePath);
+    setShowDeleteConfirmDialog(true);
+  };
+
+  const handleDeleteConfirm = async () => {
     try {
-      await deleteFile(filePath);
+      await deleteFile(fileToDelete, async () => {
+        // 这个回调会在确认后执行，这里不需要做任何事情
+        // 实际的删除操作会在deleteFile函数中执行
+      });
       showSuccess('删除成功', '文件删除成功！');
-      // 文件删除后会触发刷新，保持展开状态
+      setShowDeleteConfirmDialog(false);
+      setFileToDelete('');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       showError('删除失败', `删除文件失败: ${errorMessage}`);
+      setShowDeleteConfirmDialog(false);
+      setFileToDelete('');
     }
   };
 
@@ -421,7 +413,9 @@ const FileTree: React.FC = () => {
         delete newCache[parentPath];
       }
       setFileCache(newCache);
-      workspaceCaches[currentWorkspace] = newCache;
+      if (currentWorkspace) {
+        workspaceCaches[currentWorkspace] = newCache;
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       showError('重命名失败', `重命名失败: ${errorMessage}`);
@@ -452,7 +446,9 @@ const FileTree: React.FC = () => {
       const newCache = { ...fileCache };
       delete newCache[newFileParentPath];
       setFileCache(newCache);
-      workspaceCaches[currentWorkspace] = newCache;
+      if (currentWorkspace) {
+        workspaceCaches[currentWorkspace] = newCache;
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       showError('创建失败', `创建文件失败: ${errorMessage}`);
@@ -473,7 +469,9 @@ const FileTree: React.FC = () => {
       const newCache = { ...fileCache };
       delete newCache[newFileParentPath];
       setFileCache(newCache);
-      workspaceCaches[currentWorkspace] = newCache;
+      if (currentWorkspace) {
+        workspaceCaches[currentWorkspace] = newCache;
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       showError('创建失败', `创建文件夹失败: ${errorMessage}`);
@@ -493,7 +491,9 @@ const FileTree: React.FC = () => {
       delete newCache[targetParentPath];
       
       setFileCache(newCache);
-      workspaceCaches[currentWorkspace] = newCache;
+      if (currentWorkspace) {
+        workspaceCaches[currentWorkspace] = newCache;
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       showError('移动失败', `移动文件失败: ${errorMessage}`);
@@ -618,6 +618,31 @@ const FileTree: React.FC = () => {
                 确定
               </button>
               <button onClick={() => setShowRenameDialog(false)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除确认对话框 */}
+      {showDeleteConfirmDialog && (
+        <div className="dialog-overlay" onClick={() => setShowDeleteConfirmDialog(false)}>
+          <div className="dialog-content" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              <i className="fas fa-exclamation-triangle"></i>
+              确认删除
+            </h3>
+            <div className="confirm-content">
+              <p>确定要删除 <strong>"{fileToDelete}"</strong> 吗？</p>
+            </div>
+            <p className="warning-text">此操作不可撤销，删除后将无法恢复！</p>
+            <div className="dialog-actions">
+              <button onClick={handleDeleteConfirm} className="btn-danger">
+                <i className="fas fa-trash"></i>
+                确认删除
+              </button>
+              <button onClick={() => setShowDeleteConfirmDialog(false)}>
                 取消
               </button>
             </div>

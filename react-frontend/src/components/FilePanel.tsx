@@ -33,6 +33,7 @@ const FilePanel: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [exportMode, setExportMode] = useState<'all' | 'path' | 'selected'>('all');
+  const [resetFileSelector, setResetFileSelector] = useState(false);
 
   // 监听工作空间变化，提供用户反馈
   useEffect(() => {
@@ -205,7 +206,7 @@ const FilePanel: React.FC = () => {
     <div className="file-panel">
       <div className="file-toolbar">
         <button 
-          className="btn btn-sm" 
+          className="btn special-button" 
           title="刷新文件列表" 
           onClick={handleRefresh}
           disabled={!currentWorkspace}
@@ -213,7 +214,7 @@ const FilePanel: React.FC = () => {
           <i className="fas fa-sync"></i>
         </button>
         <button 
-          className="btn btn-sm" 
+          className="btn special-button" 
           title="新建文件"
           onClick={() => setShowNewFileDialog(true)}
           disabled={!currentWorkspace}
@@ -221,7 +222,7 @@ const FilePanel: React.FC = () => {
           <i className="fas fa-file"></i>
         </button>
         <button 
-          className="btn btn-sm" 
+          className="btn special-button" 
           title="新建文件夹"
           onClick={() => setShowNewFolderDialog(true)}
           disabled={!currentWorkspace}
@@ -232,7 +233,7 @@ const FilePanel: React.FC = () => {
         <div className="toolbar-divider"></div>
         
         <button 
-          className="btn btn-sm btn-export" 
+          className="btn btn-export special-button" 
           title="导出工作空间文件"
           onClick={() => setShowExportFilesDialog(true)}
           disabled={!currentWorkspace || isExporting}
@@ -240,7 +241,7 @@ const FilePanel: React.FC = () => {
           <i className="fas fa-download"></i>
         </button>
         <button 
-          className="btn btn-sm btn-export" 
+          className="btn btn-export special-button" 
           title="导出工作空间镜像"
           onClick={() => setShowExportImageDialog(true)}
           disabled={!currentWorkspace || isExporting}
@@ -253,7 +254,10 @@ const FilePanel: React.FC = () => {
       {showNewFileDialog && (
         <div className="dialog-overlay" onClick={() => setShowNewFileDialog(false)}>
           <div className="dialog-content" onClick={(e) => e.stopPropagation()}>
-            <h3>新建文件</h3>
+            <h3>
+              <i className="fas fa-file"></i>
+              新建文件
+            </h3>
             <input
               type="text"
               placeholder="输入文件名（包含扩展名）"
@@ -278,7 +282,10 @@ const FilePanel: React.FC = () => {
       {showNewFolderDialog && (
         <div className="dialog-overlay" onClick={() => setShowNewFolderDialog(false)}>
           <div className="dialog-content" onClick={(e) => e.stopPropagation()}>
-            <h3>新建文件夹</h3>
+            <h3>
+              <i className="fas fa-folder-plus"></i>
+              新建文件夹
+            </h3>
             <input
               type="text"
               placeholder="输入文件夹名"
@@ -305,86 +312,92 @@ const FilePanel: React.FC = () => {
           <div className="dialog-content export-dialog large-dialog" onClick={(e) => e.stopPropagation()}>
             <h3><i className="fas fa-download"></i> 导出工作空间文件</h3>
             
+            <div className="dialog-body">
+
             <div className="form-group">
-              <label className="form-label">导出模式</label>
-              <div className="radio-group">
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    value="all"
-                    checked={exportMode === 'all'}
-                    onChange={(e) => setExportMode(e.target.value as any)}
-                  />
-                  <span>导出整个工作空间</span>
-                </label>
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    value="path"
-                    checked={exportMode === 'path'}
-                    onChange={(e) => setExportMode(e.target.value as any)}
-                  />
-                  <span>导出指定路径</span>
-                </label>
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    value="selected"
-                    checked={exportMode === 'selected'}
-                    onChange={(e) => setExportMode(e.target.value as any)}
-                  />
-                  <span>选择文件导出</span>
-                </label>
-              </div>
-            </div>
-
-            {exportMode === 'path' && (
-              <div className="form-group">
-                <label className="form-label">导出路径</label>
-                <input
-                  type="text"
-                  placeholder="输入要导出的路径，如 'src' 或 'docs/images'"
-                  value={exportPath}
-                  onChange={(e) => setExportPath(e.target.value)}
-                />
-                <small>例如：src、docs/images、components</small>
-              </div>
-            )}
-
-            {exportMode === 'selected' && (
-              <div className="form-group">
-                <label className="form-label">选择文件和文件夹</label>
-                <div className="file-selector-container">
-                  <FileSelector
-                    selectedFiles={selectedFiles}
-                    onSelectionChange={setSelectedFiles}
-                  />
+                <label className="form-label">压缩格式</label>
+                <div className="radio-group">
+                  <label className="radio-option">
+                    <input
+                      type="radio"
+                      value="zip"
+                      checked={exportFormat === 'zip'}
+                      onChange={(e) => setExportFormat(e.target.value)}
+                    />
+                    <span>ZIP格式（推荐）</span>
+                  </label>
+                  <label className="radio-option">
+                    <input
+                      type="radio"
+                      value="tar.gz"
+                      checked={exportFormat === 'tar.gz'}
+                      onChange={(e) => setExportFormat(e.target.value)}
+                    />
+                    <span>tar.gz格式</span>
+                  </label>
                 </div>
               </div>
-            )}
-
-            <div className="form-group">
-              <label className="form-label">压缩格式</label>
-              <div className="radio-group">
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    value="zip"
-                    checked={exportFormat === 'zip'}
-                    onChange={(e) => setExportFormat(e.target.value)}
-                  />
-                  <span>ZIP格式（推荐）</span>
-                </label>
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    value="tar.gz"
-                    checked={exportFormat === 'tar.gz'}
-                    onChange={(e) => setExportFormat(e.target.value)}
-                  />
-                  <span>tar.gz格式</span>
-                </label>
+              
+              <div className="form-group">
+                <label className="form-label">导出模式</label>
+                <div className="radio-group">
+                  <label className="radio-option">
+                    <input
+                      type="radio"
+                      value="all"
+                      checked={exportMode === 'all'}
+                      onChange={(e) => setExportMode(e.target.value as any)}
+                    />
+                    <span>导出整个工作空间</span>
+                  </label>
+                  <label className="radio-option">
+                    <input
+                      type="radio"
+                      value="path"
+                      checked={exportMode === 'path'}
+                      onChange={(e) => setExportMode(e.target.value as any)}
+                    />
+                    <span>导出指定路径</span>
+                  </label>
+                  <label className="radio-option">
+                    <input
+                      type="radio"
+                      value="selected"
+                      checked={exportMode === 'selected'}
+                      onChange={(e) => setExportMode(e.target.value as any)}
+                    />
+                    <span>选择文件导出</span>
+                  </label>
+                </div>
               </div>
+
+              {exportMode === 'path' && (
+                <div className="form-group">
+                  <label className="form-label">导出路径</label>
+                  <input
+                    type="text"
+                    placeholder="输入要导出的路径，如 'src' 或 'docs/images'"
+                    value={exportPath}
+                    onChange={(e) => setExportPath(e.target.value)}
+                  />
+                  <small>例如：src、docs/images、components</small>
+                </div>
+              )}
+
+              {exportMode === 'selected' && (
+                <div className="form-group">
+                  <label className="form-label">选择文件和文件夹</label>
+                  <div className="file-selector-container">
+                                      <FileSelector
+                    selectedFiles={selectedFiles}
+                    onSelectionChange={setSelectedFiles}
+                    onReset={resetFileSelector}
+                  />
+                  </div>
+                </div>
+              )}
+
+
             </div>
 
             <div className="dialog-actions">
@@ -410,6 +423,9 @@ const FilePanel: React.FC = () => {
                   setShowExportFilesDialog(false);
                   setSelectedFiles([]);
                   setExportMode('all');
+                  setResetFileSelector(true);
+                  // 重置后立即设置为false，避免重复触发
+                  setTimeout(() => setResetFileSelector(false), 100);
                 }} 
                 disabled={isExporting}
               >
@@ -426,33 +442,35 @@ const FilePanel: React.FC = () => {
           <div className="dialog-content export-dialog" onClick={(e) => e.stopPropagation()}>
             <h3><i className="fab fa-docker"></i> 导出工作空间镜像</h3>
             
-            <div className="form-group">
-              <label className="form-label">镜像名称</label>
-              <input
-                type="text"
-                placeholder="镜像名称"
-                value={imageName}
-                onChange={(e) => setImageName(e.target.value)}
-              />
-              <small>例如：my-project、frontend-app</small>
-            </div>
+            <div className="dialog-body">
+              <div className="form-group">
+                <label className="form-label">镜像名称</label>
+                <input
+                  type="text"
+                  placeholder="镜像名称"
+                  value={imageName}
+                  onChange={(e) => setImageName(e.target.value)}
+                />
+                <small>例如：my-project、frontend-app</small>
+              </div>
 
-            <div className="form-group">
-              <label className="form-label">镜像标签</label>
-              <input
-                type="text"
-                placeholder="镜像标签"
-                value={imageTag}
-                onChange={(e) => setImageTag(e.target.value)}
-              />
-              <small>例如：latest、v1.0、dev</small>
-            </div>
+              <div className="form-group">
+                <label className="form-label">镜像标签</label>
+                <input
+                  type="text"
+                  placeholder="镜像标签"
+                  value={imageTag}
+                  onChange={(e) => setImageTag(e.target.value)}
+                />
+                <small>例如：latest、v1.0、dev</small>
+              </div>
 
-            <div className="export-info">
-              <i className="fas fa-info-circle"></i>
-              <div>
-                <strong>说明：</strong>
-                <p>将把当前容器的完整状态保存为Docker镜像，包括已安装的软件、配置和所有文件。生成的镜像文件可以在其他Docker环境中导入使用。</p>
+              <div className="export-info">
+                <i className="fas fa-info-circle"></i>
+                <div>
+                  <strong>说明：</strong>
+                  <p>将把当前容器的完整状态保存为Docker镜像，包括已安装的软件、配置和所有文件。生成的镜像文件可以在其他Docker环境中导入使用。</p>
+                </div>
               </div>
             </div>
 

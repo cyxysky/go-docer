@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useTerminal } from '../contexts/TerminalContext';
@@ -6,8 +6,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useMultiTerminal } from '../contexts/MultiTerminalContext';
 import { TerminalProvider } from '../contexts/TerminalContext';
 import TerminalTabs from './TerminalTabs';
-// import stripAnsi from 'strip-ansi';
 import './TerminalPanel.css';
+import { useNotification } from './NotificationProvider';
 
 const TerminalPanel: React.FC = () => {
   const { terminalTabs } = useMultiTerminal();
@@ -49,7 +49,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
     setTerminalWriter
   } = useTerminal();
   const { theme } = useTheme();
-
+  const { showError } = useNotification();
   const terminalRef = useRef<HTMLDivElement>(null);
   const terminalInstanceRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -57,13 +57,58 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
   const currentInputRef = useRef('');
   const [isVisible, setIsVisible] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
 
   // 命令历史
   const commandHistoryRef = useRef<string[]>([]);
   const historyIndexRef = useRef<number>(-1);
-  const tempInputRef = useRef<string>(''); // 临时保存当前输入，用于历史导航
-  const cursorPositionRef = useRef<number>(0); // 光标在当前行的位置
+  const tempInputRef = useRef<string>('');
+  const cursorPositionRef = useRef<number>(0);
 
+  // 终端主题配置
+  const terminalTheme = useMemo(() => theme === 'dark' ? {
+    background: '#0f172a',
+    foreground: '#f8fafc',
+    cursor: '#3b82f6',
+    selection: 'rgba(59, 130, 246, 0.3)',
+    black: '#0f172a',
+    red: '#ef4444',
+    green: '#10b981',
+    yellow: '#f59e0b',
+    blue: '#3b82f6',
+    magenta: '#8b5cf6',
+    cyan: '#06b6d4',
+    white: '#f8fafc',
+    brightBlack: '#64748b',
+    brightRed: '#f87171',
+    brightGreen: '#34d399',
+    brightYellow: '#fbbf24',
+    brightBlue: '#60a5fa',
+    brightMagenta: '#a78bfa',
+    brightCyan: '#22d3ee',
+    brightWhite: '#ffffff'
+  } : {
+    background: '#ffffff',
+    foreground: '#0f172a',
+    cursor: '#3b82f6',
+    selection: 'rgba(59, 130, 246, 0.2)',
+    black: '#000000',
+    red: '#dc2626',
+    green: '#059669',
+    yellow: '#d97706',
+    blue: '#2563eb',
+    magenta: '#7c3aed',
+    cyan: '#0891b2',
+    white: '#374151',
+    brightBlack: '#6b7280',
+    brightRed: '#ef4444',
+    brightGreen: '#10b981',
+    brightYellow: '#f59e0b',
+    brightBlue: '#3b82f6',
+    brightMagenta: '#8b5cf6',
+    brightCyan: '#06b6d4',
+    brightWhite: '#f9fafb'
+  }, [theme]);
 
   // 发送数据到WebSocket的函数
   const sendToWebSocket = useCallback((data: string) => {
@@ -80,49 +125,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
 
     console.log(`[Terminal ${terminalId}] 开始初始化终端...`);
 
-    // 根据主题选择终端颜色
-    const terminalTheme = theme === 'dark' ? {
-      background: '#1e1e1e',
-      foreground: '#cccccc',
-      cursor: '#cccccc',
-      black: '#000000',
-      red: '#cd3131',
-      green: '#0dbc79',
-      yellow: '#e5e510',
-      blue: '#2472c8',
-      magenta: '#bc3fbc',
-      cyan: '#11a8cd',
-      white: '#e5e5e5',
-      brightBlack: '#666666',
-      brightRed: '#f14c4c',
-      brightGreen: '#23d18b',
-      brightYellow: '#f5f543',
-      brightBlue: '#3b8eea',
-      brightMagenta: '#d670d6',
-      brightCyan: '#29b8db',
-      brightWhite: '#ffffff'
-    } : {
-      background: '#ffffff',
-      foreground: '#333333',
-      cursor: '#333333',
-      black: '#000000',
-      red: '#cd3131',
-      green: '#00bc00',
-      yellow: '#949800',
-      blue: '#0451a5',
-      magenta: '#bc05bc',
-      cyan: '#0598bc',
-      white: '#555555',
-      brightBlack: '#666666',
-      brightRed: '#cd3131',
-      brightGreen: '#14ce14',
-      brightYellow: '#b5ba00',
-      brightBlue: '#0451a5',
-      brightMagenta: '#bc05bc',
-      brightCyan: '#0598bc',
-      brightWhite: '#a5a5a5'
-    };
-
     // 创建终端实例
     const terminal = new Terminal({
       cursorBlink: true,
@@ -132,7 +134,12 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
       allowTransparency: true,
       convertEol: true,
       scrollOnUserInput: true,
-      scrollback: 1000
+      scrollback: 5000,
+      cols: 80,
+      rows: 24,
+      cursorStyle: 'block',
+      fastScrollModifier: 'alt',
+      fastScrollSensitivity: 5
     });
 
     // 创建 FitAddon 用于自适应大小
@@ -149,7 +156,6 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         terminal.clear();
         terminal.write('\x1B[1;36m欢迎使用在线代码编辑器终端\x1B[0m\r\n');
         terminal.write('请选择工作空间并点击"连接终端"开始使用\r\n\r\n');
-
         terminal.write('\x1B[1;36m$ \x1B[0m');
         terminal.focus();
         setIsInitialized(true);
@@ -181,25 +187,22 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         return;
       }
 
-
       const code = data.charCodeAt(0);
 
       // 处理回车键
       if (code === 13) {
         terminal.write('\r\n');
         if (currentInputRef.current.trim()) {
-          // 添加到命令历史
           const command = currentInputRef.current.trim();
           if (command && (commandHistoryRef.current.length === 0 || commandHistoryRef.current[commandHistoryRef.current.length - 1] !== command)) {
             commandHistoryRef.current.push(command);
-            // 限制历史记录长度
             if (commandHistoryRef.current.length > 100) {
               commandHistoryRef.current.shift();
             }
           }
           historyIndexRef.current = -1;
           tempInputRef.current = '';
-          
+
           sendToWebSocket(currentInputRef.current);
           currentInputRef.current = '';
           cursorPositionRef.current = 0;
@@ -214,32 +217,26 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         if (cursorPositionRef.current > 0) {
           const input = currentInputRef.current;
           const pos = cursorPositionRef.current;
-          
-          // 删除光标前的字符
+
           currentInputRef.current = input.slice(0, pos - 1) + input.slice(pos);
           cursorPositionRef.current--;
-          
-          // 简单的退格处理：向左移动，删除字符，重新显示后续内容
-          terminal.write('\b'); // 向左移动光标
-          terminal.write('\x1b[K'); // 清除从光标到行尾的内容
-          
-          // 重新显示删除位置后的内容
+
+          terminal.write('\b');
+          terminal.write('\x1b[K');
+
           const remainingText = currentInputRef.current.slice(cursorPositionRef.current);
           if (remainingText) {
             terminal.write(remainingText);
-            // 将光标移回正确位置
             terminal.write(`\x1b[${remainingText.length}D`);
           }
         }
         return;
       }
 
-      // 处理 Ctrl+C (复制或中断命令)
+      // 处理 Ctrl+C
       if (code === 3) {
-        // 检查是否有选中的文本
         const selection = terminal.getSelection();
         if (selection) {
-          // 复制选中的文本到剪贴板
           navigator.clipboard.writeText(selection).then(() => {
             console.log('文本已复制到剪贴板');
           }).catch(err => {
@@ -247,35 +244,29 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
           });
           return;
         } else {
-          // 没有选中文本，发送中断信号
-        terminal.write('^C\r\n');
-        currentInputRef.current = '';
+          terminal.write('^C\r\n');
+          currentInputRef.current = '';
           historyIndexRef.current = -1;
           tempInputRef.current = '';
-        sendToWebSocket('\x03');
+          sendToWebSocket('\x03');
           return;
         }
       }
 
-      // 处理 Ctrl+V (粘贴)
+      // 处理 Ctrl+V
       if (code === 22) {
         navigator.clipboard.readText().then(text => {
           if (text) {
             const input = currentInputRef.current;
             const pos = cursorPositionRef.current;
-            
-            // 在光标位置插入粘贴的文本
+
             currentInputRef.current = input.slice(0, pos) + text + input.slice(pos);
             cursorPositionRef.current += text.length;
-            
-            // 简单的插入处理
-            terminal.write('\x1b[K'); // 清除从光标到行尾的内容
-            
-            // 显示从当前位置开始的所有内容
+
+            terminal.write('\x1b[K');
             const remainingText = currentInputRef.current.slice(pos);
             terminal.write(remainingText);
-            
-            // 将光标移到正确位置
+
             const moveBack = remainingText.length - text.length;
             if (moveBack > 0) {
               terminal.write(`\x1b[${moveBack}D`);
@@ -287,83 +278,71 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         return;
       }
 
-      // 处理 Ctrl+D (EOF)
+      // 处理 Ctrl+D
       if (code === 4) {
         sendToWebSocket('\x04');
         return;
       }
 
-      // 处理 Ctrl+Z (SUSP)
+      // 处理 Ctrl+Z
       if (code === 26) {
         sendToWebSocket('\x1a');
         return;
       }
 
       // 处理方向键
-      if (data === '\x1b[A') { // 上箭头 - 历史命令
+      if (data === '\x1b[A') { // 上箭头
         if (commandHistoryRef.current.length > 0) {
-          // 保存当前输入（如果是第一次按上键）
           if (historyIndexRef.current === -1) {
             tempInputRef.current = currentInputRef.current;
           }
-          
-          // 导航历史
+
           if (historyIndexRef.current < commandHistoryRef.current.length - 1) {
             historyIndexRef.current++;
             const historyCommand = commandHistoryRef.current[commandHistoryRef.current.length - 1 - historyIndexRef.current];
-            
-            // 清除当前输入行的内容
+
             if (currentInputRef.current.length > 0) {
-              terminal.write(`\x1b[${cursorPositionRef.current}D`); // 移动到输入开始位置
-              terminal.write('\x1b[K'); // 清除到行尾
+              terminal.write(`\x1b[${cursorPositionRef.current}D`);
+              terminal.write('\x1b[K');
             }
-            
-            // 更新当前输入和光标位置
+
             currentInputRef.current = historyCommand;
             cursorPositionRef.current = historyCommand.length;
-            
-            // 显示历史命令
             terminal.write(historyCommand);
           }
         }
         return;
       }
-      if (data === '\x1b[B') { // 下箭头 - 历史命令
+      if (data === '\x1b[B') { // 下箭头
         if (historyIndexRef.current > -1) {
           historyIndexRef.current--;
-          
+
           let newCommand = '';
           if (historyIndexRef.current === -1) {
-            // 恢复原始输入
             newCommand = tempInputRef.current;
           } else {
-            // 显示历史命令
             newCommand = commandHistoryRef.current[commandHistoryRef.current.length - 1 - historyIndexRef.current];
           }
-          
-          // 清除当前输入行的内容
+
           if (currentInputRef.current.length > 0) {
-            terminal.write(`\x1b[${cursorPositionRef.current}D`); // 移动到输入开始位置
-            terminal.write('\x1b[K'); // 清除到行尾
+            terminal.write(`\x1b[${cursorPositionRef.current}D`);
+            terminal.write('\x1b[K');
           }
-          
-          // 更新内容
+
           currentInputRef.current = newCommand;
           cursorPositionRef.current = newCommand.length;
-          
-          // 显示新命令
           terminal.write(newCommand);
         }
         return;
       }
-      if (data === '\x1b[C') { // 右箭头 - 本地光标移动
+      if (data === '\x1b[C') { // 右箭头
         if (cursorPositionRef.current < currentInputRef.current.length) {
           cursorPositionRef.current++;
           terminal.write('\x1b[C');
         }
         return;
       }
-      if (data === '\x1b[D') { // 左箭头 - 本地光标移动
+      if (data === '\x1b[D') { // 左箭头
         if (cursorPositionRef.current > 0) {
           cursorPositionRef.current--;
           terminal.write('\x1b[D');
@@ -381,38 +360,28 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
       if (code >= 32 && code <= 126) {
         const input = currentInputRef.current;
         const pos = cursorPositionRef.current;
-        
-        // 在光标位置插入字符
+
         currentInputRef.current = input.slice(0, pos) + data + input.slice(pos);
         cursorPositionRef.current++;
-        
-        // 简单的字符插入
-        terminal.write('\x1b[K'); // 清除从光标到行尾
-        
-        // 显示从当前位置开始的所有内容
+
+        terminal.write('\x1b[K');
         const remainingText = currentInputRef.current.slice(pos);
         terminal.write(remainingText);
-        
-        // 如果插入的不是在末尾，调整光标位置
+
         if (pos < input.length) {
           terminal.write(`\x1b[${remainingText.length - 1}D`);
         }
       } else if (code >= 128) {
         const input = currentInputRef.current;
         const pos = cursorPositionRef.current;
-        
-        // 在光标位置插入字符
+
         currentInputRef.current = input.slice(0, pos) + data + input.slice(pos);
         cursorPositionRef.current++;
-        
-        // 简单的字符插入
-        terminal.write('\x1b[K'); // 清除从光标到行尾
-        
-        // 显示从当前位置开始的所有内容
+
+        terminal.write('\x1b[K');
         const remainingText = currentInputRef.current.slice(pos);
         terminal.write(remainingText);
-        
-        // 如果插入的不是在末尾，调整光标位置
+
         if (pos < input.length) {
           terminal.write(`\x1b[${remainingText.length - 1}D`);
         }
@@ -446,7 +415,17 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         terminal.dispose();
       }
     };
-  }, [isInitialized, sendCommand, terminalId, theme]);
+  }, [isInitialized, sendCommand, terminalId, theme, terminalTheme]);
+
+  // 监听主题变化，更新终端主题
+  useEffect(() => {
+    const terminal = terminalInstanceRef.current;
+    if (terminal && isInitialized) {
+      terminal.options.theme = terminalTheme;
+      // 重新渲染终端以应用新主题
+      terminal.refresh(0, terminal.rows - 1);
+    }
+  }, [terminalTheme, isInitialized]);
 
   // 监听面板可见性变化
   useEffect(() => {
@@ -527,13 +506,13 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
   // 更新状态引用
   useEffect(() => {
     statusRef.current = terminalStatus;
+    setIsConnected(terminalStatus === 'connected');
   }, [terminalStatus]);
 
   // 处理终端状态变化
   useEffect(() => {
     const terminal = terminalInstanceRef.current;
     if (!terminal || !isInitialized) return;
-
 
     if (terminalStatus === 'disconnected') {
       terminal.clear();
@@ -575,6 +554,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
     try {
       await connectTerminal();
     } catch (error) {
+      showError('连接终端失败', String(error));
       console.error(`[Terminal ${terminalId}] 连接终端失败:`, error);
     }
   };
@@ -597,25 +577,18 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
         <div className="terminal-title">
           <i className="fas fa-terminal"></i>
           <span>终端 {terminalId}</span>
-          {terminalStatus === 'connected' && (
-            <span className="terminal-status connected">
-              <i className="fas fa-circle"></i> 已连接
+          <div className={`terminal-status ${terminalStatus}`}>
+            <span>
+              {terminalStatus === 'connected' && '已连接'}
+              {terminalStatus === 'connecting' && '连接中...'}
+              {terminalStatus === 'disconnected' && '未连接'}
+              {terminalStatus === 'error' && '连接失败'}
             </span>
-          )}
-          {terminalStatus === 'connecting' && (
-            <span className="terminal-status connecting">
-              <i className="fas fa-spinner fa-spin"></i> 连接中...
-            </span>
-          )}
-          {terminalStatus === 'error' && (
-            <span className="terminal-status error">
-              <i className="fas fa-exclamation-triangle"></i> 连接失败
-            </span>
-          )}
+          </div>
         </div>
         <div className="terminal-controls">
           <button
-            className="btn btn-sm action-button-green"
+            className="terminal-control-btn connect special-button"
             onClick={handleConnect}
             title="连接终端"
             disabled={terminalStatus === 'connecting' || terminalStatus === 'connected'}
@@ -623,7 +596,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
             <i className="fas fa-play"></i>
           </button>
           <button
-            className="btn btn-sm action-button-warning"
+            className="terminal-control-btn clear special-button"
             onClick={handleClear}
             title="清屏"
             disabled={terminalStatus !== 'connected'}
@@ -631,7 +604,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
             <i className="fas fa-trash"></i>
           </button>
           <button
-            className="btn btn-sm action-button-red"
+            className="terminal-control-btn kill special-button"
             onClick={handleDisconnect}
             title="断开连接"
             disabled={terminalStatus !== 'connected'}

@@ -66,17 +66,23 @@ const Notification: React.FC<NotificationProps> = ({
   };
 
   return (
-    <div className={`notification notification-${type} ${isVisible ? 'notification-show' : ''}`}>
-      <div className="notification-icon">
-        <i className={getIcon()}></i>
+    <div className={`notification ${type} ${isVisible ? 'notification-show' : ''}`}>
+      <div className="notification-header">
+        <div className="notification-title">
+          <div className="notification-icon">
+            <i className={getIcon()}></i>
+          </div>
+          <span className="notification-title-text">{title}</span>
+        </div>
+        <button className="btn special-button" onClick={handleClose}>
+          <i className="fas fa-times"></i>
+        </button>
       </div>
       <div className="notification-content">
-        <div className="notification-title">{title}</div>
+        
         <div className="notification-message">{message}</div>
       </div>
-      <button className="notification-close" onClick={handleClose}>
-        <i className="fas fa-times"></i>
-      </button>
+
     </div>
   );
 };

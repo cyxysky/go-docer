@@ -1,287 +1,588 @@
-/* 终端面板样式 */
+/* TerminalPanel 组件样式 - 现代化版本 */
 
 /* 终端容器 */
 .terminal-container {
-  flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--darker-bg, #1e1e1e);
-  border: 1px solid var(--border-color, #333);
+  background: var(--dark-bg);
   overflow: hidden;
-  height: 100%;
-  max-height: 100%;
-  min-height: 0; /* 允许收缩 */
 }
 
+/* 终端内容区域 */
 .terminal-content-area {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
-/* 多终端支持样式 */
 .terminal-panel {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.terminal-panel.hidden {
   display: none;
+  height: 100%;
+  flex-direction: column;
 }
 
 .terminal-panel.active {
   display: flex;
 }
 
+.terminal-panel.hidden {
+  display: none;
+}
+
+/* 终端实例 */
 .terminal-instance {
-  width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: var(--dark-bg);
+  overflow: hidden;
 }
 
+/* 终端头部 */
 .terminal-header {
+  padding: 12px;
+  background: linear-gradient(135deg, var(--secondary-color) 0%, var(--tertiary-color) 100%);
+  border-bottom: 1px solid var(--border-color);
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color, #333);
-  font-size: 12px;
-  flex-shrink: 0;
-  height: 40px;
-  min-height: 40px;
+  justify-content: space-between;
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-sm);
 }
 
 .terminal-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-primary, #cccccc);
-  font-weight: 500;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.025em;
 }
 
 .terminal-title i {
-  font-size: 11px;
-  opacity: 0.8;
+  font-size: 16px;
+  color: var(--primary-color);
 }
 
 .terminal-status {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  margin-left: 8px;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
 }
 
 .terminal-status.connected {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success-color, #10b981);
+  background: linear-gradient(135deg, var(--success-color), var(--success-hover));
+  color: white;
+  border-color: var(--success-color);
 }
 
 .terminal-status.connecting {
-  background: rgba(245, 158, 11, 0.2);
-  color: var(--warning-color, #f59e0b);
+  background: linear-gradient(135deg, var(--warning-color), var(--warning-hover));
+  color: white;
+  border-color: var(--warning-color);
+  animation: pulse 2s infinite;
+}
+
+.terminal-status.disconnected {
+  background: var(--tertiary-color);
+  color: var(--text-secondary);
 }
 
 .terminal-status.error {
-  background: rgba(239, 68, 68, 0.2);
-  color: var(--danger-color, #ef4444);
-}
-
-.terminal-status i {
-  font-size: 8px;
+  background: linear-gradient(135deg, var(--danger-color), var(--danger-hover));
+  color: white;
+  border-color: var(--danger-color);
 }
 
 .terminal-controls {
   display: flex;
-  gap: 4px;
+  gap: 6px;
+  align-items: center;
 }
 
-.terminal-controls .btn {
-  padding: 6px;
-  font-size: 16px;
-  min-width: 32px;
-  min-height: 32px;
-  border-radius: 4px;
-  background: transparent;
+.terminal-control-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tertiary-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
-  transition: all 0.2s ease;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  font-size: 14px;
+  box-shadow: var(--shadow-sm);
 }
 
-.terminal-controls .btn:hover:not(:disabled) {
-  background: var(--border-color, #333);
+.terminal-control-btn:hover:not(:disabled) {
+  background: var(--quaternary-color);
+  color: var(--text-primary);
+  
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-light);
 }
 
-.terminal-controls .btn:disabled {
-  opacity: 0.5;
+.terminal-control-btn:active {
+  transform: translateY(0);
+}
+
+.terminal-control-btn:disabled {
+  opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
+}
+
+.terminal-control-btn.connect {
+  color: var(--success-color);
+}
+
+.terminal-control-btn.connect:hover:not(:disabled) {
+  background: var(--success-color);
+  color: white;
+  border-color: var(--success-color);
+}
+
+.terminal-control-btn.clear {
+  color: var(--warning-color);
+}
+
+.terminal-control-btn.clear:hover:not(:disabled) {
+  background: var(--warning-color);
+  color: white;
+  border-color: var(--warning-color);
+}
+
+.terminal-control-btn.kill {
+  color: var(--danger-color);
+}
+
+.terminal-control-btn.kill:hover:not(:disabled) {
+  background: var(--danger-color);
+  color: white;
+  border-color: var(--danger-color);
+}
+
+/* 终端标签页 */
+.terminal-tabs {
+  display: flex;
+  background: var(--tertiary-color);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 4px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--quaternary-color);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-bottom: none;
+  position: relative;
+  min-width: 120px;
+  max-width: 200px;
+}
+
+.terminal-tab:hover {
+  background: var(--secondary-color);
+  color: var(--text-primary);
+  
+}
+
+.terminal-tab.active {
+  background: var(--dark-bg);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.terminal-tab-close {
+  margin-left: auto;
+  opacity: 0.6;
+  transition: all var(--transition-fast);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+.terminal-tab-close:hover {
+  opacity: 1;
+  background: var(--danger-color);
+  color: white;
+}
+
+.terminal-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* 终端内容区域 */
+.terminal-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  background: var(--darker-bg);
 }
 
 .terminal-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-  min-height: 0; /* Allow flex shrinking */
-  height: calc(100% - 40px); /* 减去header高度 */
-  max-height: calc(100% - 40px);
-}
-
-/* xterm.js 终端内容区域 */
-.terminal-content {
-  flex: 1;
-  background: var(--darker-bg, #1e1e1e);
-  padding: 0;
-  overflow: hidden;
-  position: relative;
-  min-height: 0;
   height: 100%;
-  max-height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
-/* xterm.js 样式覆盖 */
-.terminal-content .xterm {
-  height: 100% !important;
-  width: 100% !important;
-  max-height: 100% !important;
+/* 终端输出区域 */
+.terminal-output {
   flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--darker-bg);
+}
+
+/* 终端行样式 */
+.terminal-line {
+  margin-bottom: 2px;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.terminal-line.error {
+  color: var(--danger-color);
+}
+
+.terminal-line.warning {
+  color: var(--warning-color);
+}
+
+.terminal-line.success {
+  color: var(--success-color);
+}
+
+.terminal-line.info {
+  color: var(--info-color);
+}
+
+.terminal-line.command {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.terminal-line.output {
+  color: var(--text-secondary);
+}
+
+.terminal-line.prompt {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* 终端输入区域 */
+.terminal-input-container {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--dark-bg);
+  border-top: 1px solid var(--border-color);
+  position: relative;
 }
 
-.terminal-content .xterm-viewport {
-  background: var(--darker-bg, #1e1e1e) !important;
-  overflow-y: scroll !important;
-  overflow-x: hidden !important;
-  max-height: 100% !important;
+.terminal-prompt {
+  color: var(--primary-color);
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.terminal-input {
   flex: 1;
-}
-
-.terminal-content .xterm-screen {
-  background: var(--darker-bg, #1e1e1e) !important;
-  max-height: 100% !important;
-  min-height: 0;
-}
-
-.terminal-content .xterm-cursor {
-  background-color: var(--text-primary, #cccccc) !important;
-}
-
-/* 终端滚动条样式 - 强制显示 */
-.terminal-content .xterm-viewport::-webkit-scrollbar {
-  width: 12px !important;
-  height: 12px !important;
-}
-
-.terminal-content .xterm-viewport::-webkit-scrollbar-track {
-  background: var(--tertiary-color) !important;
-  border-radius: 6px !important;
-}
-
-.terminal-content .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--border-color) !important;
-  border-radius: 6px !important;
-  border: 2px solid var(--tertiary-color) !important;
-}
-
-.terminal-content .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary) !important;
-}
-
-.terminal-content .xterm-viewport::-webkit-scrollbar-corner {
-  background: var(--tertiary-color) !important;
-}
-
-/* Firefox 滚动条样式 */
-.terminal-content .xterm-viewport {
-  scrollbar-width: auto !important;
-  scrollbar-color: var(--border-color) var(--tertiary-color) !important;
-}
-
-/* 确保滚动条始终可见 */
-.terminal-content .xterm-viewport {
-  scrollbar-color: var(--border-color) var(--tertiary-color) !important;
-}
-
-/* 终端文本选择样式 */
-.terminal-content .xterm-selection {
-  background-color: var(--primary-color);
-  opacity: 0.3;
-}
-
-/* 终端焦点样式 */
-.terminal-content .xterm:focus {
+  background: transparent;
+  border: none;
   outline: none;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  min-height: 20px;
+  max-height: 120px;
+  padding: 0;
 }
 
-/* Theme-specific overrides for xterm.js elements that don't inherit CSS variables */
-[data-theme="dark"] .terminal-content .xterm-viewport {
-  background: #1e1e1e;
+.terminal-input::placeholder {
+  color: var(--text-muted);
 }
 
-[data-theme="dark"] .terminal-content .xterm-screen {
-  background: #1e1e1e;
+/* 终端状态指示器 */
+.terminal-status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s infinite;
 }
 
-[data-theme="light"] .terminal-content .xterm-viewport {
-  background: #ffffff;
+.terminal-status.connected .terminal-status-indicator {
+  animation: none;
 }
 
-[data-theme="light"] .terminal-content .xterm-screen {
-  background: #ffffff;
+/* 终端工具栏 */
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--secondary-color);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
-/* 加载动画 */
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+.terminal-toolbar .btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  box-shadow: var(--shadow-sm);
+  letter-spacing: 0.025em;
 }
 
-.fa-spin {
-  animation: spin 1s linear infinite;
+.terminal-toolbar .btn:hover:not(:disabled) {
+  
+  box-shadow: var(--shadow-md);
 }
 
-/* 修复终端内容区域的布局问题 */
-.terminal-content .xterm-helper-textarea {
-  opacity: 0;
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 1px;
-  height: 1px;
-  z-index: -1;
+.terminal-toolbar .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
-/* 确保终端内容正确显示 */
-.terminal-content .xterm-screen {
-  padding: 0 8px;
+.terminal-toolbar .btn i {
+  font-size: 12px;
 }
 
-/* 修复终端光标闪烁问题 */
-.terminal-content .xterm-cursor-blink {
-  animation: blink 1s step-end infinite;
+/* 终端配置面板 */
+.terminal-config {
+  padding: 16px;
+  background: var(--dark-bg);
+  border-top: 1px solid var(--border-color);
 }
 
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+.config-section {
+  margin-bottom: 16px;
 }
 
-/* 确保终端容器在面板切换时保持正确尺寸 */
-.panel-tab-content.active .terminal-container {
+.config-section:last-child {
+  margin-bottom: 0;
+}
+
+.config-section h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.025em;
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.config-row:last-child {
+  margin-bottom: 0;
+}
+
+.config-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.config-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--tertiary-color);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: all var(--transition-normal);
+}
+
+.config-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.config-select {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--tertiary-color);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.config-select:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+/* 终端历史记录 */
+.terminal-history {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--darker-bg);
+  margin-top: 12px;
+}
+
+.history-item {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.history-item:hover {
+  background: var(--tertiary-color);
+  color: var(--text-primary);
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-item.selected {
+  background: var(--primary-color);
+  color: white;
+}
+
+/* 空状态 */
+.terminal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  text-align: center;
   height: 100%;
-  max-height: 100%;
 }
 
-/* 确保终端在父级容器大小变化时正确调整 */
-.terminal-container {
-  transition: none; /* 禁用过渡动画以避免布局问题 */
+.terminal-empty i {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.terminal-empty p {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.terminal-empty small {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .terminal-header {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .terminal-controls {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .terminal-tabs {
+    overflow-x: auto;
+    padding: 0 8px;
+  }
+
+  .terminal-tab {
+    min-width: 100px;
+    max-width: 150px;
+  }
+
+  .terminal-input-container {
+    padding: 12px;
+  }
+
+  .terminal-toolbar {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px;
+  }
+
+  .config-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .config-label {
+    min-width: auto;
+  }
+}
+
+/* 动画 */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 } 

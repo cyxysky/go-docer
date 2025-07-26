@@ -455,14 +455,14 @@ const WorkspacePanel: React.FC = () => {
       <div className="workspace-toolbar">
         <div className="toolbar-left">
         <button 
-          className="btn" 
+          className="btn special-button" 
           onClick={handleRefresh} 
           disabled={isRefreshing}
           title="刷新工作空间列表"
         >
           <i className={`fas ${isRefreshing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
         </button>
-        <button className="btn" onClick={handleOpenCreateModal} title="创建工作空间">
+        <button className="btn special-button" onClick={handleOpenCreateModal} title="创建工作空间">
           <i className="fas fa-plus"></i>
         </button>
         </div>
@@ -551,29 +551,29 @@ const WorkspacePanel: React.FC = () => {
                 </div>
                 <div className="workspace-actions">
                   <button 
-                    className={`btn action-button-green  ${workspace.is_favorite ? 'favorited' : ''}`} 
+                    className={`btn action-button-green special-button ${workspace.is_favorite ? 'favorited' : ''}`} 
                     onClick={() => handleToggleFavorite(workspace.id)} 
                     title={workspace.is_favorite ? "取消收藏" : "收藏工作空间"}
                   >
                     <i className={workspace.is_favorite ? 'fas fa-star' : 'far fa-star'}></i>
                   </button>
-                  <button className="btn action-button-blue" onClick={() => selectWorkspace(workspace.id)} title="选择工作空间">
+                  <button className="btn action-button-blue special-button" onClick={() => selectWorkspace(workspace.id)} title="选择工作空间">
                     <i className="fas fa-folder-open"></i>
                   </button>
-                  <button className="btn action-button-blue" onClick={() => handleOpenPortConfig(workspace)} title="端口配置">
+                  <button className="btn action-button-blue special-button" onClick={() => handleOpenPortConfig(workspace)} title="端口配置">
                     <i className="fas fa-network-wired"></i>
                   </button>
                   {workspace.status !== 'running' ? (
-                    <button className="btn action-button-green" onClick={() => startWorkspace(workspace.id)} title="启动工作空间">
+                    <button className="btn action-button-green special-button" onClick={() => startWorkspace(workspace.id)} title="启动工作空间">
                       <i className="fas fa-play"></i>
                     </button>
                   ) : (
-                    <button className="btn action-button-warning" onClick={() => stopWorkspace(workspace.id)} title="停止工作空间">
+                    <button className="btn action-button-warning special-button" onClick={() => stopWorkspace(workspace.id)} title="停止工作空间">
                       <i className="fas fa-stop"></i>
                     </button>
                   )}
                   <button 
-                    className="btn action-button-red" 
+                    className="btn action-button-red special-button" 
                     onClick={() => handleDeleteConfirm(workspace)} 
                     title="删除工作空间"
                     disabled={deletingWorkspaces.has(workspace.id)}

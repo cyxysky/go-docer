@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import type { FileItem, Tab } from '../types';
 import { fileAPI } from '../services/api';
-import { clearWorkspaceCache, clearAllCache } from '../components/FileTree';
+import { clearAllCache } from '../components/FileTree';
+import { useNotification } from '../components/NotificationProvider';
 
 interface FileContextType {
   files: FileItem[];
@@ -21,7 +22,7 @@ interface FileContextType {
   updateTabContent: (tabId: string, content: string) => void;
   createFile: (fileName: string) => Promise<void>;
   createFolder: (folderName: string) => Promise<void>;
-  deleteFile: (filePath: string) => Promise<void>;
+  deleteFile: (filePath: string, onConfirm?: () => Promise<void>) => Promise<void>;
   renameFile: (oldPath: string, newName: string) => Promise<void>;
   moveFile: (sourcePath: string, targetPath: string) => Promise<void>;
   refreshFileTree: () => Promise<void>;
@@ -51,6 +52,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { showError } = useNotification();
   
   // 使用ref来跟踪currentWorkspace的变化
   const currentWorkspaceRef = useRef<string | null>(null);
@@ -68,7 +70,6 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
 
     console.log(`📁 加载文件树: 工作空间=${workspaceId}, 路径=${path || '/'}`);
     setIsLoading(true);
-    setError(null);
     
     try {
       const data = await fileAPI.getFileTree(workspaceId, path);
@@ -81,7 +82,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '加载文件树失败';
       console.error('❌ 加载文件树失败:', errorMessage, err);
-      setError(errorMessage);
+      showError('加载失败', errorMessage);
       // 设置空数组避免渲染错误
       setFiles([]);
     } finally {
@@ -97,7 +98,9 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       // 返回子文件列表，不改变当前状态
       return Array.isArray(data) ? data : [];
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '加载子文件失败';
       console.error('加载子文件失败:', err);
+      showError('加载失败', errorMessage);
       return [];
     }
   }, []);
@@ -114,14 +117,12 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
 
     const filePath = currentDirectory ? `${currentDirectory}/${fileName}` : fileName;
     
-    setError(null);
     try {
       await fileAPI.createFile(currentWorkspace, filePath);
       // 刷新文件树
       await loadFileTree(currentWorkspace, currentDirectory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '创建文件失败';
-      setError(errorMessage);
       throw new Error(errorMessage);
     }
   }, [currentWorkspace, currentDirectory, loadFileTree]);
@@ -133,35 +134,38 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
 
     const folderPath = currentDirectory ? `${currentDirectory}/${folderName}` : folderName;
     
-    setError(null);
     try {
       await fileAPI.createFolder(currentWorkspace, folderPath);
       // 刷新文件树
       await loadFileTree(currentWorkspace, currentDirectory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '创建文件夹失败';
-      setError(errorMessage);
+      showError('创建失败', errorMessage);
       throw new Error(errorMessage);
     }
   }, [currentWorkspace, currentDirectory, loadFileTree]);
 
-  const deleteFile = useCallback(async (filePath: string) => {
+  const deleteFile = useCallback(async (filePath: string, onConfirm?: () => Promise<void>) => {
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
     }
 
-    if (!confirm(`确定要删除 ${filePath} 吗？`)) {
-      return;
+    // 如果有自定义确认回调，使用它；否则使用默认的confirm
+    if (onConfirm) {
+      await onConfirm();
+    } else {
+      if (!confirm(`确定要删除 ${filePath} 吗？`)) {
+        return;
+      }
     }
 
-    setError(null);
     try {
       await fileAPI.deleteFile(currentWorkspace, filePath);
       // 刷新文件树
       await loadFileTree(currentWorkspace, currentDirectory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '删除失败';
-      setError(errorMessage);
+      showError('删除失败', errorMessage);
       throw new Error(errorMessage);
     }
   }, [currentWorkspace, currentDirectory, loadFileTree]);
@@ -176,7 +180,6 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     const parentPath = pathParts.join('/');
     const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
-    setError(null);
     try {
       // 使用移动文件API来实现重命名
       await fileAPI.moveFile(currentWorkspace, oldPath, newPath);
@@ -208,7 +211,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       await loadFileTree(currentWorkspace, currentDirectory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '重命名失败';
-      setError(errorMessage);
+      showError('重命名失败', errorMessage);
       throw new Error(errorMessage);
     }
   }, [currentWorkspace, currentDirectory, loadFileTree, activeTab]);
@@ -218,7 +221,6 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       throw new Error('请先选择工作空间');
     }
 
-    setError(null);
     try {
       await fileAPI.moveFile(currentWorkspace, sourcePath, targetPath);
       
@@ -249,7 +251,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       await loadFileTree(currentWorkspace, currentDirectory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '移动文件失败';
-      setError(errorMessage);
+      showError('移动失败', errorMessage);
       throw new Error(errorMessage);
     }
   }, [currentWorkspace, currentDirectory, loadFileTree, activeTab]);
@@ -259,13 +261,12 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       throw new Error('请先选择工作空间');
     }
 
-    setError(null);
     try {
       const content = await fileAPI.readFile(currentWorkspace, filePath);
       openTab(filePath, content);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '打开文件失败';
-      setError(errorMessage);
+      showError('打开失败', errorMessage);
       throw new Error(errorMessage);
     }
   }, [currentWorkspace]);
@@ -299,11 +300,6 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
   }, [openTabs]);
 
   const closeTab = useCallback((tabId: string) => {
-    const tab = openTabs.get(tabId);
-    if (tab?.modified && !confirm('文件有未保存的更改，确定要关闭吗？')) {
-      return;
-    }
-
     setOpenTabs(prev => {
       const newTabs = new Map(prev);
       newTabs.delete(tabId);
@@ -344,7 +340,6 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       return;
     }
 
-    setError(null);
     try {
       await fileAPI.writeFile(currentWorkspace, tab.path, tab.content);
       
@@ -358,7 +353,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       const errorMessage = err instanceof Error ? err.message : '保存文件失败';
       console.error('❌ 保存失败:', errorMessage);
       console.error('❌ 错误详情:', err);
-      setError(errorMessage);
+      showError('保存失败', errorMessage);
       throw new Error(errorMessage);
     }
   }, [currentWorkspace, activeTab]);
@@ -391,7 +386,6 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       setOpenTabs(new Map());
       setActiveTab(null);
       setCurrentFile(null);
-      setError(null);
       setIsLoading(false);
       
       // 清理所有文件树缓存
@@ -405,7 +399,6 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       
       setFiles([]);
       setCurrentDirectory('');
-      setError(null);
       
       // 立即加载新工作空间的根目录
       const loadNewWorkspace = async () => {
@@ -415,7 +408,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
           console.log('✅ 工作空间文件加载完成');
         } catch (error) {
           console.error('❌ 加载工作空间文件失败:', error);
-          setError(error instanceof Error ? error.message : '加载文件失败');
+          showError('加载失败', error instanceof Error ? error.message : '加载文件失败');
         }
       };
       

@@ -51,35 +51,10 @@ ul, ol {
   width: 100vw;
 }
 
-/* 隐藏滚动条但保持功能 */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
 /* 选择文本的样式 */
 ::selection {
   background: rgba(0, 122, 204, 0.3);
   color: inherit;
-}
-
-/* 焦点样式 */
-:focus {
-  outline: 2px solid #007acc;
-  outline-offset: 2px;
 }
 
 /* 禁用状态 */
