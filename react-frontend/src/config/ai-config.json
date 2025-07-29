@@ -1,0 +1,15 @@
+{
+  "aiService": {
+    "endpoint": "/api/v1/ai/generate-code",
+    "timeout": 30000,
+    "maxRetries": 3
+  },
+  "prompts": {
+    "addComments": "为当前代码添加详细的注释",
+    "optimizeCode": "优化当前代码的性能和可读性",
+    "addTests": "为当前代码生成单元测试",
+    "fixErrors": "检查并修复代码中的潜在错误",
+    "refactor": "重构当前代码，提高代码质量",
+    "addFeatures": "为当前代码添加新功能"
+  }
+} 

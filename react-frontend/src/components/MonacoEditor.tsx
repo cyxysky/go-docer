@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import { useFile } from '../contexts/FileContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useWorkspace } from '../contexts/WorkspaceContext'; // 添加工作空间状态
 import { fileAPI } from '../services/api'; // 导入API
+import AIAgent from './AIAgent';
 
 // 配置Monaco编辑器的主题
 monaco.editor.defineTheme('vs-dark', {
@@ -59,6 +60,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
   const { theme } = useTheme();
   const { currentWorkspace } = useWorkspace(); // 直接使用工作空间状态
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // AI Agent状态
+  const [isAIAgentVisible, setIsAIAgentVisible] = useState(false);
   
   // 使用ref来获取最新的activeTab值
   const activeTabRef = useRef<string | null>(null);
@@ -128,7 +132,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
         
         // 创建Monaco编辑器实例
         const editor = monaco.editor.create(editorRef.current!, {
-          value: '// 欢迎使用代码编辑器\nconsole.log("Hello, World!");\n\n// 开始编写你的代码吧！',
+          value: '// 欢迎使用代码编辑器\nconsole.log("Hello, World!");\n\n// 开始编写你的代码吧！\n// 按 Ctrl+Shift+A 打开AI助手',
           language: 'javascript',
           theme: theme === 'dark' ? 'vs-dark' : 'vs',
           automaticLayout: true,
@@ -169,7 +173,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
 
         // 监听内容变化
         editor.onDidChangeModelContent(() => {
-          const currentActiveTab = activeTabRef.current; // 使用ref获取最新值
+          const currentActiveTab = activeTabRef.current;
           
           if (currentActiveTab) {
             const content = editor.getValue();
@@ -180,10 +184,10 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
               clearTimeout(saveTimeoutRef.current);
             }
             saveTimeoutRef.current = setTimeout(() => {
-              const latestActiveTab = activeTabRef.current; // 再次获取最新值
+              const latestActiveTab = activeTabRef.current;
               if (latestActiveTab) {
                 try {
-                  saveFileDirectly(latestActiveTab); // 使用新的保存方法
+                  saveFileDirectly(latestActiveTab);
                 } catch (error) {
                   console.error('❌ 自动保存失败:', error);
                 }
@@ -199,15 +203,33 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
         // 添加保存快捷键
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
           try {
-            const currentActiveTab = activeTabRef.current; // 使用ref获取最新值
+            const currentActiveTab = activeTabRef.current;
             if (currentActiveTab) {
-              saveFileDirectly(currentActiveTab); // 使用新的保存方法
+              saveFileDirectly(currentActiveTab);
             }
           } catch (error) {
             console.error('❌ 快捷键保存失败:', error);
           }
         });
 
+        // 添加AI助手快捷键
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA, function () {
+          setIsAIAgentVisible(prev => !prev);
+        });
+
+        // 添加AI助手右键菜单
+        editor.addAction({
+          id: 'ai-assistant',
+          label: 'AI代码助手',
+          keybindings: [
+            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA
+          ],
+          contextMenuGroupId: 'ai',
+          contextMenuOrder: 1,
+          run: function(ed) {
+            setIsAIAgentVisible(prev => !prev);
+          }
+        });
 
         return () => {
           if (editor) {
@@ -301,7 +323,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
     <div 
       ref={editorRef} 
       className={className}
-      style={{ width: '100%', height: '100%' }}
+      style={{ width: '100%', height: '100%', position: 'relative' }}
     >
       {/* 当没有工作空间时显示提示 */}
       {!currentWorkspace && (
@@ -324,6 +346,41 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
             在左侧工作空间面板中点击工作空间旁边的文件夹图标来选择工作空间
           </div>
         </div>
+      )}
+
+      {/* AI Agent */}
+      <AIAgent
+        editor={monacoEditorRef.current}
+        isVisible={isAIAgentVisible}
+        onClose={() => setIsAIAgentVisible(false)}
+      />
+
+      {/* AI助手浮动按钮 */}
+      {currentWorkspace && (
+        <button
+          onClick={() => setIsAIAgentVisible(prev => !prev)}
+          style={{
+            position: 'absolute',
+            bottom: '20px',
+            right: '20px',
+            width: '50px',
+            height: '50px',
+            borderRadius: '50%',
+            backgroundColor: '#4CAF50',
+            color: '#fff',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '20px',
+            boxShadow: '0 4px 12px rgba(76, 175, 80, 0.3)',
+            zIndex: 999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title="AI代码助手 (Ctrl+Shift+A)"
+        >
+          <i className="fas fa-robot"></i>
+        </button>
       )}
     </div>
   );

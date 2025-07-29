@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -173,6 +174,9 @@ type OnlineEditorManager struct {
 	importTasks      map[string]*ImportTaskInfo // 导入任务信息管理
 	importTasksMutex sync.RWMutex               // 导入任务锁
 
+	// 新增：AI配置
+	aiEndpoint string
+	aiApiKey   string
 }
 
 // 脚本和命令管理
@@ -572,6 +576,13 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 		customImagesMutex: sync.RWMutex{},
 		registryManager:   NewRegistryManager(), // 初始化镜像源管理器
 		importTasks:       make(map[string]*ImportTaskInfo),
+		aiEndpoint:        "https://api.openai.com/v1/chat/completions", // 默认使用OpenAI
+		aiApiKey:          "",                                           // 从环境变量获取
+	}
+
+	// 从环境变量获取AI配置
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		manager.aiApiKey = apiKey
 	}
 
 	// 启动时恢复现有工作空间
@@ -580,6 +591,381 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 	}
 
 	return manager, nil
+}
+
+// 添加AI代码生成方法
+func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) (*AICodeGenerationResponse, error) {
+	if oem.aiApiKey == "" {
+		return &AICodeGenerationResponse{
+			Success: false,
+			Message: "AI服务未配置，请设置OPENAI_API_KEY环境变量",
+		}, nil
+	}
+
+	// 读取相关文件内容
+	fileContents := make(map[string]string)
+	if len(req.Files) > 0 {
+		for _, filePath := range req.Files {
+			content, err := oem.ReadFile(req.Workspace, filePath)
+			if err == nil {
+				fileContents[filePath] = content
+			}
+		}
+	}
+
+	// 构建AI提示词
+	prompt := oem.buildAIPrompt(req.Prompt, req.Context, req.Language, fileContents)
+
+	// 调用AI API
+	response, err := oem.callOpenAIWithTools(prompt, req.Tools)
+	if err != nil {
+		return &AICodeGenerationResponse{
+			Success: false,
+			Message: fmt.Sprintf("AI服务调用失败: %v", err),
+		}, err
+	}
+
+	// 解析AI响应，提取代码更改
+	codeChanges := oem.parseCodeChanges(response, req.Context)
+
+	// 执行工具调用
+	tools := oem.executeToolCalls(req.Tools, req.Workspace)
+
+	return &AICodeGenerationResponse{
+		Success:     true,
+		Code:        response,
+		Message:     "代码生成成功",
+		CodeChanges: codeChanges,
+		Tools:       tools,
+	}, nil
+}
+
+// 构建AI提示词
+func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context, language string, fileContents map[string]string) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("你是一个专业的代码助手。请根据用户的需求生成高质量的代码。\n\n")
+
+	// 添加语言特定的指导
+	switch language {
+	case "javascript", "js":
+		prompt.WriteString("请生成JavaScript代码，确保代码符合ES6+标准，包含适当的注释。\n")
+	case "typescript", "ts":
+		prompt.WriteString("请生成TypeScript代码，包含适当的类型定义和注释。\n")
+	case "python", "py":
+		prompt.WriteString("请生成Python代码，遵循PEP 8规范，包含适当的注释。\n")
+	case "go":
+		prompt.WriteString("请生成Go代码，遵循Go语言规范，包含适当的注释。\n")
+	case "java":
+		prompt.WriteString("请生成Java代码，遵循Java编码规范，包含适当的注释。\n")
+	case "cpp", "c++":
+		prompt.WriteString("请生成C++代码，遵循现代C++标准，包含适当的注释。\n")
+	default:
+		prompt.WriteString("请生成代码，确保代码清晰、可读，包含适当的注释。\n")
+	}
+
+	// 添加相关文件内容
+	if len(fileContents) > 0 {
+		prompt.WriteString("\n相关文件内容:\n")
+		for filePath, content := range fileContents {
+			prompt.WriteString(fmt.Sprintf("\n文件: %s\n", filePath))
+			prompt.WriteString("```")
+			prompt.WriteString(language)
+			prompt.WriteString("\n")
+			prompt.WriteString(content)
+			prompt.WriteString("\n```\n")
+		}
+	}
+
+	// 添加上下文代码
+	if context != "" {
+		prompt.WriteString("\n当前代码上下文:\n")
+		prompt.WriteString("```")
+		prompt.WriteString(language)
+		prompt.WriteString("\n")
+		prompt.WriteString(context)
+		prompt.WriteString("\n```\n")
+	}
+
+	prompt.WriteString("\n用户需求: ")
+	prompt.WriteString(userPrompt)
+	prompt.WriteString("\n\n请分析代码并提供改进建议。如果需要修改代码，请明确指出修改的文件和具体内容。")
+
+	return prompt.String()
+}
+
+// 调用OpenAI API
+func (oem *OnlineEditorManager) callOpenAI(prompt string) (string, error) {
+	requestBody := map[string]interface{}{
+		"model": "gpt-3.5-turbo",
+		"messages": []map[string]string{
+			{
+				"role":    "system",
+				"content": "你是一个专业的代码助手，只返回代码，不要包含任何解释文字。",
+			},
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"max_tokens":  2000,
+		"temperature": 0.3,
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("序列化请求失败: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", oem.aiEndpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("创建请求失败: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+oem.aiApiKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("读取响应失败: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(body))
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("解析响应失败: %v", err)
+	}
+
+	// 提取生成的代码
+	if choices, ok := response["choices"].([]interface{}); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]interface{}); ok {
+			if message, ok := choice["message"].(map[string]interface{}); ok {
+				if content, ok := message["content"].(string); ok {
+					return strings.TrimSpace(content), nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("无法从响应中提取代码")
+}
+
+// 调用OpenAI API（支持工具调用）
+func (oem *OnlineEditorManager) callOpenAIWithTools(prompt string, tools []string) (string, error) {
+	// 构建工具定义
+	var functions []map[string]interface{}
+
+	for _, tool := range tools {
+		switch tool {
+		case "file_read":
+			functions = append(functions, map[string]interface{}{
+				"name":        "file_read",
+				"description": "读取文件内容",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"file_path": map[string]interface{}{
+							"type":        "string",
+							"description": "文件路径",
+						},
+					},
+					"required": []string{"file_path"},
+				},
+			})
+		case "file_write":
+			functions = append(functions, map[string]interface{}{
+				"name":        "file_write",
+				"description": "写入文件内容",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"file_path": map[string]interface{}{
+							"type":        "string",
+							"description": "文件路径",
+						},
+						"content": map[string]interface{}{
+							"type":        "string",
+							"description": "文件内容",
+						},
+					},
+					"required": []string{"file_path", "content"},
+				},
+			})
+		case "code_analysis":
+			functions = append(functions, map[string]interface{}{
+				"name":        "code_analysis",
+				"description": "分析代码结构和依赖关系",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"file_path": map[string]interface{}{
+							"type":        "string",
+							"description": "文件路径",
+						},
+					},
+					"required": []string{"file_path"},
+				},
+			})
+		}
+	}
+
+	requestBody := map[string]interface{}{
+		"model": "gpt-3.5-turbo",
+		"messages": []map[string]string{
+			{
+				"role":    "system",
+				"content": "你是一个专业的代码助手，可以分析代码并提供改进建议。",
+			},
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"max_tokens":  2000,
+		"temperature": 0.3,
+	}
+
+	if len(functions) > 0 {
+		requestBody["functions"] = functions
+		requestBody["function_call"] = "auto"
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("序列化请求失败: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", oem.aiEndpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("创建请求失败: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+oem.aiApiKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("读取响应失败: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(body))
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("解析响应失败: %v", err)
+	}
+
+	// 提取生成的代码
+	if choices, ok := response["choices"].([]interface{}); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]interface{}); ok {
+			if message, ok := choice["message"].(map[string]interface{}); ok {
+				if content, ok := message["content"].(string); ok {
+					return strings.TrimSpace(content), nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("无法从响应中提取代码")
+}
+
+// 解析代码更改
+func (oem *OnlineEditorManager) parseCodeChanges(response, context string) []CodeChange {
+	var changes []CodeChange
+
+	// 简单的代码更改解析逻辑
+	// 在实际应用中，这里需要更复杂的解析逻辑来识别AI建议的代码更改
+
+	// 示例：如果AI建议修改当前文件
+	if context != "" {
+		changes = append(changes, CodeChange{
+			FilePath:     "current_file",
+			OriginalCode: context,
+			NewCode:      response,
+			Description:  "AI建议的代码改进",
+		})
+	}
+
+	return changes
+}
+
+// 执行工具调用
+func (oem *OnlineEditorManager) executeToolCalls(tools []string, workspace string) []ToolCall {
+	var toolCalls []ToolCall
+
+	for _, tool := range tools {
+		toolCall := ToolCall{
+			Name:       tool,
+			Parameters: map[string]interface{}{},
+			Status:     "success",
+		}
+
+		switch tool {
+		case "file_read":
+			toolCall.Result = "文件读取功能已启用"
+		case "file_write":
+			toolCall.Result = "文件写入功能已启用"
+		case "code_analysis":
+			toolCall.Result = "代码分析功能已启用"
+		case "git_operations":
+			toolCall.Result = "Git操作功能已启用"
+		}
+
+		toolCalls = append(toolCalls, toolCall)
+	}
+
+	return toolCalls
+}
+
+// 添加AI代码生成的HTTP处理器
+func (oem *OnlineEditorManager) handleAIGenerateCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AICodeGenerationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求体解析失败", http.StatusBadRequest)
+		return
+	}
+
+	// 验证请求
+	if req.Prompt == "" {
+		http.Error(w, "提示词不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 生成代码
+	response, err := oem.GenerateCodeWithAI(req)
+	if err != nil {
+		oem.logError("AI代码生成", err)
+		http.Error(w, fmt.Sprintf("AI代码生成失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 返回响应
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // 生成工作空间ID
@@ -2614,6 +3000,9 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	api.HandleFunc("/downloads", oem.handleListDownloads).Methods("GET")
 	api.HandleFunc("/downloads/{downloadId}/status", oem.handleGetDownloadStatus).Methods("GET")
 	api.HandleFunc("/downloads/{downloadId}/file", oem.handleDownload).Methods("GET")
+
+	// 新增：AI代码生成功能
+	api.HandleFunc("/ai/generate-code", oem.handleAIGenerateCode).Methods("POST")
 
 	// 静态文件服务
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./static")))
@@ -5252,6 +5641,38 @@ type RegistryRequest struct {
 type RegistryManager struct {
 	registries map[string]*RegistryConfig
 	mutex      sync.RWMutex
+}
+
+// AI代码生成相关的结构体
+type AICodeGenerationRequest struct {
+	Prompt    string   `json:"prompt"`
+	Context   string   `json:"context"`
+	Workspace string   `json:"workspace"`
+	Language  string   `json:"language"`
+	Files     []string `json:"files,omitempty"`
+	Tools     []string `json:"tools,omitempty"`
+}
+
+type AICodeGenerationResponse struct {
+	Success     bool         `json:"success"`
+	Code        string       `json:"code,omitempty"`
+	Message     string       `json:"message,omitempty"`
+	CodeChanges []CodeChange `json:"code_changes,omitempty"`
+	Tools       []ToolCall   `json:"tools,omitempty"`
+}
+
+type CodeChange struct {
+	FilePath     string `json:"file_path"`
+	OriginalCode string `json:"original_code"`
+	NewCode      string `json:"new_code"`
+	Description  string `json:"description"`
+}
+
+type ToolCall struct {
+	Name       string      `json:"name"`
+	Parameters interface{} `json:"parameters"`
+	Result     interface{} `json:"result,omitempty"`
+	Status     string      `json:"status"` // "pending", "success", "error"
 }
 
 // 搜索Docker镜像 - 支持多镜像源

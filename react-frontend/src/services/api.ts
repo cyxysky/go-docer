@@ -2,6 +2,54 @@
 
 const API_BASE_URL = '/api/v1';
 
+// AI代码生成API
+export const aiAPI = {
+  generateCode: async (request: {
+    prompt: string;
+    context: string;
+    workspace: string;
+    language: string;
+    files?: string[];
+    tools?: string[];
+  }): Promise<{ 
+    success: boolean; 
+    code?: string; 
+    message?: string;
+    codeChanges?: Array<{
+      file_path: string;
+      original_code: string;
+      new_code: string;
+      description: string;
+    }>;
+    tools?: Array<{
+      name: string;
+      parameters: any;
+      result?: any;
+      status: string;
+    }>;
+  }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/generate-code`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        throw new Error(`AI服务请求失败: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('AI代码生成失败:', error);
+      throw error;
+    }
+  },
+};
+
 // 通用请求方法
 const request = async (endpoint: string, options: RequestInit = {}) => {
   const url = `${API_BASE_URL}${endpoint}`;
