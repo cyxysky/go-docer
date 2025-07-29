@@ -1,0 +1,154 @@
+/* ToolCall 组件样式 */
+.tool-call-container {
+  margin-bottom: 4px;
+}
+
+.tool-call-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background-color: #2d2d30;
+  border: 1px solid #3e3e3e;
+  border-radius: 3px;
+  font-size: 10px;
+  color: #cccccc;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 24px;
+}
+
+.tool-call-main:hover {
+  background-color: #3e3e3e;
+}
+
+.tool-call-main.no-details {
+  cursor: default;
+}
+
+.tool-call-main.no-details:hover {
+  background-color: #2d2d30;
+}
+
+.tool-call-status {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.status-spinner {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #f59e0b;
+  border-top: 1px solid transparent;
+  border-radius: 50%;
+  animation: tool-call-spin 1s linear infinite;
+}
+
+.status-icon {
+  font-size: 8px;
+  line-height: 1;
+}
+
+.status-success {
+  color: #22c55e;
+}
+
+.status-error {
+  color: #ef4444;
+}
+
+.status-default {
+  color: #858585;
+}
+
+.tool-call-name {
+  font-weight: 600;
+  color: #007acc;
+  min-width: 40px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.tool-call-param {
+  color: #858585;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 9px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call-expand {
+  color: #858585;
+  font-size: 8px;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.tool-call-expand.expanded {
+  transform: rotate(180deg);
+}
+
+.tool-call-id {
+  color: #6b6b6b;
+  font-size: 8px;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  flex-shrink: 0;
+}
+
+.tool-call-details {
+  margin-left: 12px;
+  margin-bottom: 6px;
+  padding: 6px;
+  background-color: #1e1e1e;
+  border: 1px solid #3e3e3e;
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+.tool-call-section {
+  margin-bottom: 6px;
+}
+
+.tool-call-section:last-child {
+  margin-bottom: 0;
+}
+
+.tool-call-section-title {
+  color: #858585;
+  margin-bottom: 3px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 8px;
+}
+
+.tool-call-section-content {
+  background-color: #252526;
+  padding: 4px 6px;
+  border-radius: 2px;
+  border: 1px solid #3e3e3e;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  color: #cccccc;
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+.tool-call-output {
+  max-height: 80px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+@keyframes tool-call-spin {
+  0% { 
+    transform: rotate(0deg); 
+  }
+  100% { 
+    transform: rotate(360deg); 
+  }
+} 

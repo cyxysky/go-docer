@@ -1,68 +1,34 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import * as monaco from 'monaco-editor';
+import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useFile } from '../contexts/FileContext';
-import { useTheme } from '../contexts/ThemeContext';
-import { useWorkspace } from '../contexts/WorkspaceContext'; // 添加工作空间状态
-import { fileAPI } from '../services/api'; // 导入API
+import { fileAPI } from '../services/api';
 import AIAgent from './AIAgent';
-
-// 配置Monaco编辑器的主题
-monaco.editor.defineTheme('vs-dark', {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [],
-  colors: {}
-});
-
-// 配置TypeScript语言服务 - 启用基础功能但避免错误
-monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-  noSemanticValidation: false,
-  noSyntaxValidation: false,
-});
-
-// 配置TypeScript编译器选项
-monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-  allowNonTsExtensions: true,
-  allowJs: true,
-  target: monaco.languages.typescript.ScriptTarget.Latest,
-  moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-  module: monaco.languages.typescript.ModuleKind.CommonJS,
-  noEmit: true,
-  typeRoots: [],
-  lib: ['es2020', 'dom']
-});
-
-// 配置JavaScript语言服务
-monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-  noSemanticValidation: false,
-  noSyntaxValidation: false,
-});
-
-monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-  allowNonTsExtensions: true,
-  allowJs: true,
-  target: monaco.languages.typescript.ScriptTarget.Latest,
-  moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-  module: monaco.languages.typescript.ModuleKind.CommonJS,
-  noEmit: true,
-  typeRoots: [],
-  lib: ['es2020', 'dom']
-});
+import EditorDiffOverlay from './EditorDiffOverlay';
 
 interface MonacoEditorProps {
   className?: string;
 }
 
+interface CodeChange {
+  filePath: string;
+  originalCode: string;
+  newCode: string;
+  description: string;
+  changeType: 'insert' | 'replace' | 'delete' | 'modify';
+  confidence: number;
+  applied?: boolean;
+}
+
 const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
   const editorRef = useRef<HTMLDivElement>(null);
-  const monacoEditorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [isAIVisible, setIsAIVisible] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<CodeChange[]>([]);
+  const [showDiffOverlay, setShowDiffOverlay] = useState(false);
+  const { currentWorkspace } = useWorkspace();
   const { openTabs, activeTab, updateTabContent } = useFile();
-  const { theme } = useTheme();
-  const { currentWorkspace } = useWorkspace(); // 直接使用工作空间状态
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
-  // AI Agent状态
-  const [isAIAgentVisible, setIsAIAgentVisible] = useState(false);
   
   // 使用ref来获取最新的activeTab值
   const activeTabRef = useRef<string | null>(null);
@@ -75,15 +41,14 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
   // 使用ref来跟踪openTabs的最新状态
   const openTabsRef = useRef<Map<string, any>>(new Map());
   openTabsRef.current = openTabs;
-  
-  // 创建新的保存方法，直接在MonacoEditor中处理
+
+  // 创建保存文件的方法
   const saveFileDirectly = async (tabId: string) => {
     const workspace = currentWorkspaceRef.current;
     if (!workspace) {
-      throw new Error('请先选择工作空间。在左侧工作空间面板中点击工作空间旁边的文件夹图标来选择工作空间。');
+      throw new Error('请先选择工作空间');
     }
     
-    // 使用ref获取最新的openTabs状态
     const latestOpenTabs = openTabsRef.current;
     const tab = latestOpenTabs.get(tabId);
     
@@ -100,25 +65,129 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
     }
   };
 
-  // 只在组件挂载时创建编辑器实例
+  // 创建编辑器的函数
+  const createEditor = () => {
+    if (!editorRef.current) {
+      console.error('❌ editorRef.current 不存在');
+      return;
+    }
+
+    try {
+      console.log('🚀 开始创建Monaco编辑器');
+      const editor = monaco.editor.create(editorRef.current, {
+        value: '// 欢迎使用代码编辑器\nconsole.log("Hello, World!");\n\n// 开始编写你的代码吧！\n// 按 Ctrl+Shift+A 打开AI助手',
+        language: 'javascript',
+        theme: 'vs-dark',
+        automaticLayout: true,
+        codeLens: true,
+        minimap: { enabled: true },
+        scrollBeyondLastLine: false,
+        fontSize: 14,
+        fontFamily: 'Fira Code, Consolas, Monaco, monospace',
+        lineNumbers: 'on',
+        roundedSelection: false,
+        scrollbar: {
+          vertical: 'visible',
+          horizontal: 'visible',
+          verticalScrollbarSize: 12,
+          horizontalScrollbarSize: 12,
+        },
+        folding: true,
+        wordWrap: 'off',
+        renderWhitespace: 'selection',
+        selectOnLineNumbers: true,
+        contextmenu: true,
+        quickSuggestions: true,
+        suggestOnTriggerCharacters: true,
+        acceptSuggestionOnEnter: 'on' as any,
+        tabCompletion: 'on',
+        wordBasedSuggestions: 'allDocuments',
+        parameterHints: {
+          enabled: true
+        },
+        hover: {
+          enabled: true
+        },
+        links: true,
+        colorDecorators: true
+      });
+
+      monacoRef.current = editor;
+      console.log('✅ Monaco编辑器创建成功');
+
+      // 强制布局更新
+      setTimeout(() => {
+        editor.layout();
+      }, 100);
+
+      // 监听内容变化并自动保存
+      editor.onDidChangeModelContent(() => {
+        const currentActiveTab = activeTabRef.current;
+        
+        if (currentActiveTab) {
+          const content = editor.getValue();
+          updateTabContent(currentActiveTab, content);
+
+          // 自动保存：延迟2秒后保存
+          if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+          }
+          saveTimeoutRef.current = setTimeout(() => {
+            const latestActiveTab = activeTabRef.current;
+            if (latestActiveTab) {
+              try {
+                saveFileDirectly(latestActiveTab);
+              } catch (error) {
+                console.error('❌ 自动保存失败:', error);
+              }
+            }
+          }, 2000);
+        }
+      });
+
+      // 添加保存快捷键
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+        try {
+          const currentActiveTab = activeTabRef.current;
+          if (currentActiveTab) {
+            saveFileDirectly(currentActiveTab);
+          }
+        } catch (error) {
+          console.error('❌ 快捷键保存失败:', error);
+        }
+      });
+
+      // 添加AI助手快捷键
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA, function () {
+        setIsAIVisible(prev => !prev);
+      });
+
+    } catch (error) {
+      console.error('❌ Monaco编辑器初始化失败:', error);
+    }
+  };
+
+  // 创建编辑器实例
   useEffect(() => {
     if (!editorRef.current) {
-      console.error('DOM元素不存在！');
+      console.error('❌ editorRef.current 不存在');
       return;
     }
     
-    if (monacoEditorRef.current) {
-      console.log('编辑器已存在，跳过创建');
+    if (monacoRef.current) {
+      console.log('✅ 编辑器已存在，跳过创建');
       return;
     }
 
     // 检查容器高度
     const containerHeight = editorRef.current.offsetHeight;
+    console.log('📏 容器高度:', containerHeight);
     
     if (containerHeight === 0) {
-      // 如果容器高度为0，等待下一帧再尝试
+      console.warn('⚠️ 容器高度为0，等待下一帧再尝试');
       requestAnimationFrame(() => {
-        if (editorRef.current && !monacoEditorRef.current) {
+        if (editorRef.current && !monacoRef.current) {
+          console.log('🔄 重新尝试创建编辑器');
           createEditor();
         }
       });
@@ -127,156 +196,43 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
 
     createEditor();
 
-    function createEditor() {
-      try {
-        
-        // 创建Monaco编辑器实例
-        const editor = monaco.editor.create(editorRef.current!, {
-          value: '// 欢迎使用代码编辑器\nconsole.log("Hello, World!");\n\n// 开始编写你的代码吧！\n// 按 Ctrl+Shift+A 打开AI助手',
-          language: 'javascript',
-          theme: theme === 'dark' ? 'vs-dark' : 'vs',
-          automaticLayout: true,
-          codeLens: true,
-          minimap: { enabled: true },
-          scrollBeyondLastLine: false,
-          fontSize: 14,
-          fontFamily: 'Fira Code, Consolas, Monaco, monospace',
-          lineNumbers: 'on',
-          roundedSelection: false,
-          scrollbar: {
-            vertical: 'visible',
-            horizontal: 'visible',
-            verticalScrollbarSize: 12,
-            horizontalScrollbarSize: 12,
-          },
-          folding: true,
-          wordWrap: 'off',
-          renderWhitespace: 'selection',
-          selectOnLineNumbers: true,
-          contextmenu: true,
-          quickSuggestions: true,
-          suggestOnTriggerCharacters: true,
-          acceptSuggestionOnEnter: 'on' as any,
-          tabCompletion: 'on',
-          wordBasedSuggestions: 'allDocuments',
-          parameterHints: {
-            enabled: true
-          },
-          hover: {
-            enabled: true
-          },
-          links: true,
-          colorDecorators: true
-        });
-
-        monacoEditorRef.current = editor;
-
-        // 监听内容变化
-        editor.onDidChangeModelContent(() => {
-          const currentActiveTab = activeTabRef.current;
-          
-          if (currentActiveTab) {
-            const content = editor.getValue();
-            updateTabContent(currentActiveTab, content);
-            
-            // 自动保存：延迟2秒后保存
-            if (saveTimeoutRef.current) {
-              clearTimeout(saveTimeoutRef.current);
-            }
-            saveTimeoutRef.current = setTimeout(() => {
-              const latestActiveTab = activeTabRef.current;
-              if (latestActiveTab) {
-                try {
-                  saveFileDirectly(latestActiveTab);
-                } catch (error) {
-                  console.error('❌ 自动保存失败:', error);
-                }
-              } else {
-                console.log('⚠️ 没有活动标签页，跳过保存');
-              }
-            }, 2000);
-          } else {
-            console.log('⚠️ 没有活动标签页，跳过保存');
-          }
-        });
-
-        // 添加保存快捷键
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
-          try {
-            const currentActiveTab = activeTabRef.current;
-            if (currentActiveTab) {
-              saveFileDirectly(currentActiveTab);
-            }
-          } catch (error) {
-            console.error('❌ 快捷键保存失败:', error);
-          }
-        });
-
-        // 添加AI助手快捷键
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA, function () {
-          setIsAIAgentVisible(prev => !prev);
-        });
-
-        // 添加AI助手右键菜单
-        editor.addAction({
-          id: 'ai-assistant',
-          label: 'AI代码助手',
-          keybindings: [
-            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA
-          ],
-          contextMenuGroupId: 'ai',
-          contextMenuOrder: 1,
-          run: function(ed) {
-            setIsAIAgentVisible(prev => !prev);
-          }
-        });
-
-        return () => {
-          if (editor) {
-            editor.dispose();
-          }
-          if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-          }
-        };
-      } catch (error) {
-        console.error('❌ Monaco编辑器初始化失败:', error);
+    // 监听AI消息事件
+    const handleAIMessage = (event: CustomEvent) => {
+      const { codeChanges } = event.detail;
+      if (codeChanges && codeChanges.length > 0) {
+        setPendingChanges(codeChanges);
+        setShowDiffOverlay(true);
       }
-    }
-  }, []); // 空依赖数组，只在挂载时执行一次
+    };
 
-  // 当主题改变时，更新编辑器主题
-  useEffect(() => {
-    if (monacoEditorRef.current) {
-      try {
-        monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
-        console.log('🎨 主题已切换为:', theme);
-      } catch (error) {
-        console.error('❌ 主题切换失败:', error);
+    window.addEventListener('ai-code-changes', handleAIMessage as EventListener);
+
+    return () => {
+      window.removeEventListener('ai-code-changes', handleAIMessage as EventListener);
+      if (monacoRef.current) {
+        monacoRef.current.dispose();
+        monacoRef.current = null;
       }
-    }
-  }, [theme]);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 当活动标签页改变时，更新编辑器内容
   useEffect(() => {
-    if (!monacoEditorRef.current || !activeTab) return;
+    if (!monacoRef.current || !activeTab) return;
 
     try {
       const tab = openTabs.get(activeTab);
       if (!tab) return;
 
-      const editor = monacoEditorRef.current;
+      const editor = monacoRef.current;
       const currentValue = editor.getValue();
-      
+    
       // 只有当内容不同时才更新，避免光标位置重置
       if (currentValue !== tab.content) {
-        try {
-          editor.setValue(tab.content);
-        } catch (error) {
-          console.warn('设置编辑器内容时出现警告，尝试替代方法:', error);
-          // 使用替代方法设置内容
-          editor.setValue(JSON.stringify(tab.content));
-        }
+        editor.setValue(tab.content || '');
       }
 
       // 根据文件扩展名设置语言
@@ -319,12 +275,78 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
     }
   }, [activeTab, openTabs]);
 
+  const handleApplyChange = async (change: CodeChange) => {
+    if (currentWorkspace && change.filePath && change.newCode) {
+      try {
+        const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/files/write`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            path: change.filePath,
+            content: change.newCode,
+          }),
+        });
+
+        if (response.ok) {
+          // 更新编辑器内容
+          if (monacoRef.current && change.newCode) {
+            monacoRef.current.setValue(change.newCode);
+          }
+          
+          // 标记为已应用
+          setPendingChanges(prev => 
+            prev.map(c => 
+              c === change ? { ...c, applied: true } : c
+            )
+          );
+          
+          console.log('✅ 代码更改已应用到文件:', change.filePath);
+        } else {
+          throw new Error(`Failed to write file: ${response.statusText}`);
+        }
+      } catch (error) {
+        console.error('Error applying code change:', error);
+        alert(`应用代码更改失败: ${error}`);
+      }
+    }
+  };
+
+  const handleRejectChange = (change: CodeChange) => {
+    setPendingChanges(prev => prev.filter(c => c !== change));
+    
+    // 如果没有更多更改，关闭覆盖层
+    if (pendingChanges.length === 1) {
+      setShowDiffOverlay(false);
+    }
+  };
+
+  const handleApplyAllChanges = async () => {
+    for (const change of pendingChanges) {
+      if (!change.applied) {
+        await handleApplyChange(change);
+      }
+    }
+  };
+
+  const handleRejectAllChanges = () => {
+    setPendingChanges([]);
+    setShowDiffOverlay(false);
+  };
+
+  const handleCloseDiffOverlay = () => {
+    setShowDiffOverlay(false);
+  };
+
   return (
     <div 
-      ref={editorRef} 
       className={className}
       style={{ width: '100%', height: '100%', position: 'relative' }}
     >
+      {/* 编辑器容器 */}
+      <div ref={editorRef} style={{ width: '100%', height: '100%' }} />
+      
       {/* 当没有工作空间时显示提示 */}
       {!currentWorkspace && (
         <div style={{
@@ -340,48 +362,72 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
           borderRadius: '8px',
           boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)'
         }}>
-          <i className="fas fa-cube" style={{fontSize: '3rem', marginBottom: '16px', display: 'block'}}></i>
+          <div style={{fontSize: '3rem', marginBottom: '16px', display: 'block'}}>📁</div>
           <div style={{fontSize: '16px', marginBottom: '8px'}}>请先选择工作空间</div>
           <div style={{fontSize: '12px', color: '#666'}}>
             在左侧工作空间面板中点击工作空间旁边的文件夹图标来选择工作空间
           </div>
         </div>
       )}
-
-      {/* AI Agent */}
-      <AIAgent
-        editor={monacoEditorRef.current}
-        isVisible={isAIAgentVisible}
-        onClose={() => setIsAIAgentVisible(false)}
-      />
-
-      {/* AI助手浮动按钮 */}
+        
+      {/* 浮动AI按钮 */}
       {currentWorkspace && (
         <button
-          onClick={() => setIsAIAgentVisible(prev => !prev)}
+          onClick={() => setIsAIVisible(!isAIVisible)}
           style={{
             position: 'absolute',
             bottom: '20px',
             right: '20px',
-            width: '50px',
-            height: '50px',
+            width: '56px',
+            height: '56px',
             borderRadius: '50%',
-            backgroundColor: '#4CAF50',
+            backgroundColor: '#10b981',
             color: '#fff',
             border: 'none',
             cursor: 'pointer',
-            fontSize: '20px',
-            boxShadow: '0 4px 12px rgba(76, 175, 80, 0.3)',
+            fontSize: '22px',
+            boxShadow: '0 6px 20px rgba(16, 185, 129, 0.4)',
             zIndex: 999,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            transition: 'all 0.3s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'scale(1.1)';
+            e.currentTarget.style.boxShadow = '0 8px 25px rgba(16, 185, 129, 0.5)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = '0 6px 20px rgba(16, 185, 129, 0.4)';
           }}
           title="AI代码助手 (Ctrl+Shift+A)"
         >
-          <i className="fas fa-robot"></i>
+          🤖
         </button>
       )}
+
+      {/* 代码差异覆盖层 */}
+      {showDiffOverlay && pendingChanges.length > 0 && (
+        <EditorDiffOverlay
+          changes={pendingChanges}
+          onApply={handleApplyChange}
+          onReject={handleRejectChange}
+          onApplyAll={handleApplyAllChanges}
+          onRejectAll={handleRejectAllChanges}
+          onClose={handleCloseDiffOverlay}
+          strategy="preview"
+        />
+      )}
+
+      {/* AI助手侧边栏 */}
+      <AIAgent
+        editor={monacoRef.current}
+        onClose={() => setIsAIVisible(false)}
+        isVisible={isAIVisible}
+        currentWorkspace={currentWorkspace || undefined}
+        fileTree={undefined}
+      />
     </div>
   );
 };

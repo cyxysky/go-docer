@@ -1,0 +1,294 @@
+/* 编辑器差异覆盖层样式 */
+.editor-diff-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.editor-diff-container {
+  background-color: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 8px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.editor-diff-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: #252526;
+  border-bottom: 1px solid #333333;
+}
+
+.editor-diff-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.file-path {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cccccc;
+}
+
+.change-description {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.change-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.change-type-badge {
+  padding: 2px 6px;
+  color: #ffffff;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.confidence-badge {
+  padding: 2px 6px;
+  background-color: #464647;
+  color: #cccccc;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.editor-diff-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.navigation-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-btn {
+  background-color: #3c3c3c;
+  border: 1px solid #464647;
+  color: #cccccc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nav-btn:not(:disabled):hover {
+  background-color: #464647;
+}
+
+.change-counter {
+  font-size: 12px;
+  color: #8c8c8c;
+  min-width: 60px;
+  text-align: center;
+}
+
+.toggle-diff-btn {
+  background-color: #3c3c3c;
+  border: 1px solid #464647;
+  color: #cccccc;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.2s;
+}
+
+.toggle-diff-btn:hover {
+  background-color: #464647;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #8c8c8c;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  background-color: #3e3e3e;
+  color: #cccccc;
+}
+
+.editor-diff-content {
+  display: flex;
+  max-height: 60vh;
+  overflow: auto;
+  background-color: #1e1e1e;
+}
+
+.editor-diff-line-numbers {
+  background-color: #252526;
+  padding: 12px 8px;
+  border-right: 1px solid #3e3e3e;
+  color: #858585;
+  min-width: 50px;
+  text-align: right;
+  user-select: none;
+  font-family: Fira Code, Consolas, Monaco, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.line-number {
+  line-height: 1.4;
+  min-height: 16.8px;
+}
+
+.editor-diff-original,
+.editor-diff-new {
+  flex: 1;
+  padding: 12px;
+  background-color: #1e1e1e;
+  font-family: Fira Code, Consolas, Monaco, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.editor-diff-original {
+  border-right: 1px solid #3e3e3e;
+}
+
+.editor-diff-header {
+  font-size: 11px;
+  color: #858585;
+  margin-bottom: 8px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #3e3e3e;
+  padding-bottom: 4px;
+}
+
+.code-line {
+  line-height: 1.4;
+  min-height: 16.8px;
+  padding: 0 8px;
+  margin: 0 -8px;
+  color: #cccccc;
+}
+
+.code-line.deleted {
+  background-color: rgba(244, 63, 94, 0.15);
+  color: #f87171;
+}
+
+.code-line.inserted {
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.code-line.modified {
+  background-color: rgba(0, 122, 204, 0.15);
+  color: #60a5fa;
+}
+
+.code-line.added {
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.diff-marker {
+  margin-right: 8px;
+  font-weight: bold;
+}
+
+.editor-diff-actions {
+  padding: 16px;
+  background-color: #252526;
+  border-top: 1px solid #333333;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.single-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.batch-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding-top: 8px;
+  border-top: 1px solid #3e3e3e;
+}
+
+.reject-btn, .reject-all-btn {
+  background-color: #3c3c3c;
+  color: #cccccc;
+  border: 1px solid #464647;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.reject-btn:hover, .reject-all-btn:hover {
+  background-color: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.apply-btn, .apply-all-btn {
+  background-color: #007acc;
+  color: #ffffff;
+  border: 1px solid #007acc;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.apply-btn:hover, .apply-all-btn:hover {
+  background-color: #1177bb;
+  border-color: #1177bb;
+}
+
+.applied-indicator {
+  padding: 12px 16px;
+  background-color: rgba(34, 197, 94, 0.1);
+  border-top: 1px solid #22c55e;
+  color: #22c55e;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+} 

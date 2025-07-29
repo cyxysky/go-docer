@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useFile } from '../contexts/FileContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useNotification } from './NotificationProvider';
+import { useDrag } from '../contexts/DragContext';
 import { getFileIcon } from '../utils';
 import type { FileItem } from '../types';
 import FileContextMenu from './FileContextMenu';
@@ -70,11 +71,12 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 }) => {
   const { loadSubFiles } = useFile();
   const { currentWorkspace } = useWorkspace();
+  const { setDraggedFiles, setIsDragging } = useDrag();
   const [showActions, setShowActions] = useState(false);
   const [children, setChildren] = useState<FileItem[]>([]);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingLocal, setIsDraggingLocal] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isLoadingChildren, setIsLoadingChildren] = useState(false);
 
@@ -175,14 +177,18 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   // 拖拽相关处理
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
-    setIsDragging(true);
+    setIsDraggingLocal(true);
+    setIsDragging(true); // 设置全局拖拽状态
+    setDraggedFiles([file.path]); // 设置拖拽的文件
     e.dataTransfer.setData('text/plain', file.path);
     e.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDragEnd = (e: React.DragEvent) => {
     e.stopPropagation();
-    setIsDragging(false);
+    setIsDraggingLocal(false);
+    setIsDragging(false); // 清除全局拖拽状态
+    setDraggedFiles([]); // 清除拖拽的文件
     setIsDragOver(false);
   };
 
@@ -257,7 +263,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   return (
     <>
       <div 
-        className={`file-tree-item ${file.is_dir ? 'folder' : 'file'} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''} ${isLoadingChildren ? 'loading' : ''}`}
+        className={`file-tree-item ${file.is_dir ? 'folder' : 'file'} ${isDraggingLocal ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''} ${isLoadingChildren ? 'loading' : ''}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         onMouseEnter={() => setShowActions(true)}

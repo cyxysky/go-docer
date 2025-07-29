@@ -175,8 +175,8 @@ type OnlineEditorManager struct {
 	importTasksMutex sync.RWMutex               // 导入任务锁
 
 	// 新增：AI配置
-	aiEndpoint string
-	aiApiKey   string
+	aiConfig       *AIConfig
+	aiModelManager *AIModelManager
 }
 
 // 脚本和命令管理
@@ -576,14 +576,24 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 		customImagesMutex: sync.RWMutex{},
 		registryManager:   NewRegistryManager(), // 初始化镜像源管理器
 		importTasks:       make(map[string]*ImportTaskInfo),
-		aiEndpoint:        "https://api.openai.com/v1/chat/completions", // 默认使用OpenAI
-		aiApiKey:          "",                                           // 从环境变量获取
+		aiConfig:          &AIConfig{DefaultModel: "gpt-3.5-turbo", Models: make(map[string]*AIModel)},
+		aiModelManager:    &AIModelManager{models: make(map[string]*AIModel)},
 	}
 
-	// 从环境变量获取AI配置
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		manager.aiApiKey = apiKey
+	// 从Go配置文件加载AI配置
+	aiConfigData := GetAIConfig()
+
+	// 设置默认模型和策略
+	manager.aiConfig.DefaultModel = aiConfigData.DefaultModel
+	manager.aiConfig.Strategy = aiConfigData.Strategy
+
+	// 加载模型配置
+	for modelID, model := range aiConfigData.Models {
+		manager.aiModelManager.models[modelID] = model
+		manager.aiConfig.Models[modelID] = model
 	}
+
+	log.Printf("AI配置加载完成，默认模型: %s", manager.aiConfig.DefaultModel)
 
 	// 启动时恢复现有工作空间
 	if err := manager.recoverExistingWorkspaces(); err != nil {
@@ -595,19 +605,55 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 
 // 添加AI代码生成方法
 func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) (*AICodeGenerationResponse, error) {
-	if oem.aiApiKey == "" {
+	// 确定使用的模型
+	var model *AIModel
+	if req.Model != "" {
+		model = oem.aiModelManager.GetModel(req.Model)
+		if model == nil {
+			return &AICodeGenerationResponse{
+				Success: false,
+				Message: fmt.Sprintf("指定的AI模型不存在: %s", req.Model),
+			}, nil
+		}
+	} else {
+		model = oem.aiModelManager.GetDefaultModel()
+		if model == nil {
+			return &AICodeGenerationResponse{
+				Success: false,
+				Message: "未配置默认AI模型，请先配置AI模型",
+			}, nil
+		}
+	}
+
+	if !model.IsEnabled {
 		return &AICodeGenerationResponse{
 			Success: false,
-			Message: "AI服务未配置，请设置OPENAI_API_KEY环境变量",
+			Message: fmt.Sprintf("AI模型已禁用: %s", model.Name),
 		}, nil
 	}
 
 	// 读取相关文件内容
 	fileContents := make(map[string]string)
+	maxFileSize := int64(1024 * 1024) // 默认1MB限制
+	if req.MaxFileSize > 0 {
+		maxFileSize = req.MaxFileSize
+	}
+
+	// 处理Files字段（已有文件内容）
 	if len(req.Files) > 0 {
 		for _, filePath := range req.Files {
 			content, err := oem.ReadFile(req.Workspace, filePath)
-			if err == nil {
+			if err == nil && int64(len(content)) <= maxFileSize {
+				fileContents[filePath] = content
+			}
+		}
+	}
+
+	// 处理FilePaths字段（需要读取的文件路径）
+	if len(req.FilePaths) > 0 {
+		for _, filePath := range req.FilePaths {
+			content, err := oem.ReadFile(req.Workspace, filePath)
+			if err == nil && int64(len(content)) <= maxFileSize {
 				fileContents[filePath] = content
 			}
 		}
@@ -617,7 +663,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 	prompt := oem.buildAIPrompt(req.Prompt, req.Context, req.Language, fileContents)
 
 	// 调用AI API
-	response, err := oem.callOpenAIWithTools(prompt, req.Tools)
+	response, err := oem.callAIWithModel(prompt, req.Tools, model)
 	if err != nil {
 		return &AICodeGenerationResponse{
 			Success: false,
@@ -644,33 +690,56 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context, language string, fileContents map[string]string) string {
 	var prompt strings.Builder
 
-	prompt.WriteString("你是一个专业的代码助手。请根据用户的需求生成高质量的代码。\n\n")
+	// 强制输出纯JSON的系统提示
+	prompt.WriteString("You are a code assistant. You MUST respond with ONLY valid JSON. No explanations, no markdown, no additional text.\n\n")
+	prompt.WriteString("CRITICAL: Your response must be PURE JSON starting with { and ending with }. No markdown wrapping. No ```json prefix. No ``` suffix. Just raw JSON. Nothing else!!!!!!!!! this is the most important thing you need to remember.\n\n")
+	prompt.WriteString("Example output:\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"code_changes\": [\n")
+	prompt.WriteString("    {\n")
+	prompt.WriteString("      \"file_path\": \"exact/file/path.ext\",\n")
+	prompt.WriteString("      \"change_type\": \"replace|insert|delete|modify\",\n")
+	prompt.WriteString("      \"description\": \"Brief description\",\n")
+	prompt.WriteString("      \"original_code\": \"exact original code to replace\",\n")
+	prompt.WriteString("      \"new_code\": \"complete new code\",\n")
+	prompt.WriteString("      \"confidence\": 0.95\n")
+	prompt.WriteString("    }\n")
+	prompt.WriteString("  ],\n")
+	prompt.WriteString("  \"tool_calls\": [\n")
+	prompt.WriteString("    {\n")
+	prompt.WriteString("      \"name\": \"execute_shell\",\n")
+	prompt.WriteString("      \"parameters\": {\"command\": \"shell command\"}\n")
+	prompt.WriteString("    }\n")
+	prompt.WriteString("  ]\n")
+	prompt.WriteString("}\n\n")
 
 	// 添加语言特定的指导
 	switch language {
 	case "javascript", "js":
-		prompt.WriteString("请生成JavaScript代码，确保代码符合ES6+标准，包含适当的注释。\n")
+		prompt.WriteString("Generate complete JavaScript code following ES6+ standards with proper error handling.\n")
 	case "typescript", "ts":
-		prompt.WriteString("请生成TypeScript代码，包含适当的类型定义和注释。\n")
+		prompt.WriteString("Generate complete TypeScript code with proper type definitions and interfaces.\n")
 	case "python", "py":
-		prompt.WriteString("请生成Python代码，遵循PEP 8规范，包含适当的注释。\n")
+		prompt.WriteString("Generate complete Python code following PEP 8 standards with proper imports.\n")
 	case "go":
-		prompt.WriteString("请生成Go代码，遵循Go语言规范，包含适当的注释。\n")
+		prompt.WriteString("Generate complete Go code with proper package declarations and imports.\n")
 	case "java":
-		prompt.WriteString("请生成Java代码，遵循Java编码规范，包含适当的注释。\n")
+		prompt.WriteString("Generate complete Java code with proper class structure and imports.\n")
 	case "cpp", "c++":
-		prompt.WriteString("请生成C++代码，遵循现代C++标准，包含适当的注释。\n")
+		prompt.WriteString("Generate complete C++ code with proper headers and namespace usage.\n")
 	default:
-		prompt.WriteString("请生成代码，确保代码清晰、可读，包含适当的注释。\n")
+		prompt.WriteString("Generate complete, executable code with proper structure.\n")
 	}
 
 	// 添加相关文件内容
 	if len(fileContents) > 0 {
-		prompt.WriteString("\n相关文件内容:\n")
+		prompt.WriteString("\nCURRENT PROJECT FILES:\n")
 		for filePath, content := range fileContents {
-			prompt.WriteString(fmt.Sprintf("\n文件: %s\n", filePath))
+			prompt.WriteString(fmt.Sprintf("\n=== FILE: %s ===\n", filePath))
 			prompt.WriteString("```")
-			prompt.WriteString(language)
+			if language != "" {
+				prompt.WriteString(language)
+			}
 			prompt.WriteString("\n")
 			prompt.WriteString(content)
 			prompt.WriteString("\n```\n")
@@ -679,89 +748,25 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context, language stri
 
 	// 添加上下文代码
 	if context != "" {
-		prompt.WriteString("\n当前代码上下文:\n")
+		prompt.WriteString("\nCURRENT CONTEXT:\n")
 		prompt.WriteString("```")
-		prompt.WriteString(language)
+		if language != "" {
+			prompt.WriteString(language)
+		}
 		prompt.WriteString("\n")
 		prompt.WriteString(context)
 		prompt.WriteString("\n```\n")
 	}
 
-	prompt.WriteString("\n用户需求: ")
+	prompt.WriteString("\nUSER REQUEST: ")
 	prompt.WriteString(userPrompt)
-	prompt.WriteString("\n\n请分析代码并提供改进建议。如果需要修改代码，请明确指出修改的文件和具体内容。")
+	prompt.WriteString("\n\nRespond ONLY with valid JSON. No explanations. No markdown. Just JSON.Most important thing you need to remember is that your response must be PURE JSON starting with { and ending with }. Nothing else!!!!!!!!! this is the most important thing you need to remember.")
 
 	return prompt.String()
 }
 
-// 调用OpenAI API
-func (oem *OnlineEditorManager) callOpenAI(prompt string) (string, error) {
-	requestBody := map[string]interface{}{
-		"model": "gpt-3.5-turbo",
-		"messages": []map[string]string{
-			{
-				"role":    "system",
-				"content": "你是一个专业的代码助手，只返回代码，不要包含任何解释文字。",
-			},
-			{
-				"role":    "user",
-				"content": prompt,
-			},
-		},
-		"max_tokens":  2000,
-		"temperature": 0.3,
-	}
-
-	jsonData, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", fmt.Errorf("序列化请求失败: %v", err)
-	}
-
-	req, err := http.NewRequest("POST", oem.aiEndpoint, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("创建请求失败: %v", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+oem.aiApiKey)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("读取响应失败: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API请求失败，状态码: %d, 响应: %s", resp.StatusCode, string(body))
-	}
-
-	var response map[string]interface{}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return "", fmt.Errorf("解析响应失败: %v", err)
-	}
-
-	// 提取生成的代码
-	if choices, ok := response["choices"].([]interface{}); ok && len(choices) > 0 {
-		if choice, ok := choices[0].(map[string]interface{}); ok {
-			if message, ok := choice["message"].(map[string]interface{}); ok {
-				if content, ok := message["content"].(string); ok {
-					return strings.TrimSpace(content), nil
-				}
-			}
-		}
-	}
-
-	return "", fmt.Errorf("无法从响应中提取代码")
-}
-
-// 调用OpenAI API（支持工具调用）
-func (oem *OnlineEditorManager) callOpenAIWithTools(prompt string, tools []string) (string, error) {
+// 调用AI API（支持多模型）
+func (oem *OnlineEditorManager) callAIWithModel(prompt string, tools []string, model *AIModel) (string, error) {
 	// 构建工具定义
 	var functions []map[string]interface{}
 
@@ -820,7 +825,7 @@ func (oem *OnlineEditorManager) callOpenAIWithTools(prompt string, tools []strin
 	}
 
 	requestBody := map[string]interface{}{
-		"model": "gpt-3.5-turbo",
+		"model": model.Name,
 		"messages": []map[string]string{
 			{
 				"role":    "system",
@@ -831,8 +836,8 @@ func (oem *OnlineEditorManager) callOpenAIWithTools(prompt string, tools []strin
 				"content": prompt,
 			},
 		},
-		"max_tokens":  2000,
-		"temperature": 0.3,
+		"max_tokens":  model.MaxTokens,
+		"temperature": model.Temperature,
 	}
 
 	if len(functions) > 0 {
@@ -845,13 +850,14 @@ func (oem *OnlineEditorManager) callOpenAIWithTools(prompt string, tools []strin
 		return "", fmt.Errorf("序列化请求失败: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", oem.aiEndpoint, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", model.Endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("创建请求失败: %v", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+oem.aiApiKey)
+	fmt.Println("Bearer " + model.APIKey)
+	req.Header.Set("Authorization", "Bearer "+model.APIKey)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -892,16 +898,53 @@ func (oem *OnlineEditorManager) callOpenAIWithTools(prompt string, tools []strin
 func (oem *OnlineEditorManager) parseCodeChanges(response, context string) []CodeChange {
 	var changes []CodeChange
 
-	// 简单的代码更改解析逻辑
-	// 在实际应用中，这里需要更复杂的解析逻辑来识别AI建议的代码更改
+	// 清理响应内容，移除可能的markdown包装
+	cleanResponse := strings.TrimSpace(response)
+	cleanResponse = strings.TrimPrefix(cleanResponse, "```json")
+	cleanResponse = strings.TrimSuffix(cleanResponse, "```")
+	cleanResponse = strings.TrimSpace(cleanResponse)
 
-	// 示例：如果AI建议修改当前文件
-	if context != "" {
+	// 尝试直接解析JSON响应
+	var aiResponse struct {
+		CodeChanges []struct {
+			FilePath     string  `json:"file_path"`
+			ChangeType   string  `json:"change_type"`
+			Description  string  `json:"description"`
+			OriginalCode string  `json:"original_code"`
+			NewCode      string  `json:"new_code"`
+			Confidence   float64 `json:"confidence"`
+		} `json:"code_changes"`
+	}
+
+	if err := json.Unmarshal([]byte(cleanResponse), &aiResponse); err == nil {
+		for _, change := range aiResponse.CodeChanges {
+			changes = append(changes, CodeChange{
+				FilePath:     change.FilePath,
+				OriginalCode: change.OriginalCode,
+				NewCode:      change.NewCode,
+				Description:  change.Description,
+				ChangeType:   change.ChangeType,
+				Confidence:   change.Confidence,
+			})
+		}
+	} else {
+		// 如果JSON解析失败，记录错误
+		maxLen := 100
+		if len(cleanResponse) < maxLen {
+			maxLen = len(cleanResponse)
+		}
+		log.Printf("JSON解析失败: %v, 响应内容前%d字符: %s", err, maxLen, cleanResponse[:maxLen])
+	}
+
+	// 如果没有解析到JSON格式的更改，使用默认逻辑
+	if len(changes) == 0 && context != "" {
 		changes = append(changes, CodeChange{
 			FilePath:     "current_file",
 			OriginalCode: context,
 			NewCode:      response,
 			Description:  "AI建议的代码改进",
+			ChangeType:   "modify",
+			Confidence:   0.8,
 		})
 	}
 
@@ -913,27 +956,78 @@ func (oem *OnlineEditorManager) executeToolCalls(tools []string, workspace strin
 	var toolCalls []ToolCall
 
 	for _, tool := range tools {
+		startTime := time.Now()
 		toolCall := ToolCall{
-			Name:       tool,
-			Parameters: map[string]interface{}{},
-			Status:     "success",
+			Name:        tool,
+			Parameters:  map[string]interface{}{},
+			Status:      "pending",
+			ExecutionId: fmt.Sprintf("tool_%d", time.Now().UnixNano()),
+			StartTime:   &startTime,
 		}
 
 		switch tool {
 		case "file_read":
 			toolCall.Result = "文件读取功能已启用"
+			toolCall.Status = "success"
 		case "file_write":
 			toolCall.Result = "文件写入功能已启用"
+			toolCall.Status = "success"
 		case "code_analysis":
 			toolCall.Result = "代码分析功能已启用"
+			toolCall.Status = "success"
 		case "git_operations":
 			toolCall.Result = "Git操作功能已启用"
+			toolCall.Status = "success"
+		case "execute_shell":
+			toolCall.Result = "Shell执行功能已启用"
+			toolCall.Status = "success"
+		default:
+			toolCall.Result = fmt.Sprintf("未知工具: %s", tool)
+			toolCall.Status = "error"
+			toolCall.Error = "工具不支持"
 		}
 
+		endTime := time.Now()
+		toolCall.EndTime = &endTime
 		toolCalls = append(toolCalls, toolCall)
 	}
 
 	return toolCalls
+}
+
+// 执行Shell命令
+func (oem *OnlineEditorManager) executeShellCommand(workspaceID, command string) (*ToolCall, error) {
+	startTime := time.Now()
+	toolCall := &ToolCall{
+		Name: "execute_shell",
+		Parameters: map[string]interface{}{
+			"command": command,
+		},
+		Status:      "pending",
+		ExecutionId: fmt.Sprintf("shell_%d", time.Now().UnixNano()),
+		StartTime:   &startTime,
+	}
+
+	// 执行shell命令
+	output, err := oem.ExecuteCommand(workspaceID, []string{"bash", "-c", command})
+	endTime := time.Now()
+	toolCall.EndTime = &endTime
+
+	if err != nil {
+		toolCall.Status = "error"
+		toolCall.Error = err.Error()
+		toolCall.Output = output
+		return toolCall, err
+	}
+
+	toolCall.Status = "success"
+	toolCall.Output = output
+	toolCall.Result = map[string]interface{}{
+		"output":    output,
+		"exit_code": 0,
+	}
+
+	return toolCall, nil
 }
 
 // 添加AI代码生成的HTTP处理器
@@ -966,6 +1060,51 @@ func (oem *OnlineEditorManager) handleAIGenerateCode(w http.ResponseWriter, r *h
 	// 返回响应
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// AI执行Shell命令的HTTP处理器
+func (oem *OnlineEditorManager) handleAIExecuteShell(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		WorkspaceID string `json:"workspace_id"`
+		Command     string `json:"command"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求体解析失败", http.StatusBadRequest)
+		return
+	}
+
+	// 验证请求
+	if req.WorkspaceID == "" || req.Command == "" {
+		http.Error(w, "工作空间ID和命令不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 执行Shell命令
+	toolCall, err := oem.executeShellCommand(req.WorkspaceID, req.Command)
+	if err != nil {
+		oem.logError("AI Shell命令执行", err)
+		// 即使执行失败，也返回toolCall以显示错误信息
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   false,
+			"tool_call": toolCall,
+			"error":     err.Error(),
+		})
+		return
+	}
+
+	// 返回成功响应
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"tool_call": toolCall,
+	})
 }
 
 // 生成工作空间ID
@@ -3002,6 +3141,14 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 
 	// 新增：AI代码生成功能
 	api.HandleFunc("/ai/generate-code", oem.handleAIGenerateCode).Methods("POST")
+	api.HandleFunc("/ai/execute-shell", oem.handleAIExecuteShell).Methods("POST")
+
+	// AI模型管理
+	api.HandleFunc("/ai/models", oem.handleGetAIModels).Methods("GET")
+	api.HandleFunc("/ai/models", oem.handleAddAIModel).Methods("POST")
+	api.HandleFunc("/ai/models/{id}", oem.handleUpdateAIModel).Methods("PUT")
+	api.HandleFunc("/ai/models/{id}", oem.handleDeleteAIModel).Methods("DELETE")
+	api.HandleFunc("/ai/models/{id}/default", oem.handleSetDefaultAIModel).Methods("POST")
 
 	// 静态文件服务
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./static")))
@@ -5644,12 +5791,17 @@ type RegistryManager struct {
 
 // AI代码生成相关的结构体
 type AICodeGenerationRequest struct {
-	Prompt    string   `json:"prompt"`
-	Context   string   `json:"context"`
-	Workspace string   `json:"workspace"`
-	Language  string   `json:"language"`
-	Files     []string `json:"files,omitempty"`
-	Tools     []string `json:"tools,omitempty"`
+	Prompt      string   `json:"prompt"`
+	Context     string   `json:"context"`
+	Workspace   string   `json:"workspace"`
+	Language    string   `json:"language"`
+	Model       string   `json:"model,omitempty"`
+	Strategy    string   `json:"strategy,omitempty"`
+	Files       []string `json:"files,omitempty"`
+	FilePaths   []string `json:"file_paths,omitempty"` // 新增：文件路径数组
+	Tools       []string `json:"tools,omitempty"`
+	AutoApply   bool     `json:"auto_apply,omitempty"`    // 新增：自动应用模式
+	MaxFileSize int64    `json:"max_file_size,omitempty"` // 新增：最大文件大小限制
 }
 
 type AICodeGenerationResponse struct {
@@ -5661,15 +5813,287 @@ type AICodeGenerationResponse struct {
 }
 
 type CodeChange struct {
-	FilePath     string `json:"file_path"`
-	OriginalCode string `json:"original_code"`
-	NewCode      string `json:"new_code"`
-	Description  string `json:"description"`
+	FilePath     string  `json:"file_path"`
+	OriginalCode string  `json:"original_code"`
+	NewCode      string  `json:"new_code"`
+	Description  string  `json:"description"`
+	ChangeType   string  `json:"change_type"`
+	Confidence   float64 `json:"confidence"`
 }
 
 type ToolCall struct {
-	Name       string      `json:"name"`
-	Parameters interface{} `json:"parameters"`
-	Result     interface{} `json:"result,omitempty"`
-	Status     string      `json:"status"` // "pending", "success", "error"
+	Name        string      `json:"name"`
+	Parameters  interface{} `json:"parameters"`
+	Result      interface{} `json:"result,omitempty"`
+	Status      string      `json:"status"` // "pending", "success", "error"
+	Error       string      `json:"error,omitempty"`
+	ExecutionId string      `json:"execution_id,omitempty"`
+	StartTime   *time.Time  `json:"start_time,omitempty"`
+	EndTime     *time.Time  `json:"end_time,omitempty"`
+	Output      string      `json:"output,omitempty"` // 用于存储shell命令输出
+}
+
+// 新增：AI模型配置
+type AIModel struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Provider    string  `json:"provider"`
+	Description string  `json:"description"`
+	Endpoint    string  `json:"endpoint"`
+	APIKey      string  `json:"api_key,omitempty"`
+	MaxTokens   int     `json:"max_tokens"`
+	Temperature float64 `json:"temperature"`
+	IsDefault   bool    `json:"is_default"`
+	IsEnabled   bool    `json:"is_enabled"`
+}
+
+// 新增：AI模型请求
+type AIModelRequest struct {
+	Name        string  `json:"name"`
+	Provider    string  `json:"provider"`
+	Description string  `json:"description"`
+	Endpoint    string  `json:"endpoint"`
+	APIKey      string  `json:"api_key"`
+	MaxTokens   int     `json:"max_tokens"`
+	Temperature float64 `json:"temperature"`
+	IsDefault   bool    `json:"is_default"`
+}
+
+// 新增：AI模型管理器
+type AIModelManager struct {
+	models map[string]*AIModel
+	mutex  sync.RWMutex
+}
+
+// 新增：AI配置
+type AIConfig struct {
+	DefaultModel string              `json:"default_model"`
+	Models       map[string]*AIModel `json:"models"`
+	Strategy     string              `json:"strategy"` // "preview", "auto", "manual"
+}
+
+// AI模型管理方法
+func (amm *AIModelManager) GetAllModels() []*AIModel {
+	amm.mutex.RLock()
+	defer amm.mutex.RUnlock()
+
+	var models []*AIModel
+	for _, model := range amm.models {
+		models = append(models, model)
+	}
+	return models
+}
+
+func (amm *AIModelManager) GetModel(id string) *AIModel {
+	amm.mutex.RLock()
+	defer amm.mutex.RUnlock()
+	return amm.models[id]
+}
+
+func (amm *AIModelManager) AddModel(req AIModelRequest) (*AIModel, error) {
+	amm.mutex.Lock()
+	defer amm.mutex.Unlock()
+
+	// 生成唯一ID
+	modelID := fmt.Sprintf("model_%d", time.Now().UnixNano())
+
+	// 强制设置温度为1以获得绝对输出
+	temperature := 1.0
+
+	model := &AIModel{
+		ID:          modelID,
+		Name:        req.Name,
+		Provider:    req.Provider,
+		Description: req.Description,
+		Endpoint:    req.Endpoint,
+		APIKey:      req.APIKey,
+		MaxTokens:   req.MaxTokens,
+		Temperature: temperature, // 强制设置为1
+		IsDefault:   req.IsDefault,
+		IsEnabled:   true,
+	}
+
+	// 如果设置为默认模型，取消其他模型的默认状态
+	if req.IsDefault {
+		for _, existingModel := range amm.models {
+			existingModel.IsDefault = false
+		}
+	}
+
+	amm.models[modelID] = model
+	return model, nil
+}
+
+func (amm *AIModelManager) UpdateModel(id string, req AIModelRequest) (*AIModel, error) {
+	amm.mutex.Lock()
+	defer amm.mutex.Unlock()
+
+	model, exists := amm.models[id]
+	if !exists {
+		return nil, fmt.Errorf("模型不存在: %s", id)
+	}
+
+	model.Name = req.Name
+	model.Provider = req.Provider
+	model.Description = req.Description
+	model.Endpoint = req.Endpoint
+	model.APIKey = req.APIKey
+	model.MaxTokens = req.MaxTokens
+	model.Temperature = req.Temperature
+
+	// 如果设置为默认模型，取消其他模型的默认状态
+	if req.IsDefault {
+		for _, existingModel := range amm.models {
+			existingModel.IsDefault = false
+		}
+		model.IsDefault = true
+	}
+
+	return model, nil
+}
+
+func (amm *AIModelManager) DeleteModel(id string) error {
+	amm.mutex.Lock()
+	defer amm.mutex.Unlock()
+
+	model, exists := amm.models[id]
+	if !exists {
+		return fmt.Errorf("模型不存在: %s", id)
+	}
+
+	// 不允许删除默认模型
+	if model.IsDefault {
+		return fmt.Errorf("不能删除默认模型")
+	}
+
+	delete(amm.models, id)
+	return nil
+}
+
+func (amm *AIModelManager) SetDefaultModel(id string) error {
+	amm.mutex.Lock()
+	defer amm.mutex.Unlock()
+
+	model, exists := amm.models[id]
+	if !exists {
+		return fmt.Errorf("模型不存在: %s", id)
+	}
+
+	// 取消所有模型的默认状态
+	for _, existingModel := range amm.models {
+		existingModel.IsDefault = false
+	}
+
+	// 设置新的默认模型
+	model.IsDefault = true
+	return nil
+}
+
+func (amm *AIModelManager) GetDefaultModel() *AIModel {
+	amm.mutex.RLock()
+	defer amm.mutex.RUnlock()
+
+	for _, model := range amm.models {
+		if model.IsDefault {
+			return model
+		}
+	}
+	return nil
+}
+
+// 添加AI模型相关的HTTP处理器
+func (oem *OnlineEditorManager) handleGetAIModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	models := oem.aiModelManager.GetAllModels()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models)
+}
+
+func (oem *OnlineEditorManager) handleAddAIModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AIModelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求体解析失败", http.StatusBadRequest)
+		return
+	}
+
+	model, err := oem.aiModelManager.AddModel(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("添加AI模型失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(model)
+}
+
+func (oem *OnlineEditorManager) handleUpdateAIModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "PUT" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := mux.Vars(r)
+	modelID := vars["id"]
+
+	var req AIModelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求体解析失败", http.StatusBadRequest)
+		return
+	}
+
+	model, err := oem.aiModelManager.UpdateModel(modelID, req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("更新AI模型失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(model)
+}
+
+func (oem *OnlineEditorManager) handleDeleteAIModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "DELETE" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := mux.Vars(r)
+	modelID := vars["id"]
+
+	err := oem.aiModelManager.DeleteModel(modelID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("删除AI模型失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "AI模型删除成功"})
+}
+
+func (oem *OnlineEditorManager) handleSetDefaultAIModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := mux.Vars(r)
+	modelID := vars["id"]
+
+	err := oem.aiModelManager.SetDefaultModel(modelID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("设置默认AI模型失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "默认AI模型设置成功"})
 }

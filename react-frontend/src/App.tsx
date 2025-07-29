@@ -5,6 +5,7 @@ import { ImageProvider } from './contexts/ImageContext';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { MultiTerminalProvider } from './contexts/MultiTerminalContext';
 import { NotificationProvider } from './components/NotificationProvider';
+import { DragProvider } from './contexts/DragContext';
 import WorkspacePanel from './components/WorkspacePanel';
 import FilePanel from './components/FilePanel';
 import ImagePanel from './components/ImagePanel';
@@ -301,7 +302,9 @@ const App: React.FC = () => {
     <ThemeProvider>
       <NotificationProvider>
         <WorkspaceProvider>
-          <WorkspaceConsumer />
+          <DragProvider>
+            <WorkspaceConsumer />
+          </DragProvider>
         </WorkspaceProvider>
       </NotificationProvider>
     </ThemeProvider>
