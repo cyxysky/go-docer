@@ -288,7 +288,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
   // 主题变化
   useEffect(() => {
     if (!monacoRef.current) return;
-
+    previewCodeEditor("console.log('hello world')", "xxxxxxx")
     try {
       const editor = monacoRef.current;
       const model = editor.getModel();
@@ -308,7 +308,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
         previewCodeEditor(changes.originalCode, changes.newCode);
       } else if (!changes && isDiffMode) {
         // 如果没有待处理的变更，切换回普通编辑器
-        switchToNormalEditor();
+        // switchToNormalEditor();
       }
     } catch (error) {
       console.error('❌ 更新编辑器内容失败:', error);
@@ -427,8 +427,12 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({ className }) => {
    * 应用代码更改
    */
   const applyCodeChanges = () => {
+    console.log("applyCodeChanges")
     try {
       const changes = pendingChanges.find(change => change.filePath === activeTab);
+      console.log(changes)
+      console.log(pendingChanges)
+      console.log(activeTab)
       if (changes && activeTab) {
         // 更新标签页内容
         updateTabContent(activeTab, changes.newCode);
