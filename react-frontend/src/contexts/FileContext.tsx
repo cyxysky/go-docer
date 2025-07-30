@@ -62,6 +62,8 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
   const openTabsRef = useRef<Map<string, Tab>>(new Map());
   openTabsRef.current = openTabs;
 
+
+
   const loadFileTree = useCallback(async (workspaceId: string, path: string = '') => {
     if (!workspaceId) {
       console.log('⚠️ 没有工作空间ID，跳过加载');
@@ -110,6 +112,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     await loadFileTree(currentWorkspace, currentDirectory);
   }, [currentWorkspace, currentDirectory, loadFileTree]);
 
+  /**
+   * 创建文件
+   * @param fileName 文件名
+   */
   const createFile = useCallback(async (fileName: string) => {
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
@@ -127,6 +133,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [currentWorkspace, currentDirectory, loadFileTree]);
 
+  /**
+   * 创建文件夹
+   * @param folderName 文件夹名
+   */
   const createFolder = useCallback(async (folderName: string) => {
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
@@ -145,6 +155,11 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [currentWorkspace, currentDirectory, loadFileTree]);
 
+  /**
+   * 删除文件
+   * @param filePath 文件路径
+   * @param onConfirm 自定义确认回调
+   */
   const deleteFile = useCallback(async (filePath: string, onConfirm?: () => Promise<void>) => {
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
@@ -170,6 +185,11 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [currentWorkspace, currentDirectory, loadFileTree]);
 
+  /**
+   * 重命名文件
+   * @param oldPath 旧文件路径
+   * @param newName 新文件名
+   */
   const renameFile = useCallback(async (oldPath: string, newName: string) => {
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
@@ -216,6 +236,11 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [currentWorkspace, currentDirectory, loadFileTree, activeTab]);
 
+  /**
+   * 移动文件
+   * @param sourcePath 源文件路径
+   * @param targetPath 目标文件路径
+   */
   const moveFile = useCallback(async (sourcePath: string, targetPath: string) => {
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
@@ -256,6 +281,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [currentWorkspace, currentDirectory, loadFileTree, activeTab]);
 
+  /**
+   * 打开文件
+   * @param filePath 文件路径
+   */
   const openFile = useCallback(async (filePath: string) => {
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
@@ -271,6 +300,11 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [currentWorkspace]);
 
+  /**
+   * 打开标签页
+   * @param filePath 文件路径
+   * @param content 文件内容
+   */
   const openTab = useCallback((filePath: string, content: string) => {
     const tabId = filePath;
     const newTab: Tab = {
@@ -291,6 +325,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     
   }, []);
 
+  /**
+   * 设置激活标签页
+   * @param tabId 标签页ID
+   */
   const setActiveTabCallback = useCallback((tabId: string) => {
     setActiveTab(tabId);
     const tab = openTabs.get(tabId);
@@ -299,6 +337,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [openTabs]);
 
+  /**
+   * 关闭标签页
+   * @param tabId 标签页ID
+   */
   const closeTab = useCallback((tabId: string) => {
     setOpenTabs(prev => {
       const newTabs = new Map(prev);
@@ -317,6 +359,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [openTabs, activeTab]);
 
+  /**
+   * 保存文件
+   * @param tabId 标签页ID
+   */
   const saveFile = useCallback(async (tabId?: string | null) => {
     // 使用传入的tabId或当前activeTab
     const targetTabId = tabId || activeTab;
@@ -358,6 +404,11 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [currentWorkspace, activeTab]);
 
+  /**
+   * 更新标签页内容
+   * @param tabId 标签页ID
+   * @param content 内容
+   */
   const updateTabContent = useCallback((tabId: string, content: string) => {
     setOpenTabs(prev => {
       const newTabs = new Map(prev);

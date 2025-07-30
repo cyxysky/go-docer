@@ -55,10 +55,10 @@ interface FileTreeItemProps {
   setFileCache: (cache: FileCache) => void;
 }
 
-const FileTreeItem: React.FC<FileTreeItemProps> = ({ 
-  file, 
-  level, 
-  onFileClick, 
+const FileTreeItem: React.FC<FileTreeItemProps> = ({
+  file,
+  level,
+  onFileClick,
   onDeleteFile,
   onRenameFile,
   onCreateFile,
@@ -71,7 +71,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 }) => {
   const { loadSubFiles } = useFile();
   const { currentWorkspace } = useWorkspace();
-  const { setDraggedFiles, setIsDragging } = useDrag();
+  const { setDraggedFiles, setIsDragging, isDragging } = useDrag();
   const [showActions, setShowActions] = useState(false);
   const [children, setChildren] = useState<FileItem[]>([]);
   const [showContextMenu, setShowContextMenu] = useState(false);
@@ -88,7 +88,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 
     const now = Date.now();
     const cached = fileCache[file.path];
-    
+
     // 检查缓存是否有效
     if (cached && (now - cached.timestamp) < CACHE_DURATION) {
       setChildren(cached.files);
@@ -99,7 +99,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     try {
       const subFiles = await loadSubFiles(currentWorkspace, file.path);
       setChildren(subFiles);
-      
+
       // 更新缓存
       const newCache = {
         ...fileCache,
@@ -147,6 +147,10 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     }
   };
 
+  /**
+   * 处理右键菜单
+   * @param e 事件
+   */
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -154,44 +158,36 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     setShowContextMenu(true);
   };
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onDeleteFile(file.path);
-    
-    // 清理相关缓存
-    const newCache = { ...fileCache };
-    delete newCache[file.path];
-    
-    // 清理父目录缓存以触发刷新
-    const parentPath = file.path.split('/').slice(0, -1).join('/');
-    if (parentPath && newCache[parentPath]) {
-      delete newCache[parentPath];
-    }
-    
-    setFileCache(newCache);
-    if (currentWorkspace) {
-      workspaceCaches[currentWorkspace] = newCache;
-    }
-  };
-
   // 拖拽相关处理
+  /**
+   * 处理拖拽开始
+   * @param e 事件
+   */
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
     setIsDraggingLocal(true);
-    setIsDragging(true); // 设置全局拖拽状态
+    setIsDragging(() => true); // 设置全局拖拽状态
     setDraggedFiles([file.path]); // 设置拖拽的文件
     e.dataTransfer.setData('text/plain', file.path);
     e.dataTransfer.effectAllowed = 'move';
   };
 
+  /**
+   * 处理拖拽结束
+   * @param e 事件
+   */
   const handleDragEnd = (e: React.DragEvent) => {
     e.stopPropagation();
     setIsDraggingLocal(false);
-    setIsDragging(false); // 清除全局拖拽状态
+    setIsDragging(() => false); // 清除全局拖拽状态
     setDraggedFiles([]); // 清除拖拽的文件
     setIsDragOver(false);
   };
 
+  /**
+   * 处理拖拽进入
+   * @param e 事件
+   */
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -201,24 +197,32 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     }
   };
 
+  /**
+   * 处理拖拽离开
+   * @param e 事件
+   */
   const handleDragLeave = (e: React.DragEvent) => {
     e.stopPropagation();
     setIsDragOver(false);
   };
 
+  /**
+   * 处理拖拽放置
+   * @param e 事件
+   */
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    
+
     if (!file.is_dir) return;
-    
+
     const sourcePath = e.dataTransfer.getData('text/plain');
     if (sourcePath && sourcePath !== file.path) {
       const fileName = sourcePath.split('/').pop() || '';
       const targetPath = file.path ? `${file.path}/${fileName}` : fileName;
       onMoveFile(sourcePath, targetPath);
-      
+
       // 清理缓存以触发刷新
       const newCache = { ...fileCache };
       delete newCache[file.path]; // 目标目录
@@ -236,7 +240,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
   // 处理创建文件后的缓存清理
   const handleCreateFileWrapper = (parentPath: string) => {
     onCreateFile(parentPath);
-    
+
     // 清理父目录缓存
     const newCache = { ...fileCache };
     delete newCache[parentPath];
@@ -248,7 +252,6 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 
   const handleCreateFolderWrapper = (parentPath: string) => {
     onCreateFolder(parentPath);
-    
     // 清理父目录缓存
     const newCache = { ...fileCache };
     delete newCache[parentPath];
@@ -258,11 +261,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     }
   };
 
-  const paddingLeft = level * 16;
-
   return (
     <>
-      <div 
+      <div
         className={`file-tree-item ${file.is_dir ? 'folder' : 'file'} ${isDraggingLocal ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''} ${isLoadingChildren ? 'loading' : ''}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
@@ -343,7 +344,7 @@ const FileTree: React.FC = () => {
   const [newFileParentPath, setNewFileParentPath] = useState('');
   const [renameFilePath, setRenameFilePath] = useState('');
   const [renameNewName, setRenameNewName] = useState('');
-  
+
   // 使用工作空间状态和缓存
   const [expandedState, setExpandedState] = useState<ExpandedState>(workspaceStates[currentWorkspace || ''] || {});
   const [fileCache, setFileCache] = useState<FileCache>(workspaceCaches[currentWorkspace || ''] || {});
@@ -405,12 +406,12 @@ const FileTree: React.FC = () => {
 
   const handleRenameConfirm = async () => {
     if (!renameNewName.trim()) return;
-    
+
     try {
       await renameFile(renameFilePath, renameNewName.trim());
       setRenameNewName('');
       setShowRenameDialog(false);
-      
+
       // 清理缓存
       const newCache = { ...fileCache };
       delete newCache[renameFilePath];
@@ -440,14 +441,14 @@ const FileTree: React.FC = () => {
 
   const handleNewFile = async () => {
     if (!newFileName.trim()) return;
-    
+
     const filePath = newFileParentPath ? `${newFileParentPath}/${newFileName.trim()}` : newFileName.trim();
-    
+
     try {
       await createFile(filePath);
       setNewFileName('');
       setShowNewFileDialog(false);
-      
+
       // 清理父目录缓存
       const newCache = { ...fileCache };
       delete newCache[newFileParentPath];
@@ -463,14 +464,14 @@ const FileTree: React.FC = () => {
 
   const handleNewFolder = async () => {
     if (!newFolderName.trim()) return;
-    
+
     const folderPath = newFileParentPath ? `${newFileParentPath}/${newFolderName.trim()}` : newFolderName.trim();
-    
+
     try {
       await createFolder(folderPath);
       setNewFolderName('');
       setShowNewFolderDialog(false);
-      
+
       // 清理父目录缓存
       const newCache = { ...fileCache };
       delete newCache[newFileParentPath];
@@ -487,15 +488,15 @@ const FileTree: React.FC = () => {
   const handleMoveFile = async (sourcePath: string, targetPath: string) => {
     try {
       await moveFile(sourcePath, targetPath);
-      
+
       // 清理相关缓存
       const newCache = { ...fileCache };
       const sourceParentPath = sourcePath.split('/').slice(0, -1).join('/');
       const targetParentPath = targetPath.split('/').slice(0, -1).join('/');
-      
+
       delete newCache[sourceParentPath];
       delete newCache[targetParentPath];
-      
+
       setFileCache(newCache);
       if (currentWorkspace) {
         workspaceCaches[currentWorkspace] = newCache;

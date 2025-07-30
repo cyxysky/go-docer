@@ -243,10 +243,7 @@
 
 /* 终端内容区域 */
 .terminal-content {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-  background: var(--darker-bg);
+  padding: 0 4px;
 }
 
 .terminal-body {

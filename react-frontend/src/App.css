@@ -717,12 +717,6 @@ body {
   overflow: hidden;
 }
 
-.terminal-content {
-  height: 100%;
-  max-height: 100%;
-  overflow: hidden;
-}
-
 /* 修复侧边栏可调整大小的问题 */
 .sidebar-resizable {
   background: var(--secondary-color);

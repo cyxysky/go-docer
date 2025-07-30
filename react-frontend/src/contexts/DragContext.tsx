@@ -6,7 +6,7 @@ interface DragContextType {
   setDraggedFiles: (files: string[]) => void;
   clearDraggedFiles: () => void;
   isDragging: boolean;
-  setIsDragging: (dragging: boolean) => void;
+  setIsDragging: any;
 }
 
 const DragContext = createContext<DragContextType | undefined>(undefined);

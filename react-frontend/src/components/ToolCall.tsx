@@ -44,7 +44,7 @@ const ToolCall: React.FC<ToolCallProps> = ({
       case 'code_analysis':
         return 'Analyze';
       default:
-        return name.slice(0, 8);
+        return "";
     }
   };
 

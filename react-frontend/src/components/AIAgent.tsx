@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import CodeComparison from './CodeComparison';
 import ToolCall from './ToolCall';
 import './AIAgent.css';
+import { useDrag } from '../contexts/DragContext';
 
 interface AIAgentProps {
   editor: any;
@@ -20,6 +20,16 @@ interface AIMessage {
   tools?: ToolCall[];
   model?: string;
   status?: 'pending' | 'completed' | 'error';
+  thinking?: ThinkingProcess;
+}
+
+interface ThinkingProcess {
+  analysis?: string;
+  planning?: string;
+  considerations?: string;
+  decisions?: string;
+  missing_info?: string;
+  next_steps?: string;
 }
 
 interface CodeChange {
@@ -52,12 +62,12 @@ interface AIModel {
   is_default: boolean;
 }
 
-const AIAgent: React.FC<AIAgentProps> = ({ 
-  editor, 
-  onClose, 
-  isVisible, 
+const AIAgent: React.FC<AIAgentProps> = ({
+  editor,
+  onClose,
+  isVisible,
   fileTree,
-  currentWorkspace 
+  currentWorkspace
 }) => {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [input, setInput] = useState('');
@@ -71,12 +81,16 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const [isResizing, setIsResizing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
-  
+  const [showStrategyDropdown, setShowStrategyDropdown] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const strategyDropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileDropRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isDragging } = useDrag();
 
   // 滚动到底部
   const scrollToBottom = () => {
@@ -92,6 +106,26 @@ const AIAgent: React.FC<AIAgentProps> = ({
       loadAvailableModels();
     }
   }, [isVisible]);
+
+  // 点击外部关闭下拉菜单
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
+        setShowModelDropdown(false);
+      }
+      if (strategyDropdownRef.current && !strategyDropdownRef.current.contains(event.target as Node)) {
+        setShowStrategyDropdown(false);
+      }
+    };
+
+    if (showModelDropdown || showStrategyDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showModelDropdown, showStrategyDropdown]);
 
   // 拖拽调整大小
   useEffect(() => {
@@ -127,27 +161,31 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
   // 拖拽处理
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!isDragging) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(true);
-  }, []);
+  }, [isDragging]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!isDragging) return;
     e.preventDefault();
     e.stopPropagation();
+    console.log('handleDragLeave');
     setIsDragOver(false);
-  }, []);
+  }, [isDragging]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!isDragging) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    
+
     const filePath = e.dataTransfer.getData('text/plain');
     if (filePath && !selectedFiles.includes(filePath)) {
       setSelectedFiles(prev => [...prev, filePath]);
     }
-  }, [selectedFiles]);
+  }, [isDragging, selectedFiles]);
 
   const loadAvailableModels = async () => {
     try {
@@ -155,7 +193,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
       if (response.ok) {
         const modelsData = await response.json();
         setModels(modelsData);
-        
+
         const defaultModel = modelsData.find((m: AIModel) => m.is_default);
         if (defaultModel) {
           setSelectedModel(defaultModel.id);
@@ -166,6 +204,11 @@ const AIAgent: React.FC<AIAgentProps> = ({
     }
   };
 
+  /**
+   * 生成代码
+   * @param prompt 提示词
+   * @param filePaths 文件路径
+   */
   const generateCode = async (prompt: string, filePaths: string[] = []) => {
     if (!currentWorkspace) {
       console.error('No workspace selected');
@@ -173,7 +216,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
     }
 
     setIsLoading(true);
-    
+
     const userMessage: AIMessage = {
       id: Date.now().toString(),
       type: 'user',
@@ -181,7 +224,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
       timestamp: new Date(),
       status: 'completed'
     };
-    
+
     setMessages(prev => [...prev, userMessage]);
 
     try {
@@ -197,7 +240,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
           strategy: strategy,
           file_paths: filePaths,
           auto_apply: autoMode,
-          tools: ['file_read', 'file_write', 'execute_shell'],
+          tools: ['file_read', 'file_write', 'file_delete', 'file_create', 'file_create_folder', 'file_delete_folder'],
           max_file_size: 1024 * 1024
         }),
       });
@@ -212,11 +255,12 @@ const AIAgent: React.FC<AIAgentProps> = ({
         codeChanges: data.code_changes || [],
         tools: data.tools || [],
         model: selectedModel,
-        status: data.success ? 'completed' : 'error'
+        status: data.success ? 'completed' : 'error',
+        thinking: data.thinking
       };
-      
-      setMessages(prev => [...prev, assistantMessage]);
 
+      setMessages(prev => [...prev, assistantMessage]);
+      console.log(data.code_changes);
       // 发送代码差异到编辑器
       if (data.code_changes && data.code_changes.length > 0) {
         const event = new CustomEvent('ai-code-changes', {
@@ -243,6 +287,10 @@ const AIAgent: React.FC<AIAgentProps> = ({
     }
   };
 
+  /**
+   * 应用代码更改
+   * @param change 代码更改
+   */
   const applyCodeChange = async (change: CodeChange) => {
     try {
       if (change.filePath && change.newCode && currentWorkspace) {
@@ -260,18 +308,18 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
         if (response.ok) {
           // 标记为已应用
-          setMessages(prev => 
+          setMessages(prev =>
             prev.map(msg => ({
               ...msg,
-              codeChanges: msg.codeChanges?.map(c => 
+              codeChanges: msg.codeChanges?.map(c =>
                 c === change ? { ...c, applied: true } : c
               )
             }))
           );
-          
+
           // 如果是当前打开的文件，通知编辑器刷新
           await openFile(change.filePath);
-          
+
           console.log('✅ 代码更改已应用到文件:', change.filePath);
         } else {
           throw new Error(`Failed to write file: ${response.statusText}`);
@@ -283,35 +331,42 @@ const AIAgent: React.FC<AIAgentProps> = ({
     }
   };
 
-  const rejectCodeChange = (change: CodeChange) => {
-    setMessages(prev => 
-      prev.map(msg => ({
-        ...msg,
-        codeChanges: msg.codeChanges?.filter(c => c !== change)
-      }))
-    );
-  };
-
+  /**
+   * 应用所有代码更改
+   * @param changes 代码更改列表
+   */
   const applyAllCodeChanges = async (changes: CodeChange[]) => {
     for (const change of changes) {
       await applyCodeChange(change);
     }
   };
 
+  /**
+   * 处理提交
+   * @param e 事件
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
     const prompt = input.trim();
     setInput('');
-    
+
     await generateCode(prompt, selectedFiles);
   };
 
+  /**
+   * 移除选中的文件
+   * @param filePath 文件路径
+   */
   const removeSelectedFile = (filePath: string) => {
     setSelectedFiles(prev => prev.filter(f => f !== filePath));
   };
 
+  /**
+   * 处理图片上传
+   * @param e 事件
+   */
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
@@ -320,6 +375,10 @@ const AIAgent: React.FC<AIAgentProps> = ({
     }
   };
 
+  /**
+   * 渲染代码差异
+   * @param message 消息
+   */
   const renderCodeComparison = (message: AIMessage) => {
     if (!message.codeChanges || message.codeChanges.length === 0) return null;
 
@@ -327,6 +386,71 @@ const AIAgent: React.FC<AIAgentProps> = ({
     return null;
   };
 
+  /**
+   * 渲染思考过程
+   * @param message 消息
+   */
+  const renderThinkingProcess = (message: AIMessage) => {
+    if (!message.thinking || message.type !== 'assistant') return null;
+
+    const thinking = message.thinking;
+    const hasContent = thinking.analysis || thinking.planning || thinking.considerations || 
+                      thinking.decisions || thinking.missing_info || thinking.next_steps;
+
+    if (!hasContent) return null;
+
+    return (
+      <div className="ai-agent-thinking-container">
+        <div className="ai-agent-thinking-header">
+          <span className="ai-agent-thinking-icon">🧠</span>
+          <span className="ai-agent-thinking-title">AI 思考过程</span>
+        </div>
+        <div className="ai-agent-thinking-content">
+          {thinking.analysis && (
+            <div className="ai-agent-thinking-section">
+              <div className="ai-agent-thinking-label">分析</div>
+              <div className="ai-agent-thinking-text">{thinking.analysis}</div>
+            </div>
+          )}
+          {thinking.planning && (
+            <div className="ai-agent-thinking-section">
+              <div className="ai-agent-thinking-label">规划</div>
+              <div className="ai-agent-thinking-text">{thinking.planning}</div>
+            </div>
+          )}
+          {thinking.considerations && (
+            <div className="ai-agent-thinking-section">
+              <div className="ai-agent-thinking-label">考虑因素</div>
+              <div className="ai-agent-thinking-text">{thinking.considerations}</div>
+            </div>
+          )}
+          {thinking.decisions && (
+            <div className="ai-agent-thinking-section">
+              <div className="ai-agent-thinking-label">决策</div>
+              <div className="ai-agent-thinking-text">{thinking.decisions}</div>
+            </div>
+          )}
+          {thinking.missing_info && (
+            <div className="ai-agent-thinking-section">
+              <div className="ai-agent-thinking-label">缺失信息</div>
+              <div className="ai-agent-thinking-text">{thinking.missing_info}</div>
+            </div>
+          )}
+          {thinking.next_steps && (
+            <div className="ai-agent-thinking-section">
+              <div className="ai-agent-thinking-label">下一步</div>
+              <div className="ai-agent-thinking-text">{thinking.next_steps}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * 渲染工具调用
+   * @param message 消息
+   */
   const renderToolCalls = (message: AIMessage) => {
     if (!message.tools || message.tools.length === 0) return null;
 
@@ -343,10 +467,36 @@ const AIAgent: React.FC<AIAgentProps> = ({
             executionId={tool.executionId}
           />
         ))}
+        {/* 显示工具执行结果摘要 */}
+        <div className="ai-agent-tools-summary">
+          <div className="ai-agent-tools-summary-header">
+            <span className="ai-agent-tools-summary-icon">⚡</span>
+            <span className="ai-agent-tools-summary-title">执行摘要</span>
+          </div>
+          <div className="ai-agent-tools-summary-stats">
+            <span className="ai-agent-tools-summary-total">
+              共 {message.tools.length} 个操作
+            </span>
+            {message.tools.filter(t => t.status === 'success').length > 0 && (
+              <span className="ai-agent-tools-summary-success">
+                ✓ {message.tools.filter(t => t.status === 'success').length} 成功
+              </span>
+            )}
+            {message.tools.filter(t => t.status === 'error').length > 0 && (
+              <span className="ai-agent-tools-summary-error">
+                ✗ {message.tools.filter(t => t.status === 'error').length} 失败
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
 
+  /**
+   * 打开文件
+   * @param filePath 文件路径
+   */
   const openFile = async (filePath: string) => {
     console.log('Opening file:', filePath);
   };
@@ -354,6 +504,16 @@ const AIAgent: React.FC<AIAgentProps> = ({
   if (!isVisible) return null;
 
   const selectedModelData = models.find(m => m.id === selectedModel);
+
+  // 获取策略显示名称
+  const getStrategyDisplayName = (strategyKey: string) => {
+    const strategyMap = {
+      'preview': '预览',
+      'auto': '自动',
+      'manual': '手动'
+    };
+    return strategyMap[strategyKey as keyof typeof strategyMap] || strategyKey;
+  };
 
   return (
     <>
@@ -367,41 +527,17 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
       {/* 主侧边栏 */}
       <div className="ai-agent-sidebar" style={{ width: `${sidebarWidth}px` }}>
-        
+
         {/* 标题栏 */}
         <div className="ai-agent-header">
           <div className="ai-agent-title">
             <span className="ai-agent-title-icon">🤖</span>
-            Cursor AI
+
           </div>
           <button className="ai-agent-close-btn" onClick={onClose}>
             ✕
           </button>
         </div>
-
-        {/* 选中的文件 */}
-        {selectedFiles.length > 0 && (
-          <div className="ai-agent-files-section">
-            <label className="ai-agent-label">
-              上下文文件 ({selectedFiles.length})
-            </label>
-            <div className="ai-agent-files-container">
-              {selectedFiles.map(file => (
-                <div key={file} className="ai-agent-file-item">
-                  <span className="ai-agent-file-name">
-                    📄 {file.split('/').pop()}
-                  </span>
-                  <button
-                    className="ai-agent-file-remove"
-                    onClick={() => removeSelectedFile(file)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* 消息列表 */}
         <div className="ai-agent-messages">
@@ -418,11 +554,12 @@ const AIAgent: React.FC<AIAgentProps> = ({
               <div className="ai-agent-message-content">
                 {message.content}
               </div>
+              {renderThinkingProcess(message)}
               {renderToolCalls(message)}
               {renderCodeComparison(message)}
             </div>
           ))}
-          
+
           {isLoading && (
             <div className="ai-agent-loading">
               <div className="ai-agent-loading-spinner"></div>
@@ -431,22 +568,48 @@ const AIAgent: React.FC<AIAgentProps> = ({
               </span>
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
 
         {/* 输入区域 */}
-        <div 
+        <div
           ref={fileDropRef}
           className="ai-agent-input-area"
           onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
         >
           {/* 拖拽提示 */}
-          {isDragOver && (
-            <div className="ai-agent-drag-overlay">
-              📁 拖拽文件到此处添加上下文
+          <div
+            style={{ opacity: isDragOver ? 1 : 0, pointerEvents: isDragOver ? 'auto' : 'none' }}
+            className="ai-agent-drag-overlay"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            📁 拖拽文件到此处添加上下文
+          </div>
+
+          {/* 选中的文件 */}
+          {selectedFiles.length > 0 && (
+            <div className="ai-agent-files-section">
+              <label className="ai-agent-label">
+                上下文文件 ({selectedFiles.length})
+              </label>
+              <div className="ai-agent-files-container">
+                {selectedFiles.map(file => (
+                  <div key={file} className="ai-agent-file-item">
+                    <span className="ai-agent-file-name">
+                      📄 {file.split('/').pop()}
+                    </span>
+                    <button
+                      className="ai-agent-file-remove"
+                      onClick={() => removeSelectedFile(file)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -467,138 +630,87 @@ const AIAgent: React.FC<AIAgentProps> = ({
             />
 
             {/* 下方控制栏 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+            <div className="ai-agent-controls">
               {/* 左侧：模型选择 */}
-              <div style={{ position: 'relative', minWidth: '120px' }}>
+              <div className="ai-agent-model-selector" ref={modelDropdownRef}>
                 <button
                   type="button"
+                  className="ai-agent-model-button"
                   onClick={() => setShowModelDropdown(!showModelDropdown)}
-                  style={{
-                    padding: '4px 8px',
-                    backgroundColor: '#3c3c3c',
-                    border: '1px solid #464647',
-                    borderRadius: '3px',
-                    color: '#cccccc',
-                    cursor: 'pointer',
-                    fontSize: '10px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    minWidth: '120px',
-                  }}
                 >
                   <span>{selectedModelData?.name?.split(' ')[0] || '模型'}</span>
-                  <span style={{ transform: showModelDropdown ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', fontSize: '8px' }}>
+                  <span className={`dropdown-arrow ${showModelDropdown ? 'open' : ''}`}>
                     ▼
                   </span>
                 </button>
-                
+
                 {showModelDropdown && (
-                  <div style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: 0,
-                    backgroundColor: '#3c3c3c',
-                    border: '1px solid #464647',
-                    borderRadius: '4px',
-                    zIndex: 1000,
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    marginBottom: '2px',
-                    minWidth: '200px',
-                  }}>
+                  <div className="ai-agent-model-dropdown">
                     {models.map(model => (
                       <div
                         key={model.id}
+                        className={`ai-agent-model-option ${selectedModel === model.id ? 'selected' : ''}`}
                         onClick={() => {
                           setSelectedModel(model.id);
                           setShowModelDropdown(false);
                         }}
-                        style={{
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          backgroundColor: selectedModel === model.id ? '#007acc' : 'transparent',
-                          color: selectedModel === model.id ? '#ffffff' : '#cccccc',
-                          fontSize: '11px',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (selectedModel !== model.id) {
-                            e.currentTarget.style.backgroundColor = '#464647';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (selectedModel !== model.id) {
-                            e.currentTarget.style.backgroundColor = 'transparent';
-                          }
-                        }}
                       >
-                        <div style={{ fontWeight: '500' }}>{model.name}</div>
-                        <div style={{ opacity: 0.7, fontSize: '10px' }}>{model.provider}</div>
+                        <div className="ai-agent-model-name">{model.name}</div>
+                        <div className="ai-agent-model-provider">{model.provider}</div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
 
-              {/* 模式切换 */}
-              <div style={{ display: 'flex', backgroundColor: '#3c3c3c', borderRadius: '3px', padding: '1px', gap: '1px' }}>
-                {[
-                  { key: 'preview', label: '预览', icon: '👁' },
-                  { key: 'auto', label: '自动', icon: '⚡' },
-                  { key: 'manual', label: '手动', icon: '🖐' }
-                ].map(mode => (
-                  <button
-                    key={mode.key}
-                    type="button"
-                    onClick={() => {
-                      setStrategy(mode.key as any);
-                      if (mode.key === 'auto') {
-                        setAutoMode(true);
-                      } else {
-                        setAutoMode(false);
-                      }
-                    }}
-                    style={{
-                      padding: '3px 6px',
-                      fontSize: '9px',
-                      backgroundColor: strategy === mode.key ? '#007acc' : 'transparent',
-                      color: strategy === mode.key ? '#ffffff' : '#cccccc',
-                      border: 'none',
-                      borderRadius: '2px',
-                      cursor: 'pointer',
-                      fontWeight: '500',
-                      transition: 'all 0.2s',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '2px',
-                    }}
-                  >
-                    <span style={{ fontSize: '7px' }}>{mode.icon}</span>
-                    {mode.label}
-                  </button>
-                ))}
+              {/* 策略选择 */}
+              <div className="ai-agent-strategy-selector" ref={strategyDropdownRef}>
+                <button
+                  type="button"
+                  className="ai-agent-strategy-button"
+                  onClick={() => setShowStrategyDropdown(!showStrategyDropdown)}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {getStrategyDisplayName(strategy)}
+                  </span>
+                  <span className={`dropdown-arrow ${showStrategyDropdown ? 'open' : ''}`}>
+                    ▼
+                  </span>
+                </button>
+
+                {showStrategyDropdown && (
+                  <div className="ai-agent-strategy-dropdown">
+                    {[
+                      { key: 'preview', label: '预览' },
+                      { key: 'auto', label: '自动' },
+                      { key: 'manual', label: '手动' }
+                    ].map(mode => (
+                      <div
+                        key={mode.key}
+                        className={`ai-agent-strategy-option ${strategy === mode.key ? 'selected' : ''}`}
+                        onClick={() => {
+                          setStrategy(mode.key as any);
+                          if (mode.key === 'auto') {
+                            setAutoMode(true);
+                          } else {
+                            setAutoMode(false);
+                          }
+                          setShowStrategyDropdown(false);
+                        }}
+                      >
+                        {mode.label}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 右侧：发送按钮和图片上传 */}
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div className="ai-agent-action-buttons">
                 <button
                   type="submit"
                   disabled={!input.trim() || isLoading}
-                  style={{
-                    padding: '6px 8px',
-                    backgroundColor: input.trim() && !isLoading ? '#007acc' : '#464647',
-                    color: input.trim() && !isLoading ? '#ffffff' : '#8c8c8c',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: input.trim() && !isLoading ? 'pointer' : 'not-allowed',
-                    fontSize: '12px',
-                    transition: 'all 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minWidth: '32px',
-                    height: '28px',
-                  }}
+                  className={`ai-agent-action-button ai-agent-send-button ${(!input.trim() || isLoading) ? 'disabled' : ''}`}
                   title={isLoading ? '生成中...' : '发送'}
                 >
                   {isLoading ? '⏳' : '➤'}
@@ -606,21 +718,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
                 <button
                   type="button"
+                  className="ai-agent-action-button"
                   onClick={() => fileInputRef.current?.click()}
-                  style={{
-                    padding: '6px 8px',
-                    backgroundColor: '#3c3c3c',
-                    border: '1px solid #464647',
-                    borderRadius: '4px',
-                    color: '#cccccc',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minWidth: '32px',
-                    height: '28px',
-                  }}
                   title="上传图片"
                 >
                   📷
