@@ -392,8 +392,9 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
     const handleResize = () => {
       if (fitAddon && terminalInstanceRef.current && isVisible) {
         try {
-          setTimeout(() => {
+          let timer = setTimeout(() => {
             fitAddon.fit();
+            clearTimeout(timer);
           }, 50);
         } catch (error) {
           console.warn(`[Terminal ${terminalId}] 终端尺寸适配失败:`, error);

@@ -960,6 +960,7 @@ func (oem *OnlineEditorManager) callAIWithModel(prompt string, tools []string, m
 // 解析代码更改
 // 解析AI响应，处理新的JSON格式（包含状态验证和自动工具执行）
 func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([]CodeChange, []ToolCall, *ThinkingProcess, error) {
+	fmt.Println(response)
 	var aiResponse struct {
 		Status        string   `json:"status"`
 		Message       string   `json:"message,omitempty"`
@@ -1607,6 +1608,63 @@ func (oem *OnlineEditorManager) executeShellCommand(workspaceID, command string)
 
 // 添加AI代码生成的HTTP处理器
 func (oem *OnlineEditorManager) handleAIGenerateCode(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	data := string(`{
+		"success": true,
+		"code": "{\n  \"status\": \"success\",\n  \"thinking\": {\n    \"analysis\": \"用户要求修改logs/xxx.js文件，使得控制台输出'hello world'。当前文件内容是一个展示事件循环的示例函数，包含同步代码、setTimeout和Promise的演示。\",\n    \"planning\": \"1. 保留原有函数结构但简化内容 2. 将console.log输出改为'hello world' 3. 移除所有异步代码示例\",\n    \"considerations\": \"1. 需要确保修改后的代码仍然是一个有效的JavaScript模块 2. 保持导出结构不变以便其他模块继续使用 3. 移除所有与hello world无关的代码\",\n    \"decisions\": \"决定完全重写函数体，只保留最基本的模块导出结构和单个console.log语句，因为用户只要求输出hello world，不需要保留原有的事件循环演示代码\"\n  },\n  \"change\": [\n    {\n      \"tool\": \"file_write\",\n      \"path\": \"logs/xxx.js\",\n      \"content\": \"function showEventLoop() {\\n  console.log('hello world');\\n}\\n\\n// 导出函数以便其他模块使用\\nmodule.exports = { showEventLoop };\"\n    }\n  ]\n}",
+		"message": "代码生成成功 (第1次尝试)",
+		"code_changes": [
+		  {
+			"filePath": "logs/xxx.js",
+			"originalCode": "function showEventLoop() {\n  console.log('同步代码开始');\n\n  // 宏任务\n  setTimeout(() => {\n    console.log('setTimeout回调执行');\n  }, 0);\n\n  // 微任务\n  Promise.resolve()\n    .then(() => {\n      console.log('Promise微任务1执行');\n    })\n    .then(() => {\n      console.log('Promise微任务2执行');\n    });\n\n  console.log('同步代码结束');\n}\n\n// 导出函数以便其他模块使用\nmodule.exports = { showEventLoop };",
+			"newCode": "function showEventLoop() {\n  console.log('hello world');\n}\n\n// 导出函数以便其他模块使用\nmodule.exports = { showEventLoop };",
+			"description": "更新文件 logs/xxx.js",
+			"changeType": "modify",
+			"confidence": 0.95
+		  }
+		],
+		"tools": [
+		  {
+			"name": "file_write",
+			"parameters": {
+			  "content": "function showEventLoop() {\n  console.log('hello world');\n}\n\n// 导出函数以便其他模块使用\nmodule.exports = { showEventLoop };",
+			  "path": "logs/xxx.js"
+			},
+			"result": "文件写入成功",
+			"status": "success",
+			"executionId": "tool_1753924277168544553",
+			"startTime": "2025-07-31T09:11:17.168544012+08:00",
+			"endTime": "2025-07-31T09:11:17.174956205+08:00",
+			"output": "写入文件 logs/xxx.js 成功，长度: 135"
+		  },
+		  {
+			"name": "execution_summary",
+			"parameters": {
+			  "attempt": 1,
+			  "files_read": 1,
+			  "status": "success",
+			  "tools_called": 0
+			},
+			"status": "success",
+			"executionId": "attempt_1",
+			"startTime": "2025-07-31T09:11:17.168316938+08:00",
+			"endTime": "2025-07-31T09:11:18.168316938+08:00",
+			"output": "第1次尝试: success"
+		  }
+		],
+		"thinking": {
+		  "analysis": "用户要求修改logs/xxx.js文件，使得控制台输出'hello world'。当前文件内容是一个展示事件循环的示例函数，包含同步代码、setTimeout和Promise的演示。",
+		  "planning": "1. 保留原有函数结构但简化内容 2. 将console.log输出改为'hello world' 3. 移除所有异步代码示例",
+		  "considerations": "1. 需要确保修改后的代码仍然是一个有效的JavaScript模块 2. 保持导出结构不变以便其他模块继续使用 3. 移除所有与hello world无关的代码",
+		  "decisions": "决定完全重写函数体，只保留最基本的模块导出结构和单个console.log语句，因为用户只要求输出hello world，不需要保留原有的事件循环演示代码"
+		}
+	  }`)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		oem.logError("响应编码失败", err)
+		http.Error(w, "响应编码失败", http.StatusInternalServerError)
+	}
+	return
+
 	if r.Method != "POST" {
 		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
 		return

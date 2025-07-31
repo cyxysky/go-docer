@@ -245,8 +245,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
         }),
       });
 
-      const data = await response.json();
-      
+      let data = await response.json();
+      data = JSON.parse(data);
       const assistantMessage: AIMessage = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
@@ -260,7 +260,6 @@ const AIAgent: React.FC<AIAgentProps> = ({
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-      console.log(data.code_changes);
       // 发送代码差异到编辑器
       if (data.code_changes && data.code_changes.length > 0) {
         const event = new CustomEvent('ai-code-changes', {
