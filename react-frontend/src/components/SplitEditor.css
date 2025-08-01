@@ -1,0 +1,380 @@
+.split-editor {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.split-pane {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.split-pane.horizontal {
+  flex-direction: row;
+}
+
+.split-pane.vertical {
+  flex-direction: column;
+}
+
+.editor-pane {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid transparent;
+  transition: border-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-pane.active {
+  border-color: #007acc;
+}
+
+.editor-pane:hover {
+  border-color: #007acc40;
+}
+
+/* 区域标签页样式 */
+.pane-tabs {
+  height: 44px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--secondary-color);
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.pane-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--quaternary-color);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  min-width: 140px;
+  max-width: 220px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  position: relative;
+  border: 1px solid transparent;
+  border-bottom: none;
+}
+
+.pane-tab:hover {
+  background: var(--tertiary-color);
+  color: var(--text-primary);
+}
+
+.pane-tab.active {
+  background: var(--dark-bg);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-md);
+}
+
+.pane-tab-close {
+  margin-left: auto;
+  opacity: 0.6;
+  transition: all var(--transition-fast);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.pane-tab-close:hover {
+  opacity: 1;
+  color: var(--danger-color);
+  background: var(--danger-color);
+  color: white;
+}
+
+/* 编辑器内容区域 */
+.pane-editor-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 欢迎页面样式 */
+.pane-welcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--dark-bg);
+  color: var(--text-secondary);
+}
+
+.welcome-content {
+  text-align: center;
+  padding: 40px;
+}
+
+.welcome-content i {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  opacity: 0.5;
+}
+
+.welcome-content h3 {
+  font-size: 1.5rem;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.welcome-content p {
+  font-size: 1rem;
+  opacity: 0.7;
+}
+
+/* 拖拽指示器样式 - VSCode风格 */
+.drag-indicators {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.drag-indicator {
+  position: absolute;
+  background: transparent;
+  border: none;
+  pointer-events: auto;
+  transition: all 0.15s ease;
+  opacity: 0;
+}
+
+.drag-indicator:hover,
+.drag-indicator.active {
+  background: rgba(14, 99, 156, 0.2);
+  border: 2px solid #0e639c;
+  opacity: 1;
+  box-shadow: 0 0 0 1px rgba(14, 99, 156, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* 拖拽区域定义 - 更小的触发区域但更好的视觉反馈 */
+.drag-indicator.top {
+  top: 44px; /* 排除tab区域的高度 */
+  left: 10%;
+  right: 10%;
+  height: 30%;
+  border-radius: 4px;
+}
+
+.drag-indicator.bottom {
+  bottom: 10%;
+  left: 10%;
+  right: 10%;
+  height: 30%;
+  border-radius: 4px;
+}
+
+.drag-indicator.left {
+  top: 44px; /* 排除tab区域的高度 */
+  left: 0;
+  width: 35%;
+  bottom: 0;
+  border-radius: 4px;
+}
+
+.drag-indicator.right {
+  top: 44px; /* 排除tab区域的高度 */
+  right: 0;
+  width: 35%;
+  bottom: 0;
+  border-radius: 4px;
+}
+
+/* 中央区域 - 用于在现有编辑器中打开文件 */
+.drag-indicator.center {
+  top: 44px;
+  left: 35%;
+  right: 35%;
+  bottom: 30%;
+  background: transparent;
+  border: 2px dashed rgba(0, 122, 204, 0.3);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: rgba(0, 122, 204, 0.7);
+  font-weight: 500;
+}
+
+.drag-indicator.center:hover,
+.drag-indicator.center.active {
+  background: rgba(0, 122, 204, 0.05);
+  border-color: #007acc;
+  color: #007acc;
+}
+
+/* 移除文字指示器，只保留半透明区域 */
+.indicator-content {
+  display: none;
+}
+
+/* 编辑器面板拖拽悬停状态 */
+.editor-pane.drag-hover {
+  background: rgba(0, 122, 204, 0.02);
+  border-color: rgba(0, 122, 204, 0.3);
+  transition: all 0.2s ease;
+}
+
+/* 拆分器样式 */
+.split-resizer {
+  background: #e1e4e8;
+  transition: background-color 0.2s ease;
+  position: relative;
+}
+
+.split-resizer.horizontal {
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.split-resizer.vertical {
+  height: 4px;
+  width: 100%;
+  cursor: row-resize;
+}
+
+.split-resizer:hover {
+  background: #007acc;
+}
+
+.split-resizer:active {
+  background: #007acc;
+}
+
+/* 拆分线样式 */
+.split-pane.horizontal > div:not(:last-child) {
+  border-right: 1px solid #e1e4e8;
+}
+
+.split-pane.vertical > div:not(:last-child) {
+  border-bottom: 1px solid #e1e4e8;
+}
+
+/* 暗色主题适配 */
+[data-theme="dark"] .split-pane.horizontal > div:not(:last-child) {
+  border-right-color: #404040;
+}
+
+[data-theme="dark"] .split-pane.vertical > div:not(:last-child) {
+  border-bottom-color: #404040;
+}
+
+[data-theme="dark"] .split-resizer {
+  background: #404040;
+}
+
+[data-theme="dark"] .split-resizer:hover {
+  background: #007acc;
+}
+
+[data-theme="dark"] .split-resizer:active {
+  background: #007acc;
+}
+
+[data-theme="dark"] .editor-pane.active {
+  border-color: #007acc;
+}
+
+[data-theme="dark"] .editor-pane:hover {
+  border-color: #007acc40;
+}
+
+[data-theme="dark"] .drag-indicator:hover,
+[data-theme="dark"] .drag-indicator.active {
+  background: rgba(14, 99, 156, 0.3);
+  border-color: #0e639c;
+  box-shadow: 0 0 0 1px rgba(14, 99, 156, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .drag-indicator.center {
+  border-color: rgba(0, 122, 204, 0.4);
+  color: rgba(0, 122, 204, 0.8);
+}
+
+[data-theme="dark"] .drag-indicator.center:hover,
+[data-theme="dark"] .drag-indicator.center.active {
+  background: rgba(0, 122, 204, 0.08);
+  border-color: #007acc;
+  color: #007acc;
+}
+
+[data-theme="dark"] .editor-pane.drag-hover {
+  background: rgba(0, 122, 204, 0.03);
+  border-color: rgba(0, 122, 204, 0.4);
+}
+
+[data-theme="dark"] .pane-tabs {
+  background: var(--secondary-color);
+  border-bottom-color: var(--border-color);
+}
+
+[data-theme="dark"] .pane-tab {
+  background: var(--quaternary-color);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .pane-tab:hover {
+  background: var(--tertiary-color);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .pane-tab.active {
+  background: var(--dark-bg);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .pane-welcome {
+  background: var(--dark-bg);
+  color: var(--text-secondary);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .split-pane.horizontal {
+    flex-direction: column;
+  }
+  
+  .split-pane.vertical {
+    flex-direction: column;
+  }
+  
+  .drag-indicator.left,
+  .drag-indicator.right {
+    width: 100%;
+    height: 50%;
+  }
+  
+  .drag-indicator.left {
+    top: 0;
+  }
+  
+  .drag-indicator.right {
+    bottom: 0;
+    top: auto;
+  }
+  
+  .pane-tab {
+    min-width: 120px;
+    max-width: 180px;
+    padding: 8px 12px;
+  }
+} 

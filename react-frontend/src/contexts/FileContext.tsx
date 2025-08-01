@@ -14,6 +14,7 @@ interface FileContextType {
   error: string | null;
   loadFileTree: (workspaceId: string, path?: string) => Promise<void>;
   loadSubFiles: (workspaceId: string, path: string) => Promise<FileItem[]>;
+  setCurrentFile: (filePath: string) => void;
   openFile: (filePath: string) => Promise<void>;
   openTab: (filePath: string, content: string) => void;
   closeTab: (tabId: string) => void;
@@ -26,6 +27,7 @@ interface FileContextType {
   renameFile: (oldPath: string, newName: string) => Promise<void>;
   moveFile: (sourcePath: string, targetPath: string) => Promise<void>;
   refreshFileTree: () => Promise<void>;
+  
 }
 
 const FileContext = createContext<FileContextType | undefined>(undefined);
@@ -485,6 +487,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     error,
     loadFileTree,
     loadSubFiles,
+    setCurrentFile,
     openFile,
     openTab,
     closeTab,

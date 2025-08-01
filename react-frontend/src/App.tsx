@@ -13,7 +13,7 @@ import TerminalPanel from './components/TerminalPanel';
 import GitPanel from './components/GitPanel';
 import StatsPanel from './components/StatsPanel';
 import ResizablePanel from './components/ResizablePanel';
-import MonacoEditor from './components/MonacoEditor';
+import SplitEditor from './components/SplitEditor';
 import ToastComponent from './components/Toast';
 import ThemeToggle from './components/ThemeToggle';
 import './App.css';
@@ -158,12 +158,9 @@ const AppContent: React.FC = () => {
 
         {/* 主编辑区域 */}
         <div className="editor-container">
-          {/* 编辑器标签栏 */}
-          <EditorTabs />
-          
-          {/* Monaco Editor */}
+          {/* Split Editor */}
           <div className="monaco-editor-container">
-            <MonacoEditor />
+            <SplitEditor />
           </div>
 
           {/* 底部面板拖拽手柄 */}
@@ -229,42 +226,7 @@ const AppContent: React.FC = () => {
   );
 };
 
-// 编辑器标签栏组件
-const EditorTabs: React.FC = () => {
-  const { openTabs, activeTab, closeTab, setActiveTab } = useFile();
 
-  const handleTabClick = (tabId: string) => {
-    setActiveTab(tabId);
-  };
-
-  return (
-    <div className="editor-tabs">
-      {Array.from(openTabs.values()).map((tab: any) => (
-        <div 
-          key={tab.id}
-          className={`editor-tab ${activeTab === tab.id ? 'active' : ''}`}
-          onClick={() => handleTabClick(tab.id)}
-        >
-          <i className="fas fa-file-code"></i>
-          <span className="tab-name">{tab.path.split('/').pop()}</span>
-          <i 
-            className="fas fa-times editor-tab-close" 
-            onClick={(e) => {
-              e.stopPropagation();
-              closeTab(tab.id);
-            }}
-          ></i>
-        </div>
-      ))}
-      {openTabs.size === 0 && (
-        <div className="editor-tab active">
-          <i className="fas fa-home"></i>
-          <span>欢迎</span>
-        </div>
-      )}
-    </div>
-  );
-};
 
 // 状态栏组件
 const StatusBar: React.FC = () => {

@@ -368,6 +368,23 @@ body {
   box-shadow: var(--shadow-md);
 }
 
+.editor-tab.dragging {
+  opacity: 0.5;
+  transform: rotate(5deg);
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+}
+
+.editor-tab.drag-over {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.editor-tab.drag-over .editor-tab-close {
+  color: white;
+}
+
 .editor-tab-close {
   margin-left: auto;
   opacity: 0.6;

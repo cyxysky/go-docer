@@ -129,6 +129,8 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
     return () => clearInterval(interval);
   }, [loadWorkspaces]);
 
+  // 移除自动选择工作空间的逻辑，让用户手动选择
+
   const value: WorkspaceContextType = {
     workspaces,
     currentWorkspace,

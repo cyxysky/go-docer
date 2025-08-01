@@ -116,7 +116,7 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context, language stri
 	prompt.WriteString("2. 如果信息不足、需求不明确或存在风险，你必须返回错误信息\n")
 	prompt.WriteString("3. 你的输出必须是完整的、可执行的、最终的结果\n")
 	prompt.WriteString("4. 绝对不允许输出不完整、有错误或不确定的代码\n\n")
-	prompt.WriteString("5. 输出的内容一定按照格式！！\n\n")
+	prompt.WriteString("5. 输出的内容一定按照格式！！这是最重要的！！\n\n")
 
 	// 构建代码上下文JSON
 	contextJSON := "{\n"

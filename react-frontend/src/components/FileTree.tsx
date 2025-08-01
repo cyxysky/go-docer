@@ -143,6 +143,11 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
         await loadChildren();
       }
     } else {
+      // 触发自定义事件，通知编辑器文件被点击
+      const clickEvent = new CustomEvent('file-click', {
+        detail: { filePath: file.path }
+      });
+      window.dispatchEvent(clickEvent);
       onFileClick(file);
     }
   };
@@ -170,6 +175,12 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     setDraggedFiles([file.path]); // 设置拖拽的文件
     e.dataTransfer.setData('text/plain', file.path);
     e.dataTransfer.effectAllowed = 'move';
+    
+    // 触发自定义事件，通知编辑器拖拽开始
+    const dragEvent = new CustomEvent('file-drag-start', {
+      detail: { filePath: file.path }
+    });
+    window.dispatchEvent(dragEvent);
   };
 
   /**
@@ -182,6 +193,10 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     setIsDragging(() => false); // 清除全局拖拽状态
     setDraggedFiles([]); // 清除拖拽的文件
     setIsDragOver(false);
+    
+    // 触发自定义事件，通知编辑器拖拽结束
+    const dragEvent = new CustomEvent('file-drag-end');
+    window.dispatchEvent(dragEvent);
   };
 
   /**
