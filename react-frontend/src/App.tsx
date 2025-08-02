@@ -17,6 +17,8 @@ import SplitEditor from './components/SplitEditor';
 import ToastComponent from './components/Toast';
 import ThemeToggle from './components/ThemeToggle';
 import './App.css';
+import '@fortawesome/fontawesome-svg-core/styles.css'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 
 // 主应用组件
 const AppContent: React.FC = () => {
@@ -230,7 +232,7 @@ const AppContent: React.FC = () => {
 
 // 状态栏组件
 const StatusBar: React.FC = () => {
-  const { currentFile } = useFile();
+  const { activeTab } = useFile();
   const { currentWorkspace } = useWorkspace();
 
   return (
@@ -238,7 +240,7 @@ const StatusBar: React.FC = () => {
       <div className="status-left">
         <div className="status-item">
           <i className="fas fa-circle" style={{color: '#3fb950', fontSize: '8px'}}></i>
-          <span>{currentFile || '未选择文件'}</span>
+          <span>{activeTab || '未选择文件'}</span>
         </div>
         <div className="status-item">
           <i className="fas fa-code-branch"></i>

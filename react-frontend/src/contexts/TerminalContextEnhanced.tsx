@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useRef, useCallback, useEffect, useState } from 'react';
 import { useWorkspace } from './WorkspaceContext';
-import { processTerminalData, needsProcessing } from '../utils/terminalProcessor';
+
 
 interface TerminalContextType {
   terminalStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -89,21 +89,11 @@ export const TerminalProvider: React.FC<TerminalProviderProps> = ({ children, te
         console.log(`[Terminal ${terminalId}] 等待后端终端初始化...`);
       };
 
-      // 使用 @rushstack/terminal 处理WebSocket数据
+      // 处理WebSocket数据
       ws.onmessage = function (event) {
-        // 检查是否需要处理数据
-        if (needsProcessing(event.data)) {
-          // 使用 @rushstack/terminal 处理器处理数据
-          const processedData = processTerminalData(event.data);
-          
-          if (processedData && writeToTerminalRef.current) {
-            writeToTerminalRef.current(processedData);
-          }
-        } else {
-          // 数据不需要处理，直接写入
-          if (writeToTerminalRef.current) {
-            writeToTerminalRef.current(event.data);
-          }
+        // 直接写入数据到终端
+        if (writeToTerminalRef.current) {
+          writeToTerminalRef.current(event.data);
         }
       };
 

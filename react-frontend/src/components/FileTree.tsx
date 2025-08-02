@@ -71,8 +71,8 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 }) => {
   const { loadSubFiles } = useFile();
   const { currentWorkspace } = useWorkspace();
-  const { setDraggedFiles, setIsDragging, isDragging } = useDrag();
-  const [showActions, setShowActions] = useState(false);
+  const { setDraggedFiles, setIsDragging } = useDrag();
+
   const [children, setChildren] = useState<FileItem[]>([]);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
@@ -144,6 +144,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
       }
     } else {
       // 触发自定义事件，通知编辑器文件被点击
+      console.log('🔄 FileTree触发文件点击事件:', file.path);
       const clickEvent = new CustomEvent('file-click', {
         detail: { filePath: file.path }
       });
@@ -282,8 +283,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
         className={`file-tree-item ${file.is_dir ? 'folder' : 'file'} ${isDraggingLocal ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''} ${isLoadingChildren ? 'loading' : ''}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        onMouseEnter={() => setShowActions(true)}
-        onMouseLeave={() => setShowActions(false)}
+
         draggable
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
@@ -348,7 +348,7 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
 const FileTree: React.FC = () => {
   const { files, openFile, deleteFile, renameFile, createFile, createFolder, moveFile } = useFile();
   const { currentWorkspace } = useWorkspace();
-  const { showSuccess, showError, showWarning, showInfo } = useNotification();
+  const { showSuccess, showError } = useNotification();
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);

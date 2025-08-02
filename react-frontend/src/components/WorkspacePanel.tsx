@@ -9,14 +9,14 @@ const WorkspacePanel: React.FC = () => {
   const { 
     workspaces, 
           currentWorkspace, 
-    createWorkspace, 
+ 
     selectWorkspace, 
     startWorkspace, 
     stopWorkspace, 
     deleteWorkspace,
     loadWorkspaces
   } = useWorkspace();
-  const { showSuccess, showError, showWarning, showInfo } = useNotification();
+  const { showSuccess, showError } = useNotification();
 
   const [name, setName] = useState('');
   const [image, setImage] = useState('');
@@ -350,18 +350,7 @@ const WorkspacePanel: React.FC = () => {
     }
   };
 
-  // 测试端口
-  const handleTestPort = async (port: string) => {
-    if (!selectedWorkspaceForPort) return;
-    
-    try {
-      const result = await workspaceAPI.testPort(selectedWorkspaceForPort.id, port);
-      showInfo('端口测试', `端口测试已启动!\n\n${result.message}\n\n测试URL: ${result.test_url}\n\n${result.note}`);
-    } catch (error) {
-      console.error('端口测试失败:', error);
-      showError('测试失败', '端口测试失败: ' + (error instanceof Error ? error.message : '未知错误'));
-    }
-  };
+
 
   // 处理删除工作空间确认
   const handleDeleteConfirm = (workspace: any) => {

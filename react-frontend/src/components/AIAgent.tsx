@@ -63,10 +63,10 @@ interface AIModel {
 }
 
 const AIAgent: React.FC<AIAgentProps> = ({
-  editor,
+
   onClose,
   isVisible,
-  fileTree,
+
   currentWorkspace
 }) => {
   const [messages, setMessages] = useState<AIMessage[]>([]);

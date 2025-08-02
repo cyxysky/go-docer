@@ -2,98 +2,147 @@
   width: 100%;
   height: 100%;
   position: relative;
-  display: flex;
-  flex-direction: column;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
 }
 
-.split-pane {
-  display: flex;
-  width: 100%;
-  height: 100%;
-}
-
-.split-pane.horizontal {
-  flex-direction: row;
-}
-
-.split-pane.vertical {
-  flex-direction: column;
-}
-
+/* 编辑器面板 */
 .editor-pane {
-  position: relative;
   width: 100%;
   height: 100%;
-  border: 1px solid transparent;
-  transition: border-color 0.2s ease;
+  position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  transition: all 0.2s ease;
 }
 
 .editor-pane.active {
   border-color: #007acc;
+  box-shadow: 0 0 0 1px #007acc;
 }
 
-.editor-pane:hover {
-  border-color: #007acc40;
-}
 
-/* 区域标签页样式 */
-.pane-tabs {
-  height: 44px;
-  border-bottom: 1px solid var(--border-color);
+/* 分割面板 */
+.split-pane {
+  width: 100%;
+  height: 100%;
   display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+.split-pane.horizontal {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.split-pane.vertical {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* 分割调整器 */
+.split-resizer {
+  position: relative;
+  background: #3c3c3c;
+  transition: background-color 0.2s ease;
+  z-index: 10;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.split-resizer.horizontal {
+  width: 6px;
+  cursor: col-resize;
+  min-width: 6px;
+  margin: 0 -1px;
+}
+
+.split-resizer.vertical {
+  height: 6px;
+  cursor: row-resize;
+  min-height: 6px;
+  margin: -1px 0;
+}
+
+.split-resizer:hover {
+  background: #007acc;
+}
+
+.split-resizer:active {
+  background: #005a9e;
+}
+
+.split-resizer.dragging {
+  background: #007acc;
+}
+
+/* 面板标签页 */
+.pane-tabs {
+  display: flex;
+  background: #2d2d30;
+  border-bottom: 1px solid #3c3c3c;
+  height: 44px;
+  min-height: 44px;
   overflow-x: auto;
   overflow-y: hidden;
-  background: var(--secondary-color);
-  gap: 2px;
-  flex-shrink: 0;
 }
 
 .pane-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  background: var(--quaternary-color);
+  padding: 0 12px;
+  background: #2d2d30;
+  border-right: 1px solid #3c3c3c;
+  border-bottom: 2px solid transparent;
+  color: #cccccc;
   cursor: pointer;
-  transition: all var(--transition-normal);
-  min-width: 140px;
-  max-width: 220px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 500;
+  user-select: none;
+  min-width: 120px;
+  max-width: 200px;
+  transition: all 0.2s ease;
   position: relative;
-  border: 1px solid transparent;
-  border-bottom: none;
 }
 
 .pane-tab:hover {
-  background: var(--tertiary-color);
-  color: var(--text-primary);
+  background: #3c3c3c;
+  color: #ffffff;
 }
 
 .pane-tab.active {
-  background: var(--dark-bg);
-  color: var(--text-primary);
-  border-color: var(--border-color);
-  box-shadow: var(--shadow-md);
+  background: #1e1e1e;
+  color: #ffffff;
+  border-bottom: 2px solid #007acc;
+}
+
+.pane-tab i {
+  margin-right: 6px;
+  font-size: 14px;
+}
+
+.pane-tab .tab-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
 }
 
 .pane-tab-close {
-  margin-left: auto;
-  opacity: 0.6;
-  transition: all var(--transition-fast);
+  margin-left: 8px;
   padding: 2px;
-  border-radius: var(--radius-sm);
+  border-radius: 2px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: all 0.2s ease;
 }
 
 .pane-tab-close:hover {
   opacity: 1;
-  color: var(--danger-color);
-  background: var(--danger-color);
-  color: white;
+  background: #5a5a5a;
 }
 
 /* 编辑器内容区域 */
@@ -103,278 +152,208 @@
   overflow: hidden;
 }
 
-/* 欢迎页面样式 */
+/* 欢迎页面 */
 .pane-welcome {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100%;
-  background: var(--dark-bg);
-  color: var(--text-secondary);
+  background: #1e1e1e;
 }
 
 .welcome-content {
+  display: flex;
+  justify-content: center;
   text-align: center;
-  padding: 40px;
+  color: #969696;
+  flex-direction: column;
+  align-items: center;
 }
 
 .welcome-content i {
   font-size: 4rem;
-  margin-bottom: 20px;
-  opacity: 0.5;
+  margin-bottom: 16px;
+  display: block;
+  color: #007acc;
 }
 
 .welcome-content h3 {
-  font-size: 1.5rem;
-  margin-bottom: 10px;
-  color: var(--text-primary);
+  font-size: 18px;
+  margin-bottom: 8px;
+  color: #d4d4d4;
 }
 
 .welcome-content p {
-  font-size: 1rem;
-  opacity: 0.7;
+  font-size: 14px;
+  color: #969696;
 }
 
-/* 拖拽指示器样式 - VSCode风格 */
+/* 拖拽指示器 */
 .drag-indicators {
   position: absolute;
-  top: 0;
+  top: 44px;
   left: 0;
   right: 0;
   bottom: 0;
-  pointer-events: none;
-  z-index: 9999;
+  z-index: 1005;
 }
 
 .drag-indicator {
   position: absolute;
-  background: transparent;
-  border: none;
-  pointer-events: auto;
-  transition: all 0.15s ease;
-  opacity: 0;
+  background: rgba(16, 185, 129, 0.1);
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+  z-index: 888;
 }
 
-.drag-indicator:hover,
 .drag-indicator.active {
-  background: rgba(14, 99, 156, 0.2);
-  border: 2px solid #0e639c;
-  opacity: 1;
-  box-shadow: 0 0 0 1px rgba(14, 99, 156, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
 }
 
-/* 拖拽区域定义 - 更小的触发区域但更好的视觉反馈 */
 .drag-indicator.top {
-  top: 44px; /* 排除tab区域的高度 */
-  left: 10%;
-  right: 10%;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 30%;
-  border-radius: 4px;
 }
 
 .drag-indicator.bottom {
-  bottom: 10%;
-  left: 10%;
-  right: 10%;
+  bottom: 0;
+  left: 0;
+  right: 0;
   height: 30%;
-  border-radius: 4px;
 }
 
 .drag-indicator.left {
-  top: 44px; /* 排除tab区域的高度 */
+  top: 0;
   left: 0;
-  width: 35%;
   bottom: 0;
-  border-radius: 4px;
+  width: 30%;
 }
 
 .drag-indicator.right {
-  top: 44px; /* 排除tab区域的高度 */
+  top: 0;
   right: 0;
-  width: 35%;
   bottom: 0;
-  border-radius: 4px;
+  width: 30%;
 }
 
-/* 中央区域 - 用于在现有编辑器中打开文件 */
 .drag-indicator.center {
-  top: 44px;
-  left: 35%;
-  right: 35%;
+  top: 30%;
+  left: 30%;
+  right: 30%;
   bottom: 30%;
-  background: transparent;
-  border: 2px dashed rgba(0, 122, 204, 0.3);
-  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  color: rgba(0, 122, 204, 0.7);
-  font-weight: 500;
+  background: rgba(16, 185, 129, 0.3);
+  border-radius: 8px;
 }
 
-.drag-indicator.center:hover,
 .drag-indicator.center.active {
-  background: rgba(0, 122, 204, 0.05);
-  border-color: #007acc;
-  color: #007acc;
+  background: rgba(16, 185, 129, 0.5);
+  border-color: #10b981;
 }
 
-/* 移除文字指示器，只保留半透明区域 */
-.indicator-content {
-  display: none;
+.drag-indicator.center span {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-/* 编辑器面板拖拽悬停状态 */
-.editor-pane.drag-hover {
-  background: rgba(0, 122, 204, 0.02);
-  border-color: rgba(0, 122, 204, 0.3);
-  transition: all 0.2s ease;
-}
-
-/* 拆分器样式 */
-.split-resizer {
-  background: #e1e4e8;
-  transition: background-color 0.2s ease;
-  position: relative;
-}
-
-.split-resizer.horizontal {
-  width: 4px;
-  height: 100%;
-  cursor: col-resize;
-}
-
-.split-resizer.vertical {
+/* 滚动条样式 */
+.pane-tabs::-webkit-scrollbar {
   height: 4px;
-  width: 100%;
-  cursor: row-resize;
 }
 
-.split-resizer:hover {
-  background: #007acc;
+.pane-tabs::-webkit-scrollbar-track {
+  background: #2d2d30;
 }
 
-.split-resizer:active {
-  background: #007acc;
+.pane-tabs::-webkit-scrollbar-thumb {
+  background: #5a5a5a;
+  border-radius: 2px;
 }
 
-/* 拆分线样式 */
-.split-pane.horizontal > div:not(:last-child) {
-  border-right: 1px solid #e1e4e8;
-}
-
-.split-pane.vertical > div:not(:last-child) {
-  border-bottom: 1px solid #e1e4e8;
-}
-
-/* 暗色主题适配 */
-[data-theme="dark"] .split-pane.horizontal > div:not(:last-child) {
-  border-right-color: #404040;
-}
-
-[data-theme="dark"] .split-pane.vertical > div:not(:last-child) {
-  border-bottom-color: #404040;
-}
-
-[data-theme="dark"] .split-resizer {
-  background: #404040;
-}
-
-[data-theme="dark"] .split-resizer:hover {
-  background: #007acc;
-}
-
-[data-theme="dark"] .split-resizer:active {
-  background: #007acc;
-}
-
-[data-theme="dark"] .editor-pane.active {
-  border-color: #007acc;
-}
-
-[data-theme="dark"] .editor-pane:hover {
-  border-color: #007acc40;
-}
-
-[data-theme="dark"] .drag-indicator:hover,
-[data-theme="dark"] .drag-indicator.active {
-  background: rgba(14, 99, 156, 0.3);
-  border-color: #0e639c;
-  box-shadow: 0 0 0 1px rgba(14, 99, 156, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-}
-
-[data-theme="dark"] .drag-indicator.center {
-  border-color: rgba(0, 122, 204, 0.4);
-  color: rgba(0, 122, 204, 0.8);
-}
-
-[data-theme="dark"] .drag-indicator.center:hover,
-[data-theme="dark"] .drag-indicator.center.active {
-  background: rgba(0, 122, 204, 0.08);
-  border-color: #007acc;
-  color: #007acc;
-}
-
-[data-theme="dark"] .editor-pane.drag-hover {
-  background: rgba(0, 122, 204, 0.03);
-  border-color: rgba(0, 122, 204, 0.4);
-}
-
-[data-theme="dark"] .pane-tabs {
-  background: var(--secondary-color);
-  border-bottom-color: var(--border-color);
-}
-
-[data-theme="dark"] .pane-tab {
-  background: var(--quaternary-color);
-  color: var(--text-secondary);
-}
-
-[data-theme="dark"] .pane-tab:hover {
-  background: var(--tertiary-color);
-  color: var(--text-primary);
-}
-
-[data-theme="dark"] .pane-tab.active {
-  background: var(--dark-bg);
-  color: var(--text-primary);
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .pane-welcome {
-  background: var(--dark-bg);
-  color: var(--text-secondary);
+.pane-tabs::-webkit-scrollbar-thumb:hover {
+  background: #7a7a7a;
 }
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .split-pane.horizontal {
-    flex-direction: column;
-  }
-  
-  .split-pane.vertical {
-    flex-direction: column;
-  }
-  
-  .drag-indicator.left,
-  .drag-indicator.right {
-    width: 100%;
-    height: 50%;
-  }
-  
-  .drag-indicator.left {
-    top: 0;
-  }
-  
-  .drag-indicator.right {
-    bottom: 0;
-    top: auto;
-  }
-  
   .pane-tab {
-    min-width: 120px;
-    max-width: 180px;
-    padding: 8px 12px;
+    min-width: 100px;
+    max-width: 150px;
+    padding: 0 8px;
   }
-} 
+
+  .pane-tab .tab-name {
+    font-size: 12px;
+  }
+
+  .welcome-content i {
+    font-size: 3rem;
+  }
+
+  .welcome-content h3 {
+    font-size: 16px;
+  }
+
+  .welcome-content p {
+    font-size: 12px;
+  }
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.editor-pane {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+  .editor-pane {
+    border-color: #ffffff;
+  }
+
+  .editor-pane.active {
+    border-color: #007acc;
+    box-shadow: 0 0 0 2px #007acc;
+  }
+
+  .pane-tab {
+    border-color: #ffffff;
+  }
+
+  .pane-tab.active {
+    border-bottom-color: #007acc;
+  }
+}
+
+/* 减少动画模式支持 */
+@media (prefers-reduced-motion: reduce) {
+
+  .editor-pane,
+  .pane-tab,
+  .drag-indicator,
+  .split-resizer {
+    transition: none;
+  }
+
+  .editor-pane {
+    animation: none;
+  }
+}

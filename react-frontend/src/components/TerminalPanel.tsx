@@ -57,7 +57,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
   const currentInputRef = useRef('');
   const [isVisible, setIsVisible] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+
 
   // 命令历史
   const commandHistoryRef = useRef<string[]>([]);
@@ -507,7 +507,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ terminalId }) => {
   // 更新状态引用
   useEffect(() => {
     statusRef.current = terminalStatus;
-    setIsConnected(terminalStatus === 'connected');
+
   }, [terminalStatus]);
 
   // 处理终端状态变化

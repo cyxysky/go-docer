@@ -766,7 +766,7 @@ const ImagePanel: React.FC = () => {
                   <div className="environment-info">
                     <h5>环境变量模板</h5>
                     <div className="template-buttons">
-                      {Object.entries(environmentTemplates).map(([name, template]: [string, any]) => (
+                      {Object.entries(environmentTemplates).map(([name]: [string, any]) => (
                         <button
                           key={name}
                           type="button"
@@ -916,7 +916,7 @@ const ImagePanel: React.FC = () => {
                   <div className="environment-info">
                     <h5>环境变量模板</h5>
                     <div className="template-buttons">
-                      {Object.entries(environmentTemplates).map(([name, template]: [string, any]) => (
+                      {Object.entries(environmentTemplates).map(([name]: [string, any]) => (
                         <button
                           key={name}
                           type="button"

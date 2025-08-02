@@ -248,6 +248,8 @@ body {
   flex: 1;
   padding: 12px 8px;
   text-align: center;
+  display: flex;
+  justify-content: center;
   cursor: pointer;
   color: var(--text-secondary);
   border-radius: var(--radius-md);
@@ -1661,3 +1663,4 @@ body {
     padding: 12px;
   }
 }
+

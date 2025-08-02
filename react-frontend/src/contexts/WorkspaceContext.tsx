@@ -8,7 +8,7 @@ interface WorkspaceContextType {
   isLoading: boolean;
   error: string | null;
   loadWorkspaces: () => Promise<void>;
-  createWorkspace: (name: string, image: string, gitRepo: string, gitBranch: string, tools?: string[], ports?: Array<{containerPort: string, hostPort: string, protocol: string}>) => Promise<void>;
+  createWorkspace: (name: string, image: string, gitRepo: string, gitBranch: string, tools?: string[], ports?: Array<{ containerPort: string, hostPort: string, protocol: string }>) => Promise<void>;
   selectWorkspace: (id: string) => void;
   startWorkspace: (id: string) => Promise<void>;
   stopWorkspace: (id: string) => Promise<void>;
@@ -50,7 +50,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
     }
   }, []);
 
-  const createWorkspace = useCallback(async (name: string, image: string, gitRepo: string, gitBranch: string, tools?: string[], ports?: Array<{containerPort: string, hostPort: string, protocol: string}>) => {
+  const createWorkspace = useCallback(async (name: string, image: string, gitRepo: string, gitBranch: string, tools?: string[], ports?: Array<{ containerPort: string, hostPort: string, protocol: string }>) => {
     setError(null);
     try {
       await workspaceAPI.createWorkspace({
@@ -103,15 +103,15 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
       // 先停止工作空间
       await workspaceAPI.stopWorkspace(workspaceId);
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       // 然后删除
       await workspaceAPI.deleteWorkspace(workspaceId);
-      
+
       // 如果删除的是当前选中的工作空间，清空选择
       if (currentWorkspace === workspaceId) {
         setCurrentWorkspace(null);
       }
-      
+
       await loadWorkspaces(); // 重新加载数据
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '删除工作空间失败';
@@ -123,10 +123,6 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
   // 初始化时加载工作空间
   useEffect(() => {
     loadWorkspaces();
-    
-    // 设置定时刷新
-    const interval = setInterval(loadWorkspaces, 5000);
-    return () => clearInterval(interval);
   }, [loadWorkspaces]);
 
   // 移除自动选择工作空间的逻辑，让用户手动选择

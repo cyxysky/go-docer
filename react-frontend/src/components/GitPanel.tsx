@@ -25,7 +25,7 @@ interface GitOperation {
 }
 
 const GitPanel: React.FC<GitPanelProps> = ({ currentWorkspace }) => {
-  const { showSuccess, showError, showWarning, showInfo } = useNotification();
+  const { showSuccess, showError, showWarning } = useNotification();
   const [commitMessage, setCommitMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
