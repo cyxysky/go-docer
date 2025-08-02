@@ -98,13 +98,6 @@ func GetAIConfig() *AIConfigData {
 	return config
 }
 
-// AIConfigData 定义AI配置数据
-type AIConfigData struct {
-	DefaultModel string              `json:"default_model"`
-	Strategy     string              `json:"strategy"`
-	Models       map[string]*AIModel `json:"models"`
-}
-
 // 构建AI提示词 - 按照新的编辑流程逻辑，确保AI只在确定时输出
 func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context, language string, fileContents map[string]string) string {
 	var prompt strings.Builder
@@ -262,4 +255,263 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context, language stri
 	// 移除调试输出
 	fmt.Println(prompt.String())
 	return prompt.String()
+}
+
+// 默认环境变量模板
+var defaultEnvironmentTemplates = map[string]map[string]string{
+	"base": {
+		"PATH":            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"TERM":            "xterm-256color",
+		"HOME":            "/root",
+		"USER":            "root",
+		"SHELL":           "/bin/bash",
+		"LANG":            "C.UTF-8",
+		"LC_ALL":          "C.UTF-8",
+		"DEBIAN_FRONTEND": "noninteractive",
+		"TZ":              "Asia/Shanghai",
+	},
+	"node": {
+		"NODE_ENV":          "development",
+		"NPM_CONFIG_PREFIX": "/usr/local",
+		"NPM_CONFIG_CACHE":  "/tmp/.npm",
+	},
+	"python": {
+		"PYTHONPATH":              "/workspace",
+		"PYTHONUNBUFFERED":        "1",
+		"PIP_NO_CACHE_DIR":        "1",
+		"PYTHONDONTWRITEBYTECODE": "1",
+	},
+	"golang": {
+		"GOPATH":      "/go",
+		"GOROOT":      "/usr/local/go",
+		"CGO_ENABLED": "0",
+		"GOPROXY":     "https://goproxy.cn,direct",
+	},
+	"java": {
+		"JAVA_HOME":   "/usr/local/openjdk-17",
+		"MAVEN_HOME":  "/usr/share/maven",
+		"GRADLE_HOME": "/opt/gradle",
+	},
+}
+
+// 全局脚本管理器
+var scriptManager = &ScriptManager{
+	Scripts: map[string]string{
+		// 终端初始化脚本
+		"terminal_init": `#!/bin/bash
+# 进入工作目录
+cd /workspace 2>/dev/null || cd /
+
+# 禁用历史扩展，避免！号展开
+set +H
+
+stty -echo
+
+# 禁用括号粘贴模式，避免终端控制字符
+printf '\033[?2004l'
+
+# 设置标准的bash提示符，会自动跟随当前目录变化
+export PS1='root@online-editor:\w $ '
+
+# 清空屏幕并显示欢迎信息
+clear
+echo "🚀 在线代码编辑器终端"
+echo "当前目录: $(pwd)"
+echo "==============================================="
+
+# 直接启动交互式bash，让它处理所有的提示符逻辑
+exec /bin/bash --login -i`,
+
+		// 环境初始化脚本 - 基础版本
+		"env_init_basic": `#!/bin/bash
+# 确保工作目录存在并设置权限
+mkdir -p /workspace
+chmod 755 /workspace
+cd /workspace
+
+# 创建常用目录
+mkdir -p /workspace/tmp
+mkdir -p /workspace/logs
+
+# 设置git安全目录（如果git存在）
+if command -v git >/dev/null 2>&1; then
+	git config --global --add safe.directory /workspace
+	git config --global init.defaultBranch main
+fi
+
+echo "工作目录初始化完成"`,
+
+		// .bashrc配置内容 - 环境初始化版本
+		"bashrc_env_init": `#!/bin/bash
+# Online Code Editor Enhanced Shell Configuration
+
+# 设置别名
+alias ll='ls -alF'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+
+# 开发相关别名
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit'
+alias gp='git push'
+alias gl='git log --oneline'
+alias gd='git diff'
+
+# 设置历史记录
+export HISTSIZE=2000
+export HISTFILESIZE=4000
+export HISTCONTROL=ignoredups:erasedups
+shopt -s histappend
+
+# 设置编辑器
+export EDITOR=nano
+export VISUAL=nano
+
+# 自动完成功能
+if [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+fi
+
+# 函数：快速创建项目结构
+mkproject() {
+    if [ -z "$1" ]; then
+        echo "用法: mkproject <项目名>"
+        return 1
+    fi
+    mkdir -p "$1"/{src,docs,tests,config}
+    cd "$1"
+    echo "# $1" > README.md
+    echo "项目 $1 创建完成"
+}
+
+# 函数：快速Git初始化
+gitinit() {
+    git init
+    echo -e "node_modules/\n.env\n*.log\n.DS_Store" > .gitignore
+    git add .
+    git commit -m "Initial commit"
+    echo "Git仓库初始化完成"
+}
+
+# 切换到工作目录
+cd /workspace 2>/dev/null || cd /`,
+
+		// .bashrc配置内容 - 安装工具版本
+		"bashrc_tool_install": `#!/bin/bash
+# 设置别名
+
+# 设置历史记录
+export HISTSIZE=1000
+export HISTFILESIZE=2000
+export HISTCONTROL=ignoredups:erasedups
+
+# 设置工作目录
+cd /workspace 2>/dev/null || cd /
+
+echo "Welcome to Online Code Editor!"
+echo "Current directory: $(pwd)"
+echo "Available commands: ls, cd, pwd, git, etc."`,
+
+		// 端口测试服务器脚本模板
+		"port_test_server": `
+		echo "启动端口 %s 测试服务器..."
+		nohup python3 -c "
+import http.server
+import socketserver
+import sys
+
+PORT = %s
+try:
+    Handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(('0.0.0.0', PORT), Handler) as httpd:
+        print(f'测试服务器已启动在端口 {PORT}')
+        print('访问 http://localhost:%s 进行测试')
+        httpd.serve_forever()
+except Exception as e:
+    print(f'启动服务器失败: {e}')
+    sys.exit(1)
+" > /tmp/test_server_%s.log 2>&1 &
+		echo "测试服务器已在后台启动，日志文件: /tmp/test_server_%s.log"
+		echo "请等待几秒钟，然后访问 http://localhost:%s"`,
+	},
+
+	Commands: map[string][]string{
+		// 检查工具是否存在
+		"check_tool": {"which"},
+
+		// 端口检查命令模板
+		"port_check_template": {"sh", "-c", "netstat -tlnp 2>/dev/null | grep ':%s ' || ss -tlnp 2>/dev/null | grep ':%s ' || lsof -i :%s 2>/dev/null"},
+
+		// 包管理器安装命令
+		"install_apt": {"/bin/bash", "-c", "apt-get update && apt-get install -y %s"},
+		"install_apk": {"/bin/bash", "-c", "apk add --no-cache %s"},
+		"install_yum": {"/bin/bash", "-c", "yum install -y %s"},
+		"install_dnf": {"/bin/bash", "-c", "dnf install -y %s"},
+	},
+}
+
+// 预设镜像源配置
+var presetRegistries = []*RegistryConfig{
+	{
+		Name:        "Docker Hub (官方)",
+		Code:        "dockerhub",
+		BaseURL:     "docker.io",
+		Description: "Docker官方镜像仓库",
+		Type:        "docker_cli",
+		Enabled:     true,
+		IsDefault:   true,
+	},
+	{
+		Name:        "阿里云容器镜像服务",
+		Code:        "aliyun",
+		BaseURL:     "cr.console.aliyun.com",
+		Description: "阿里云提供的容器镜像服务，国内访问速度快",
+		Type:        "registry",
+		Enabled:     true,
+		IsDefault:   true,
+	},
+	{
+		Name:        "网易云镜像中心",
+		Code:        "netease",
+		BaseURL:     "hub-mirror.c.163.com",
+		Description: "网易云提供的Docker镜像加速服务",
+		Type:        "registry",
+		Enabled:     true,
+		IsDefault:   true,
+	},
+	{
+		Name:        "腾讯云镜像中心",
+		Code:        "tencent",
+		BaseURL:     "mirror.ccs.tencentyun.com",
+		Description: "腾讯云提供的Docker镜像加速服务",
+		Type:        "registry",
+		Enabled:     true,
+		IsDefault:   true,
+	},
+	{
+		Name:        "轩辕云镜像中心",
+		Code:        "xuanyuan",
+		BaseURL:     "docker.xuanyuan.me",
+		Description: "轩辕云提供的Docker镜像加速服务",
+		Type:        "registry",
+		Enabled:     true,
+		IsDefault:   true,
+	},
+}
+
+var defaultEnvVars = map[string]string{
+	"PATH":            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+	"TERM":            "xterm-256color",
+	"HOME":            "/root",
+	"USER":            "root",
+	"SHELL":           "/bin/bash",
+	"LANG":            "C.UTF-8",
+	"LC_ALL":          "C.UTF-8",
+	"DEBIAN_FRONTEND": "noninteractive",
+	"TZ":              "Asia/Shanghai",
 }
