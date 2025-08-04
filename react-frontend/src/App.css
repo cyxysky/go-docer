@@ -1366,6 +1366,18 @@ body {
   }
 }
 
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 /* 导出对话框特殊样式 */
 .dialog-content.export-dialog {
   min-width: 480px;

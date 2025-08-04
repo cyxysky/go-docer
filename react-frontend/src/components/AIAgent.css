@@ -1,26 +1,36 @@
 /* AI Agent 样式 */
 .ai-agent-resize-handle {
-  position: fixed;
+  position: absolute;
   top: 0;
   bottom: 0;
-  width: 4px;
+  left: -4px;
+  width: 8px;
   cursor: col-resize;
   background-color: transparent;
   z-index: 1003;
+  transition: background-color 0.2s ease;
+}
+
+.ai-agent-resize-handle:hover {
+  background-color: rgba(0, 122, 204, 0.3);
+}
+
+.ai-agent-resize-handle:active {
+  background-color: rgba(0, 122, 204, 0.5);
 }
 
 .ai-agent-sidebar {
-  position: fixed;
-  right: 0;
-  top: 0;
-  bottom: 0;
+  position: relative;
   background-color: #1e1e1e;
   border-left: 1px solid #333333;
   display: flex;
   flex-direction: column;
   font-family: system-ui, -apple-system, sans-serif;
-  z-index: 1002;
   color: #cccccc;
+  height: 100%;
+  min-width: 300px;
+  max-width: 600px;
+  flex-shrink: 0;
 }
 
 .ai-agent-header {

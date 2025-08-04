@@ -31,6 +31,8 @@ type AICodeGenerationRequest struct {
 	Tools       []string `json:"tools,omitempty"`
 	AutoApply   bool     `json:"auto_apply,omitempty"`    // 新增：自动应用模式
 	MaxFileSize int64    `json:"max_file_size,omitempty"` // 新增：最大文件大小限制
+	// 新增：工具调用历史记录
+	ToolHistory []ToolExecutionRecord `json:"tool_history,omitempty"`
 }
 
 type AICodeGenerationResponse struct {
@@ -40,6 +42,8 @@ type AICodeGenerationResponse struct {
 	CodeChanges []CodeChange     `json:"code_changes,omitempty"`
 	Tools       []ToolCall       `json:"tools,omitempty"`
 	Thinking    *ThinkingProcess `json:"thinking,omitempty"`
+	// 新增：状态码，finish表示完成，retry表示需要重试
+	Status string `json:"status"` // "finish", "retry"
 }
 
 type ThinkingProcess struct {
@@ -335,7 +339,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 	}
 
 	// 构建AI提示词
-	prompt := oem.buildAIPrompt(req.Prompt, req.Context, req.Language, fileContents)
+	prompt := oem.buildAIPrompt(req.Prompt, req.Context, fileContents, req.ToolHistory)
 
 	// 替换文件树占位符
 	fileTreeJSON := ""
@@ -352,7 +356,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 	prompt = strings.ReplaceAll(prompt, "    \"{{FILE_TREE_PLACEHOLDER}}\"", fileTreeJSON)
 
 	// 调用AI API
-	response, err := oem.callAIWithModel(prompt, req.Tools, model)
+	response, err := oem.callAIWithModel(prompt, model)
 	if err != nil {
 		return &AICodeGenerationResponse{
 			Success: false,
@@ -363,6 +367,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 	// 实现循环重试机制，最多20次
 	maxRetries := 20
 	var executionHistory []ToolExecutionHistory
+	var toolHistory []ToolExecutionRecord
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// 记录本次尝试的开始
@@ -394,7 +399,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 				historyEntry.Status = "retry"
 				historyEntry.Error = autoRetryErr.Message
 
-				oem.logInfo("AI建议自动重试", map[string]interface{}{
+				oem.logInfo("信息补充操作", map[string]interface{}{
 					"attempt":          attempt,
 					"message":          autoRetryErr.Message,
 					"additional_files": len(autoRetryErr.AdditionalFiles),
@@ -407,6 +412,19 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 					historyEntry.FilesRead[filePath] = content
 				}
 
+				// 将工具调用添加到历史记录
+				for _, tool := range tools {
+					toolRecord := ToolExecutionRecord{
+						Tool:      tool.Name,
+						Path:      tool.Parameters.(map[string]interface{})["path"].(string),
+						Status:    tool.Status,
+						Result:    tool.Result,
+						Error:     tool.Error,
+						Timestamp: time.Now(),
+					}
+					toolHistory = append(toolHistory, toolRecord)
+				}
+
 				// 保存历史记录
 				executionHistory = append(executionHistory, historyEntry)
 
@@ -416,11 +434,12 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 						Success: false,
 						Message: fmt.Sprintf("达到最大重试次数(%d)，最后错误: %s", maxRetries, autoRetryErr.Message),
 						Tools:   oem.buildToolHistorySummary(executionHistory),
+						Status:  "retry",
 					}, fmt.Errorf("达到最大重试次数: %d", maxRetries)
 				}
 
-				// 重新构建提示词
-				prompt = oem.buildAIPrompt(req.Prompt, req.Context, req.Language, fileContents)
+				// 重新构建提示词，包含工具调用历史记录
+				prompt = oem.buildAIPrompt(req.Prompt, req.Context, fileContents, toolHistory)
 
 				// 重新替换文件树占位符
 				if len(fileTree) > 0 {
@@ -435,10 +454,10 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 				prompt = strings.ReplaceAll(prompt, "    \"{{FILE_TREE_PLACEHOLDER}}\"", fileTreeJSON)
 
 				// 添加重试上下文信息
-				prompt += fmt.Sprintf("\n\n【重试信息】\n这是第%d次尝试（共%d次）。之前的尝试失败原因：%s\n", attempt+1, maxRetries, autoRetryErr.Message)
+				prompt += fmt.Sprintf("\n\n【前置信息】\n这是第%d次尝试（共%d次）。之前的尝试失败原因：%s\n", attempt+1, maxRetries, autoRetryErr.Message)
 
 				// 重新调用AI API
-				response, err = oem.callAIWithModel(prompt, req.Tools, model)
+				response, err = oem.callAIWithModel(prompt, model)
 				if err != nil {
 					historyEntry.Status = "error"
 					historyEntry.Error = fmt.Sprintf("AI服务调用失败: %v", err)
@@ -485,6 +504,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 			CodeChanges: codeChanges,
 			Tools:       append(tools, oem.buildToolHistorySummary(executionHistory)...),
 			Thinking:    thinking,
+			Status:      "finish",
 		}, nil
 	}
 
@@ -493,67 +513,14 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 		Success: false,
 		Message: "未知错误：超出最大重试次数",
 		Tools:   oem.buildToolHistorySummary(executionHistory),
+		Status:  "retry",
 	}, fmt.Errorf("未知错误：超出最大重试次数")
 }
 
 // 调用AI API（支持多模型）
-func (oem *OnlineEditorManager) callAIWithModel(prompt string, tools []string, model *AIModel) (string, error) {
+func (oem *OnlineEditorManager) callAIWithModel(prompt string, model *AIModel) (string, error) {
 	// 构建工具定义
 	var functions []map[string]interface{}
-
-	for _, tool := range tools {
-		switch tool {
-		case "file_read":
-			functions = append(functions, map[string]interface{}{
-				"name":        "file_read",
-				"description": "读取文件内容",
-				"parameters": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"file_path": map[string]interface{}{
-							"type":        "string",
-							"description": "文件路径",
-						},
-					},
-					"required": []string{"file_path"},
-				},
-			})
-		case "file_write":
-			functions = append(functions, map[string]interface{}{
-				"name":        "file_write",
-				"description": "写入文件内容",
-				"parameters": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"file_path": map[string]interface{}{
-							"type":        "string",
-							"description": "文件路径",
-						},
-						"content": map[string]interface{}{
-							"type":        "string",
-							"description": "文件内容",
-						},
-					},
-					"required": []string{"file_path", "content"},
-				},
-			})
-		case "code_analysis":
-			functions = append(functions, map[string]interface{}{
-				"name":        "code_analysis",
-				"description": "分析代码结构和依赖关系",
-				"parameters": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"file_path": map[string]interface{}{
-							"type":        "string",
-							"description": "文件路径",
-						},
-					},
-					"required": []string{"file_path"},
-				},
-			})
-		}
-	}
 
 	requestBody := map[string]interface{}{
 		"model": model.Name,
@@ -587,7 +554,6 @@ func (oem *OnlineEditorManager) callAIWithModel(prompt string, tools []string, m
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	fmt.Println("Bearer " + model.APIKey)
 	req.Header.Set("Authorization", "Bearer "+model.APIKey)
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -625,34 +591,10 @@ func (oem *OnlineEditorManager) callAIWithModel(prompt string, tools []string, m
 	return "", fmt.Errorf("无法从响应中提取代码")
 }
 
-// 解析代码更改
 // 解析AI响应，处理新的JSON格式（包含状态验证和自动工具执行）
 func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([]CodeChange, []ToolCall, *ThinkingProcess, error) {
 	fmt.Println(response)
-	var aiResponse struct {
-		Status        string   `json:"status"`
-		Message       string   `json:"message,omitempty"`
-		Suggestions   []string `json:"suggestions,omitempty"`
-		RequiredTools []struct {
-			Tool   string `json:"tool"`
-			Path   string `json:"path"`
-			Reason string `json:"reason,omitempty"`
-		} `json:"required_tools,omitempty"`
-		NextStep string `json:"next_step,omitempty"`
-		Change   []struct {
-			Tool    string `json:"tool"`
-			Path    string `json:"path"`
-			Content string `json:"content,omitempty"`
-		} `json:"change,omitempty"`
-		Thinking struct {
-			Analysis       string `json:"analysis,omitempty"`
-			Planning       string `json:"planning,omitempty"`
-			Considerations string `json:"considerations,omitempty"`
-			Decisions      string `json:"decisions,omitempty"`
-			MissingInfo    string `json:"missing_info,omitempty"`
-			NextSteps      string `json:"next_steps,omitempty"`
-		} `json:"thinking,omitempty"`
-	}
+	var aiResponse AIResponse
 
 	// 清理响应字符串，移除可能的markdown标记
 	cleanResponse := strings.TrimSpace(response)
@@ -672,107 +614,71 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 		return nil, nil, nil, fmt.Errorf("JSON解析失败: %v, 响应内容: %s", err, cleanResponse)
 	}
 
-	// 检查AI响应状态
-	if aiResponse.Status == "error" {
-		// 如果AI提供了具体的工具调用建议，自动执行这些工具
-		if len(aiResponse.RequiredTools) > 0 {
-			oem.logInfo("AI建议执行工具", map[string]interface{}{
-				"message":        aiResponse.Message,
-				"required_tools": len(aiResponse.RequiredTools),
-			})
-
-			// 执行AI建议的工具调用
-			additionalFiles, err := oem.executeRequiredTools(workspaceID, aiResponse.RequiredTools)
-			if err != nil {
-				return nil, nil, nil, fmt.Errorf("执行AI建议的工具失败: %v", err)
-			}
-
-			// 返回特殊标识，表示需要重新请求
-			return nil, nil, nil, &AutoRetryError{
-				Message:         aiResponse.Message,
-				AdditionalFiles: additionalFiles,
-				NextStep:        aiResponse.NextStep,
-			}
-		}
-
-		// 如果没有具体的工具建议，返回错误
-		errorMsg := "AI无法完成请求"
-		if aiResponse.Message != "" {
-			errorMsg = aiResponse.Message
-		}
-		if len(aiResponse.Suggestions) > 0 {
-			errorMsg += "\n建议：\n"
-			for _, suggestion := range aiResponse.Suggestions {
-				errorMsg += "- " + suggestion + "\n"
-			}
-		}
-		return nil, nil, nil, fmt.Errorf("AI拒绝执行: %s", errorMsg)
+	// 验证状态字段
+	if aiResponse.Status != "finish" && aiResponse.Status != "retry" {
+		return nil, nil, nil, fmt.Errorf("无效的状态字段: %s，必须是 'finish' 或 'retry'", aiResponse.Status)
 	}
 
-	// 验证成功状态下必须有change数组
-	if aiResponse.Status == "success" && len(aiResponse.Change) == 0 {
-		return nil, nil, nil, fmt.Errorf("AI声称成功但未提供任何操作")
-	}
-
-	// 预先验证所有操作的完整性
-	if err := oem.validateAIOperations(aiResponse.Change); err != nil {
-		return nil, nil, nil, fmt.Errorf("AI响应验证失败: %v", err)
+	// 验证工具调用
+	if len(aiResponse.Tools) == 0 {
+		return nil, nil, nil, fmt.Errorf("AI响应必须包含至少一个工具调用")
 	}
 
 	var codeChanges []CodeChange
 	var toolCalls []ToolCall
 
-	for _, change := range aiResponse.Change {
+	// 处理工具调用
+	for _, tool := range aiResponse.Tools {
 		startTime := time.Now()
 
 		toolCall := ToolCall{
-			Name:        change.Tool,
-			Parameters:  map[string]interface{}{"path": change.Path},
+			Name:        tool.Type,
+			Parameters:  map[string]interface{}{"path": tool.Path},
 			Status:      "pending",
 			ExecutionId: fmt.Sprintf("tool_%d", time.Now().UnixNano()),
 			StartTime:   &startTime,
 		}
 
-		switch change.Tool {
+		switch tool.Type {
 		case "file_read":
 			// 执行文件读取
-			content, err := oem.ReadFile(workspaceID, change.Path)
+			content, err := oem.ReadFile(workspaceID, tool.Path)
 			if err != nil {
 				toolCall.Status = "error"
 				toolCall.Error = err.Error()
 			} else {
 				toolCall.Status = "success"
 				toolCall.Result = content
-				toolCall.Output = fmt.Sprintf("读取文件 %s 成功，长度: %d", change.Path, len(content))
+				toolCall.Output = fmt.Sprintf("读取文件 %s 成功，长度: %d", tool.Path, len(content))
 			}
 
 		case "file_write":
-			if change.Content == "" {
+			if tool.Code == nil || tool.Code.NewCode == "" {
 				toolCall.Status = "error"
 				toolCall.Error = "文件内容不能为空"
 			} else {
 				// 读取原始文件内容用于代码对比
-				originalContent, _ := oem.ReadFile(workspaceID, change.Path)
+				originalContent, _ := oem.ReadFile(workspaceID, tool.Path)
 
 				// 执行文件写入
-				err := oem.WriteFile(workspaceID, change.Path, change.Content)
+				err := oem.WriteFile(workspaceID, tool.Path, tool.Code.NewCode)
 				if err != nil {
 					toolCall.Status = "error"
 					toolCall.Error = err.Error()
 				} else {
 					toolCall.Status = "success"
 					toolCall.Result = "文件写入成功"
-					toolCall.Output = fmt.Sprintf("写入文件 %s 成功，长度: %d", change.Path, len(change.Content))
+					toolCall.Output = fmt.Sprintf("写入文件 %s 成功，长度: %d", tool.Path, len(tool.Code.NewCode))
 					if params, ok := toolCall.Parameters.(map[string]interface{}); ok {
-						params["content"] = change.Content
+						params["content"] = tool.Code.NewCode
 					}
 
 					// 创建代码变更记录
 					codeChange := CodeChange{
-						FilePath:     change.Path,
+						FilePath:     tool.Path,
 						OriginalCode: originalContent,
-						NewCode:      change.Content,
-						Description:  fmt.Sprintf("更新文件 %s", change.Path),
+						NewCode:      tool.Code.NewCode,
+						Description:  tool.Summary,
 						ChangeType:   "modify",
 						Confidence:   0.95,
 					}
@@ -781,35 +687,35 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 			}
 
 		case "file_create":
-			if change.Content == "" {
+			if tool.Content == "" {
 				toolCall.Status = "error"
 				toolCall.Error = "文件内容不能为空"
 			} else {
 				// 执行文件创建
-				err := oem.CreateFile(workspaceID, change.Path)
+				err := oem.CreateFile(workspaceID, tool.Path)
 				if err != nil {
 					toolCall.Status = "error"
 					toolCall.Error = err.Error()
 				} else {
 					// 写入内容
-					err = oem.WriteFile(workspaceID, change.Path, change.Content)
+					err = oem.WriteFile(workspaceID, tool.Path, tool.Content)
 					if err != nil {
 						toolCall.Status = "error"
 						toolCall.Error = err.Error()
 					} else {
 						toolCall.Status = "success"
 						toolCall.Result = "文件创建成功"
-						toolCall.Output = fmt.Sprintf("创建文件 %s 成功，长度: %d", change.Path, len(change.Content))
+						toolCall.Output = fmt.Sprintf("创建文件 %s 成功，长度: %d", tool.Path, len(tool.Content))
 						if params, ok := toolCall.Parameters.(map[string]interface{}); ok {
-							params["content"] = change.Content
+							params["content"] = tool.Content
 						}
 
 						// 创建代码变更记录
 						codeChange := CodeChange{
-							FilePath:     change.Path,
+							FilePath:     tool.Path,
 							OriginalCode: "",
-							NewCode:      change.Content,
-							Description:  fmt.Sprintf("创建文件 %s", change.Path),
+							NewCode:      tool.Content,
+							Description:  tool.Summary,
 							ChangeType:   "insert",
 							Confidence:   0.95,
 						}
@@ -820,21 +726,21 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 
 		case "file_delete":
 			// 执行文件删除
-			err := oem.DeleteFile(workspaceID, change.Path)
+			err := oem.DeleteFile(workspaceID, tool.Path)
 			if err != nil {
 				toolCall.Status = "error"
 				toolCall.Error = err.Error()
 			} else {
 				toolCall.Status = "success"
 				toolCall.Result = "文件删除成功"
-				toolCall.Output = fmt.Sprintf("删除文件 %s 成功", change.Path)
+				toolCall.Output = fmt.Sprintf("删除文件 %s 成功", tool.Path)
 
 				// 创建代码变更记录
 				codeChange := CodeChange{
-					FilePath:     change.Path,
+					FilePath:     tool.Path,
 					OriginalCode: "文件已删除",
 					NewCode:      "",
-					Description:  fmt.Sprintf("删除文件 %s", change.Path),
+					Description:  tool.Summary,
 					ChangeType:   "delete",
 					Confidence:   0.95,
 				}
@@ -843,31 +749,43 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 
 		case "file_create_folder":
 			// 执行文件夹创建
-			err := oem.CreateFolder(workspaceID, change.Path)
+			err := oem.CreateFolder(workspaceID, tool.Path)
 			if err != nil {
 				toolCall.Status = "error"
 				toolCall.Error = err.Error()
 			} else {
 				toolCall.Status = "success"
 				toolCall.Result = "文件夹创建成功"
-				toolCall.Output = fmt.Sprintf("创建文件夹 %s 成功", change.Path)
+				toolCall.Output = fmt.Sprintf("创建文件夹 %s 成功", tool.Path)
 			}
 
 		case "file_delete_folder":
 			// 执行文件夹删除
-			err := oem.DeleteFile(workspaceID, change.Path) // 使用DeleteFile也可以删除文件夹
+			err := oem.DeleteFile(workspaceID, tool.Path) // 使用DeleteFile也可以删除文件夹
 			if err != nil {
 				toolCall.Status = "error"
 				toolCall.Error = err.Error()
 			} else {
 				toolCall.Status = "success"
 				toolCall.Result = "文件夹删除成功"
-				toolCall.Output = fmt.Sprintf("删除文件夹 %s 成功", change.Path)
+				toolCall.Output = fmt.Sprintf("删除文件夹 %s 成功", tool.Path)
+			}
+
+		case "shell_exec":
+			// 执行shell命令
+			output, err := oem.ShellExec(workspaceID, tool.Command)
+			if err != nil {
+				toolCall.Status = "error"
+				toolCall.Error = err.Error()
+			} else {
+				toolCall.Status = "success"
+				toolCall.Result = "命令执行成功"
+				toolCall.Output = output
 			}
 
 		default:
 			toolCall.Status = "error"
-			toolCall.Error = fmt.Sprintf("不支持的工具: %s", change.Tool)
+			toolCall.Error = fmt.Sprintf("不支持的工具: %s", tool.Type)
 		}
 
 		endTime := time.Now()
@@ -876,13 +794,25 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 	}
 
 	// 构建思考过程
-	thinking := &ThinkingProcess{
-		Analysis:       aiResponse.Thinking.Analysis,
-		Planning:       aiResponse.Thinking.Planning,
-		Considerations: aiResponse.Thinking.Considerations,
-		Decisions:      aiResponse.Thinking.Decisions,
-		MissingInfo:    aiResponse.Thinking.MissingInfo,
-		NextSteps:      aiResponse.Thinking.NextSteps,
+	thinking := aiResponse.Thinking
+
+	// 如果状态是retry，返回特殊标识
+	if aiResponse.Status == "retry" {
+		// 收集新获取的文件内容
+		additionalFiles := make(map[string]string)
+		for _, toolCall := range toolCalls {
+			if toolCall.Name == "file_read" && toolCall.Status == "success" {
+				if content, ok := toolCall.Result.(string); ok {
+					additionalFiles[toolCall.Parameters.(map[string]interface{})["path"].(string)] = content
+				}
+			}
+		}
+
+		return nil, nil, nil, &AutoRetryError{
+			Message:         aiResponse.Message,
+			AdditionalFiles: additionalFiles,
+			NextStep:        "继续处理工具调用结果",
+		}
 	}
 
 	return codeChanges, toolCalls, thinking, nil
@@ -1072,4 +1002,28 @@ func (oem *OnlineEditorManager) validateAIOperations(operations []struct {
 	}
 
 	return nil
+}
+
+// 新增：AI工具调用结构体，按照xxx.md的格式
+type AIToolCall struct {
+	Type    string    `json:"type"`
+	Path    string    `json:"path,omitempty"`
+	Content string    `json:"content,omitempty"`
+	Code    *CodeDiff `json:"code,omitempty"`
+	Command string    `json:"command,omitempty"`
+	Summary string    `json:"summary"`
+}
+
+// 新增：代码差异结构体
+type CodeDiff struct {
+	OriginalCode string `json:"originalCode"`
+	NewCode      string `json:"newCode"`
+}
+
+// 新增：AI响应结构体，按照xxx.md的格式
+type AIResponse struct {
+	Status   string           `json:"status"` // "finish", "retry"
+	Message  string           `json:"message,omitempty"`
+	Tools    []AIToolCall     `json:"tools,omitempty"`
+	Thinking *ThinkingProcess `json:"thinking,omitempty"`
 }

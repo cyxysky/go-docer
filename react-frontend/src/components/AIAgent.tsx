@@ -2,6 +2,18 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ToolCall from './ToolCall';
 import './AIAgent.css';
 import { useDrag } from '../contexts/DragContext';
+import { useAICodeChanges } from '../contexts/AICodeChangesContext';
+
+// 从AICodeChangesContext导入CodeChange类型
+interface CodeChange {
+  filePath: string;
+  originalCode: string;
+  newCode: string;
+  description: string;
+  changeType: 'insert' | 'replace' | 'delete' | 'modify';
+  confidence: number;
+  applied?: boolean;
+}
 
 interface AIAgentProps {
   editor: any;
@@ -9,6 +21,7 @@ interface AIAgentProps {
   isVisible: boolean;
   fileTree?: any;
   currentWorkspace?: string;
+  onWidthChange?: (width: number) => void;
 }
 
 interface AIMessage {
@@ -32,16 +45,7 @@ interface ThinkingProcess {
   next_steps?: string;
 }
 
-interface CodeChange {
-  filePath: string;
-  originalCode: string;
-  newCode: string;
-  description: string;
-  changeType: 'insert' | 'replace' | 'delete' | 'modify';
-  lineNumbers?: { start: number; end: number };
-  confidence: number;
-  applied?: boolean;
-}
+
 
 interface ToolCall {
   name: string;
@@ -62,12 +66,45 @@ interface AIModel {
   is_default: boolean;
 }
 
-const AIAgent: React.FC<AIAgentProps> = ({
+interface AICodeGenerationResponse {
+  success: boolean;
+  code?: string;
+  message?: string;
+  code_changes?: CodeChange[];
+  tools?: ToolCall[];
+  thinking?: ThinkingProcess;
+  status?: string; // "finish", "retry"
+}
 
+interface AICodeGenerationRequest {
+  prompt: string;
+  context?: string;
+  workspace: string;
+  language?: string;
+  model?: string;
+  strategy?: string;
+  file_paths?: string[];
+  auto_apply?: boolean;
+  max_file_size?: number;
+  tool_history?: ToolExecutionRecord[];
+}
+
+interface ToolExecutionRecord {
+  tool: string;
+  path: string;
+  content?: string;
+  reason?: string;
+  status: string;
+  error?: string;
+  result?: any;
+  timestamp: string;
+}
+
+const AIAgent: React.FC<AIAgentProps> = ({
   onClose,
   isVisible,
-
-  currentWorkspace
+  currentWorkspace,
+  onWidthChange
 }) => {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [input, setInput] = useState('');
@@ -82,6 +119,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showStrategyDropdown, setShowStrategyDropdown] = useState(false);
+
+  const { addPendingChanges } = useAICodeChanges();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -131,9 +170,15 @@ const AIAgent: React.FC<AIAgentProps> = ({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizing) {
-        const newWidth = window.innerWidth - e.clientX;
-        if (newWidth > 300 && newWidth < 800) {
-          setSidebarWidth(newWidth);
+        const container = document.querySelector('.split-editor');
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const newWidth = containerRect.right - e.clientX;
+          if (newWidth > 300 && newWidth < 600) {
+            setSidebarWidth(newWidth);
+            // 通知父组件宽度变化
+            onWidthChange?.(newWidth);
+          }
         }
       }
     };
@@ -157,7 +202,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isResizing]);
+  }, [isResizing, onWidthChange]);
 
   // 拖拽处理
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -227,49 +272,158 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
     setMessages(prev => [...prev, userMessage]);
 
+    // 初始化工具历史记录和重试计数
+    let toolHistory: ToolExecutionRecord[] = [];
+    let retryCount = 0;
+    const maxRetries = 20;
+
+    // 收集现有的工具调用历史记录
+    messages.forEach(msg => {
+      if (msg.tools) {
+        msg.tools.forEach(tool => {
+          toolHistory.push({
+            tool: tool.name,
+            path: tool.parameters?.path || '',
+            status: tool.status,
+            error: tool.status === 'error' ? tool.output : undefined,
+            result: tool.result,
+            timestamp: new Date().toISOString()
+          });
+        });
+      }
+    });
+
     try {
-      const response = await fetch('/api/v1/ai/generate-code', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      while (retryCount < maxRetries) {
+        const requestBody: AICodeGenerationRequest = {
           prompt,
           workspace: currentWorkspace,
           model: selectedModel,
           strategy: strategy,
           file_paths: filePaths,
           auto_apply: autoMode,
-          tools: ['file_read', 'file_write', 'file_delete', 'file_create', 'file_create_folder', 'file_delete_folder'],
-          max_file_size: 1024 * 1024
-        }),
-      });
+          max_file_size: 1024 * 1024,
+          tool_history: toolHistory
+        };
 
-      let data = await response.json();
-      data = JSON.parse(data);
-      const assistantMessage: AIMessage = {
-        id: (Date.now() + 1).toString(),
-        type: 'assistant',
-        content: data.code || data.message,
-        timestamp: new Date(),
-        codeChanges: data.code_changes || [],
-        tools: data.tools || [],
-        model: selectedModel,
-        status: data.success ? 'completed' : 'error',
-        thinking: data.thinking
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-      // 发送代码差异到编辑器
-      if (data.code_changes && data.code_changes.length > 0) {
-        const event = new CustomEvent('ai-code-changes', {
-          detail: { codeChanges: data.code_changes }
+        const response = await fetch('/api/v1/ai/generate-code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
         });
-        window.dispatchEvent(event);
-      }
 
-      if (autoMode && data.code_changes && data.code_changes.length > 0) {
-        await applyAllCodeChanges(data.code_changes);
+        let data: AICodeGenerationResponse = await response.json();
+        if (typeof data === 'string') {
+          data = JSON.parse(data);
+        }
+
+        // 构建消息内容
+        let messageContent = data.code || data.message || '';
+        
+        // 如果有工具调用，添加到消息内容中
+        if (data.tools && data.tools.length > 0) {
+          messageContent += '\n\n执行的工具调用:\n';
+          data.tools.forEach((tool, index) => {
+            messageContent += `${index + 1}. ${tool.name}: ${tool.parameters?.summary || '执行工具'}\n`;
+          });
+        }
+
+        // 添加状态信息
+        if (data.status) {
+          messageContent += `\n状态: ${data.status}`;
+          if (data.status === 'retry') {
+            messageContent += ` (重试次数: ${retryCount + 1}/${maxRetries})`;
+          }
+        }
+
+        const assistantMessage: AIMessage = {
+          id: (Date.now() + 1).toString(),
+          type: 'assistant',
+          content: messageContent,
+          timestamp: new Date(),
+          codeChanges: data.code_changes || [],
+          tools: data.tools || [],
+          model: selectedModel,
+          status: data.status === 'finish' ? 'completed' : data.status === 'retry' ? 'pending' : 'error',
+          thinking: data.thinking
+        };
+
+        setMessages(prev => [...prev, assistantMessage]);
+        
+        // 将代码修改添加到全局状态
+        if (data.code_changes && data.code_changes.length > 0) {
+          addPendingChanges(data.code_changes);
+          
+          // 发送代码差异到编辑器（保持向后兼容）
+          const event = new CustomEvent('ai-code-changes', {
+            detail: { codeChanges: data.code_changes }
+          });
+          window.dispatchEvent(event);
+        }
+
+        // 处理工具调用结果，添加到历史记录
+        if (data.tools && data.tools.length > 0) {
+          console.log('AI工具调用:', data.tools);
+          
+          const newToolRecords: ToolExecutionRecord[] = data.tools.map(tool => ({
+            tool: tool.name,
+            path: tool.parameters?.path || '',
+            content: tool.parameters?.content || '',
+            reason: tool.parameters?.summary || '执行工具',
+            status: tool.status,
+            error: tool.status === 'error' ? tool.output : undefined,
+            result: tool.result,
+            timestamp: new Date().toISOString(),
+          }));
+          
+          toolHistory = [...toolHistory, ...newToolRecords];
+        }
+
+        // 处理思考过程
+        if (data.thinking) {
+          console.log('AI思考过程:', data.thinking);
+        }
+
+        // 检查状态
+        if (data.status === 'finish') {
+          console.log('AI任务完成');
+          
+          // 自动应用代码更改（如果启用）
+          if (autoMode && data.code_changes && data.code_changes.length > 0) {
+            await applyAllCodeChanges(data.code_changes);
+          }
+          
+          break;
+        } else if (data.status === 'retry') {
+          console.log(`AI需要更多信息，重试次数: ${retryCount + 1}`);
+          retryCount++;
+          
+          // 如果达到最大重试次数，显示错误
+          if (retryCount >= maxRetries) {
+            const errorMessage: AIMessage = {
+              id: (Date.now() + 1).toString(),
+              type: 'system',
+              content: `错误: 达到最大重试次数 (${maxRetries})，任务未完成`,
+              timestamp: new Date(),
+              status: 'error'
+            };
+            setMessages(prev => [...prev, errorMessage]);
+            break;
+          }
+          
+          continue;
+        } else {
+          // 默认状态，假设完成
+          
+          // 自动应用代码更改（如果启用）
+          if (autoMode && data.code_changes && data.code_changes.length > 0) {
+            await applyAllCodeChanges(data.code_changes);
+          }
+          
+          break;
+        }
       }
     } catch (error) {
       console.error('Error generating code:', error);
@@ -393,8 +547,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
     if (!message.thinking || message.type !== 'assistant') return null;
 
     const thinking = message.thinking;
-    const hasContent = thinking.analysis || thinking.planning || thinking.considerations || 
-                      thinking.decisions || thinking.missing_info || thinking.next_steps;
+    const hasContent = thinking.analysis || thinking.planning || thinking.considerations ||
+      thinking.decisions || thinking.missing_info || thinking.next_steps;
 
     if (!hasContent) return null;
 
@@ -500,7 +654,9 @@ const AIAgent: React.FC<AIAgentProps> = ({
     console.log('Opening file:', filePath);
   };
 
-  if (!isVisible) return null;
+  if (!isVisible) {
+    return null;
+  }
 
   const selectedModelData = models.find(m => m.id === selectedModel);
 
@@ -515,23 +671,22 @@ const AIAgent: React.FC<AIAgentProps> = ({
   };
 
   return (
-    <>
+    <div style={{ position: 'relative', height: '100%' }}>
       {/* 拖拽调整大小的分隔条 */}
       <div
         ref={resizeRef}
         className="ai-agent-resize-handle"
-        style={{ right: sidebarWidth }}
         onMouseDown={() => setIsResizing(true)}
       />
 
       {/* 主侧边栏 */}
-      <div className="ai-agent-sidebar" style={{ width: `${sidebarWidth}px` }}>
+      <div className="ai-agent-sidebar" style={{ width: `${sidebarWidth}px`, height: '100%' }}>
 
         {/* 标题栏 */}
         <div className="ai-agent-header">
           <div className="ai-agent-title">
             <span className="ai-agent-title-icon">🤖</span>
-
+            <span>AI助手</span>
           </div>
           <button className="ai-agent-close-btn" onClick={onClose}>
             ✕
@@ -735,7 +890,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
           </form>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 

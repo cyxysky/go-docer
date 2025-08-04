@@ -2031,3 +2031,36 @@ func (oem *OnlineEditorManager) cleanupConflictingContainers() error {
 
 	return nil
 }
+
+// 执行shell命令
+func (oem *OnlineEditorManager) ShellExec(workspaceID, command string) (string, error) {
+	workspace, exists := oem.workspaces[workspaceID]
+	if !exists {
+		return "", fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	ctx := context.Background()
+
+	installExecConfig := container.ExecOptions{
+		Cmd:          []string{"/bin/bash", "-c", command},
+		AttachStdout: true,
+		AttachStderr: true,
+		WorkingDir:   "/workspace",
+	}
+
+	execResp, err := oem.dockerClient.ContainerExecCreate(ctx, workspace.ContainerID, installExecConfig)
+	if err != nil {
+		return "", fmt.Errorf("创建安装命令失败: %v", err)
+	}
+
+	execAttachResp, err := oem.dockerClient.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+	if err != nil {
+		return "", fmt.Errorf("执行安装命令失败: %v", err)
+	}
+
+	// 读取安装输出
+	output, _ := io.ReadAll(execAttachResp.Reader)
+	execAttachResp.Close()
+
+	return string(output), nil
+}

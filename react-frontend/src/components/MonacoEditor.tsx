@@ -2,8 +2,8 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import * as monaco from 'monaco-editor';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useFile } from '../contexts/FileContext';
+import { useAICodeChanges } from '../contexts/AICodeChangesContext';
 import { fileAPI } from '../services/api';
-import AIAgent from './AIAgent';
 import { useTheme } from '../contexts/ThemeContext';
 
 /**
@@ -106,15 +106,7 @@ interface MonacoEditorProps {
   onActivate?: () => void;
 }
 
-interface CodeChange {
-  filePath: string;
-  originalCode: string;
-  newCode: string;
-  description: string;
-  changeType: 'insert' | 'replace' | 'delete' | 'modify';
-  confidence: number;
-  applied?: boolean;
-}
+
 
 const MonacoEditor: React.FC<MonacoEditorProps> = ({
   className,
@@ -126,8 +118,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [isAIVisible, setIsAIVisible] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<CodeChange[]>([]);
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -137,6 +127,12 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     getTabContent,
     activeTab
   } = useFile();
+  const { 
+    pendingChanges, 
+    getChangesForFile, 
+    removePendingChanges,
+    markChangeAsApplied 
+  } = useAICodeChanges();
   const { theme } = useTheme();
 
   // 获取文件扩展名对应的语言
@@ -173,9 +169,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
     // 快捷键
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveFile);
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA, () => {
-      setIsAIVisible(prev => !prev);
-    });
   }, [handleContentChange, saveFile]);
 
   // 清理编辑器
@@ -193,9 +186,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   // 创建编辑器
   const createEditor = useCallback((content: string = '', language: string = 'javascript') => {
     if (!editorRef.current) return;
-
     cleanupEditor();
-
     const editor = monaco.editor.create(editorRef.current, {
       ...defaultEditorConfig,
       theme: theme === 'dark' ? 'vs-dark' : 'vs',
@@ -203,7 +194,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
       language,
       readOnly: false,
     });
-
     monacoRef.current = editor;
     setupEditorEvents(editor);
   }, [cleanupEditor, theme, setupEditorEvents]);
@@ -211,19 +201,15 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   // 预览代码差异
   const previewCodeDiff = useCallback((originalCode: string, modifiedCode: string, language: string) => {
     if (!editorRef.current) return;
-
     cleanupEditor();
-
     const diffEditor = monaco.editor.createDiffEditor(editorRef.current, {
       ...diffEditorConfig,
       theme: theme === 'dark' ? 'vs-dark' : 'vs'
     });
-
     diffEditor.setModel({
       original: monaco.editor.createModel(originalCode, language),
       modified: monaco.editor.createModel(modifiedCode, language),
     });
-
     diffEditorRef.current = diffEditor;
     setIsDiffMode(true);
   }, [cleanupEditor, theme]);
@@ -245,24 +231,26 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     const modifiedContent = editor.getModel()?.modified?.getValue() || '';
 
     updateTabContent(filePath, modifiedContent);
-    setPendingChanges(prev => prev.filter(change => change.filePath !== filePath));
+    removePendingChanges(filePath);
+    markChangeAsApplied(filePath);
     switchToNormalEditor(modifiedContent, getLanguageFromPath(filePath));
-  }, [filePath, updateTabContent, switchToNormalEditor, getLanguageFromPath]);
+  }, [filePath, updateTabContent, removePendingChanges, markChangeAsApplied, switchToNormalEditor, getLanguageFromPath]);
 
   // 拒绝代码更改
   const rejectCodeChanges = useCallback(() => {
     if (!filePath) return;
 
     const tabContent = getTabContent(filePath) || '';
-    setPendingChanges(prev => prev.filter(change => change.filePath !== filePath));
+    removePendingChanges(filePath);
     switchToNormalEditor(tabContent, getLanguageFromPath(filePath));
-  }, [filePath, getTabContent, switchToNormalEditor, getLanguageFromPath]);
+  }, [filePath, getTabContent, removePendingChanges, switchToNormalEditor, getLanguageFromPath]);
 
   // 监听AI消息事件
   const handleAIMessage = useCallback((event: CustomEvent) => {
     const { codeChanges } = event.detail;
     if (codeChanges && codeChanges.length > 0) {
-      setPendingChanges(codeChanges);
+      // 现在AI代码修改由全局状态管理，这里不需要设置本地状态
+      console.log('收到AI代码修改:', codeChanges);
     }
   }, []);
 
@@ -295,6 +283,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   // 更新编辑器内容
   useEffect(() => {
+    console.log(pendingChanges)
     if (!filePath || isUpdating) return;
 
     setIsUpdating(true);
@@ -304,7 +293,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
       const language = getLanguageFromPath(filePath);
 
       // 检查是否有待处理的代码变更
-      const changes = pendingChanges.find(change => change.filePath === filePath);
+      const changes = getChangesForFile(filePath);
       if (changes) {
         previewCodeDiff(changes.originalCode, changes.newCode, language);
         setIsUpdating(false);
@@ -358,12 +347,12 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   useEffect(() => {
     if (!filePath) return;
 
-    const changes = pendingChanges.find(change => change.filePath === filePath);
+    const changes = getChangesForFile(filePath);
     if (changes) {
       const language = getLanguageFromPath(filePath);
       previewCodeDiff(changes.originalCode, changes.newCode, language);
     }
-  }, [pendingChanges, filePath, previewCodeDiff, getLanguageFromPath]);
+  }, [pendingChanges, filePath, previewCodeDiff, getLanguageFromPath, getChangesForFile]);
 
   return (
     <div
@@ -398,43 +387,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
             在左侧工作空间面板中点击工作空间旁边的文件夹图标来选择工作空间
           </div>
         </div>
-      )}
-
-      {/* AI助手按钮 */}
-      {currentWorkspace && (
-        <button
-          onClick={() => setIsAIVisible(!isAIVisible)}
-          style={{
-            position: 'absolute',
-            bottom: '20px',
-            right: '20px',
-            width: '56px',
-            height: '56px',
-            borderRadius: '50%',
-            backgroundColor: '#10b981',
-            color: '#fff',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '22px',
-            boxShadow: '0 6px 20px rgba(16, 185, 129, 0.4)',
-            zIndex: 999,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'scale(1.1)';
-            e.currentTarget.style.boxShadow = '0 8px 25px rgba(16, 185, 129, 0.5)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'scale(1)';
-            e.currentTarget.style.boxShadow = '0 6px 20px rgba(16, 185, 129, 0.4)';
-          }}
-          title="AI代码助手 (Ctrl+Shift+A)"
-        >
-          🤖
-        </button>
       )}
 
       {/* Diff模式控制按钮 */}
@@ -493,15 +445,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           </button>
         </div>
       )}
-
-      {/* AI助手侧边栏 */}
-      <AIAgent
-        editor={monacoRef.current}
-        onClose={() => setIsAIVisible(false)}
-        isVisible={isAIVisible}
-        currentWorkspace={currentWorkspace || undefined}
-        fileTree={undefined}
-      />
     </div>
   );
 };

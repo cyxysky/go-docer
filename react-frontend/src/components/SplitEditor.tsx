@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useFile } from '../contexts/FileContext';
 import MonacoEditor from './MonacoEditor';
+import AIAgent from './AIAgent';
 import './SplitEditor.css';
 
 export interface EditorPane {
@@ -49,6 +50,25 @@ const SplitEditor: React.FC<SplitEditorProps> = ({ className }) => {
     startPos: number;
     startSizes: number[];
   } | null>(null);
+
+  // AI助手状态
+  const [isAIVisible, setIsAIVisible] = useState(false);
+  const [aiSidebarWidth, setAiSidebarWidth] = useState(400);
+
+  // 添加快捷键支持
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'A') {
+        e.preventDefault();
+        setIsAIVisible(prev => !prev);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
 
 
@@ -378,13 +398,7 @@ const SplitEditor: React.FC<SplitEditorProps> = ({ className }) => {
     });
   };
 
-  // 查找面板索引（只在顶层查找）
-  const findPaneIndex = (panes: EditorPane[], paneId: string): number => {
-    for (let i = 0; i < panes.length; i++) {
-      if (panes[i].id === paneId) return i;
-    }
-    return -1;
-  };
+
 
   // 查找面板
   const findPane = (panes: EditorPane[], paneId: string): EditorPane | null => {
@@ -727,8 +741,64 @@ const SplitEditor: React.FC<SplitEditorProps> = ({ className }) => {
   }
 
   return (
-    <div className={`split-editor ${className || ''}`} style={{ width: '100%', height: '100%' }}>
-      {editorPanes.map(pane => renderEditorPane(pane))}
+    <div className={`split-editor ${className || ''}`} style={{ width: '100%', height: '100%', display: 'flex' }}>
+      {/* 编辑器区域 */}
+      <div style={{ 
+        width: isAIVisible ? `calc(100% - ${aiSidebarWidth}px)` : '100%', 
+        height: '100%',
+        position: 'relative',
+      }}>
+        {editorPanes.map(pane => renderEditorPane(pane))}
+        
+        {/* AI助手切换按钮 */}
+        {currentWorkspace && (
+          <button
+            onClick={() => setIsAIVisible(!isAIVisible)}
+            style={{
+              position: 'absolute',
+              bottom: '20px',
+              right: '20px',
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              backgroundColor: '#10b981',
+              color: '#fff',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '22px',
+              boxShadow: '0 6px 20px rgba(16, 185, 129, 0.4)',
+              zIndex: 999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.3s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'scale(1.1)';
+              e.currentTarget.style.boxShadow = '0 8px 25px rgba(16, 185, 129, 0.5)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.boxShadow = '0 6px 20px rgba(16, 185, 129, 0.4)';
+            }}
+            title="AI代码助手 (Ctrl+Shift+A)"
+          >
+            🤖
+          </button>
+        )}
+      </div>
+
+      {/* AI助手侧边栏 */}
+      {isAIVisible && (
+        <AIAgent
+          editor={null} // 这里需要传递当前激活的编辑器实例
+          onClose={() => setIsAIVisible(false)}
+          isVisible={isAIVisible}
+          currentWorkspace={currentWorkspace || undefined}
+          fileTree={undefined}
+          onWidthChange={setAiSidebarWidth}
+        />
+      )}
     </div>
   );
 };

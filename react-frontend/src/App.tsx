@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { MultiTerminalProvider } from './contexts/MultiTerminalContext';
 import { NotificationProvider } from './components/NotificationProvider';
 import { DragProvider } from './contexts/DragContext';
+import { AICodeChangesProvider } from './contexts/AICodeChangesContext';
 import WorkspacePanel from './components/WorkspacePanel';
 import FilePanel from './components/FilePanel';
 import ImagePanel from './components/ImagePanel';
@@ -16,9 +17,8 @@ import ResizablePanel from './components/ResizablePanel';
 import SplitEditor from './components/SplitEditor';
 import ToastComponent from './components/Toast';
 import ThemeToggle from './components/ThemeToggle';
+import AICodeChangesIndicator from './components/AICodeChangesIndicator';
 import './App.css';
-import '@fortawesome/fontawesome-svg-core/styles.css'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 
 // 主应用组件
 const AppContent: React.FC = () => {
@@ -222,6 +222,9 @@ const AppContent: React.FC = () => {
       {/* 状态栏 */}
       <StatusBar />
 
+      {/* AI代码修改指示器 */}
+      <AICodeChangesIndicator />
+
       {/* Toast 通知 */}
       <ToastComponent toasts={toasts} />
     </div>
@@ -267,7 +270,9 @@ const App: React.FC = () => {
       <NotificationProvider>
         <WorkspaceProvider>
           <DragProvider>
-            <WorkspaceConsumer />
+            <AICodeChangesProvider>
+              <WorkspaceConsumer />
+            </AICodeChangesProvider>
           </DragProvider>
         </WorkspaceProvider>
       </NotificationProvider>
