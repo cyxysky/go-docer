@@ -8,9 +8,21 @@ interface ToolCallProps {
   status: 'pending' | 'success' | 'error';
   output?: string;
   executionId?: string;
+  rollback?: {
+    type: string;
+    path: string;
+    content: string;
+    command: string;
+    description: string;
+    is_visible: boolean;
+  };
   onFileOperation?: (operation: 'create' | 'edit' | 'delete', filePath: string, content?: string, originalContent?: string) => void;
   onActionTaken?: (action: 'accept' | 'reject') => void;
+  onRollback?: (executionId: string) => void;
   actionTaken?: 'accept' | 'reject' | null;
+  isRolledBack?: boolean;
+  currentWorkspace?: string;
+  isAutoMode?: boolean;
 }
 
 const ToolCall: React.FC<ToolCallProps> = ({
@@ -20,24 +32,29 @@ const ToolCall: React.FC<ToolCallProps> = ({
   status,
   output,
   executionId,
+  // rollback,
   onFileOperation,
   onActionTaken,
+  onRollback,
   actionTaken,
+  // isRolledBack,
+  // currentWorkspace,
+  isAutoMode,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const getStatusIcon = () => {
-    switch (status) {
-      case 'pending':
-        return <div className="status-spinner" />;
-      case 'success':
-        return <span className="status-icon status-success">✓</span>;
-      case 'error':
-        return <span className="status-icon status-error">✗</span>;
-      default:
-        return <span className="status-icon status-default">◦</span>;
-    }
-  };
+  // const getStatusIcon = () => {
+  //   switch (status) {
+  //     case 'pending':
+  //       return <div className="status-spinner" />;
+  //     case 'success':
+  //       return <span className="status-icon status-success">✓</span>;
+  //     case 'error':
+  //       return <span className="status-icon status-error">✗</span>;
+  //     default:
+  //       return <span className="status-icon status-default">◦</span>;
+  //   }
+  // };
 
   const getToolDisplayName = () => {
     switch (name) {
@@ -79,6 +96,16 @@ const ToolCall: React.FC<ToolCallProps> = ({
     return ['file_write', 'file_create', 'file_delete'].includes(name);
   };
 
+  // const canShowRollback = () => {
+  //   return rollback && rollback.is_visible && !isRolledBack && status === 'success';
+  // };
+
+  // const handleRollback = () => {
+  //   if (executionId && onRollback) {
+  //     onRollback(executionId);
+  //   }
+  // };
+
   const getFileOperationType = () => {
     switch (name) {
       case 'file_write':
@@ -93,7 +120,21 @@ const ToolCall: React.FC<ToolCallProps> = ({
   };
 
   const handleFileOperation = (action: 'accept' | 'reject') => {
-    if (!onFileOperation || !isFileOperation()) return;
+    if (!isFileOperation()) return;
+
+    // 自动模式：AI已经执行了操作，确认只是隐藏按钮，取消执行回退
+    if (isAutoMode) {
+      if (action === 'reject' && executionId && onRollback) {
+        // 取消操作 - 执行回退
+        onRollback(executionId);
+      }
+      // 确认操作 - 只是隐藏按钮，不执行任何操作
+      onActionTaken?.(action);
+      return;
+    }
+
+    // 手动模式：确认才执行操作，取消隐藏按钮
+    if (!onFileOperation) return;
 
     const operationType = getFileOperationType();
     const filePath = parameters?.path || parameters?.file_path;
@@ -101,6 +142,7 @@ const ToolCall: React.FC<ToolCallProps> = ({
     if (!operationType || !filePath) return;
 
     if (action === 'accept') {
+      // 确认操作 - 执行文件操作
       if (operationType === 'delete') {
         onFileOperation('delete', filePath);
       } else if (operationType === 'create') {
@@ -108,19 +150,8 @@ const ToolCall: React.FC<ToolCallProps> = ({
       } else if (operationType === 'edit') {
         onFileOperation('edit', filePath, parameters?.content || '', parameters?.original_content || '');
       }
-    } else {
-      // 拒绝操作 - 恢复原始内容
-      if (operationType === 'delete' && parameters?.original_content) {
-        // 删除操作被拒绝，恢复文件
-        onFileOperation('create', filePath, parameters.original_content);
-      } else if (operationType === 'create') {
-        // 创建操作被拒绝，删除文件（如果已创建）
-        onFileOperation('delete', filePath);
-      } else if (operationType === 'edit' && parameters?.original_content) {
-        // 编辑操作被拒绝，恢复原始内容
-        onFileOperation('edit', filePath, parameters.original_content, parameters?.content || '');
-      }
     }
+    // 取消操作 - 只是隐藏按钮，不执行任何操作
 
     // 通知父组件操作已完成
     onActionTaken?.(action);
@@ -138,11 +169,6 @@ const ToolCall: React.FC<ToolCallProps> = ({
         className={`tool-call-main ${!hasDetails() ? 'no-details' : ''}`}
         onClick={() => hasDetails() && setIsExpanded(!isExpanded)}
       >
-        {/* 状态图标 */}
-        <div className="tool-call-status">
-          {getStatusIcon()}
-        </div>
-
         {/* 工具名称 */}
         <span className="tool-call-name">
           {getToolDisplayName()}
@@ -151,7 +177,7 @@ const ToolCall: React.FC<ToolCallProps> = ({
         {/* 主要参数 */}
         {truncatedParam && (
           <span className="tool-call-param">
-            {truncatedParam}
+            {truncatedParam }
           </span>
         )}
 
@@ -161,14 +187,14 @@ const ToolCall: React.FC<ToolCallProps> = ({
             <button
               className="tool-call-action-btn tool-call-accept"
               onClick={() => handleFileOperation('accept')}
-              title="接受此操作"
+              title={isAutoMode ? "确认（隐藏按钮）" : "确认执行"}
             >
               ✓
             </button>
             <button
               className="tool-call-action-btn tool-call-reject"
               onClick={() => handleFileOperation('reject')}
-              title="拒绝此操作"
+              title={isAutoMode ? "取消（执行回退）" : "取消（隐藏按钮）"}
             >
               ✗
             </button>
@@ -179,7 +205,10 @@ const ToolCall: React.FC<ToolCallProps> = ({
         {actionTaken && (
           <div className="tool-call-action-status">
             <span className={`tool-call-action-status-${actionTaken}`}>
-              {actionTaken === 'accept' ? '✓ 已接受' : '✗ 已拒绝'}
+              {actionTaken === 'accept' 
+                ? (isAutoMode ? '✓ 已确认' : '✓ 已执行') 
+                : (isAutoMode ? '↩ 已回退' : '✗ 已取消')
+              }
             </span>
           </div>
         )}

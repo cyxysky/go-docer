@@ -154,6 +154,15 @@
   transform: scale(1.1);
 }
 
+.tool-call-rollback {
+  background-color: #f59e0b;
+}
+
+.tool-call-rollback:hover {
+  background-color: #d97706;
+  transform: scale(1.1);
+}
+
 .tool-call-action-status {
   display: flex;
   align-items: center;
@@ -178,6 +187,16 @@
   padding: 2px 6px;
   border-radius: 3px;
   border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.tool-call-action-status-rolledback {
+  color: #f59e0b;
+  font-size: 10px;
+  font-weight: 500;
+  background-color: rgba(245, 158, 11, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
 .tool-call-details {

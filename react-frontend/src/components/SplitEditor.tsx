@@ -743,13 +743,13 @@ const SplitEditor: React.FC<SplitEditorProps> = ({ className }) => {
   return (
     <div className={`split-editor ${className || ''}`} style={{ width: '100%', height: '100%', display: 'flex' }}>
       {/* 编辑器区域 */}
-      <div style={{ 
-        width: isAIVisible ? `calc(100% - ${aiSidebarWidth}px)` : '100%', 
+      <div style={{
+        width: isAIVisible ? `calc(100% - ${aiSidebarWidth}px)` : '100%',
         height: '100%',
         position: 'relative',
       }}>
         {editorPanes.map(pane => renderEditorPane(pane))}
-        
+
         {/* AI助手切换按钮 */}
         {currentWorkspace && (
           <button

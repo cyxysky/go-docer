@@ -61,7 +61,7 @@ func GetAIConfig() *AIConfigData {
 			APIKey:      GPT35_TURBO_API_KEY,
 			MaxTokens:   GPT35_TURBO_MAX_TOKENS,
 			Temperature: GPT35_TURBO_TEMPERATURE,
-			IsDefault:   true,
+			IsDefault:   false,
 			IsEnabled:   true,
 		},
 		GPT4_ID: {
@@ -85,7 +85,7 @@ func GetAIConfig() *AIConfigData {
 			APIKey:      DEEPSEEK_CHAT_API_KEY,
 			MaxTokens:   DEEPSEEK_CHAT_MAX_TOKENS,
 			Temperature: DEEPSEEK_CHAT_TEMPERATURE,
-			IsDefault:   false,
+			IsDefault:   true,
 			IsEnabled:   true,
 		},
 	}
@@ -142,30 +142,6 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("    \"{{FILE_TREE_PLACEHOLDER}}\"\n")
 	prompt.WriteString("  ],\n")
 
-	// 添加工具调用历史记录
-	if len(toolHistory) > 0 {
-		prompt.WriteString("  \"tool_history\": [\n")
-		for i, record := range toolHistory {
-			prompt.WriteString(fmt.Sprintf("    {\n"))
-			prompt.WriteString(fmt.Sprintf("      \"tool\": \"%s\",\n", record.Tool))
-			prompt.WriteString(fmt.Sprintf("      \"path\": \"%s\",\n", record.Path))
-			prompt.WriteString(fmt.Sprintf("      \"status\": \"%s\",\n", record.Status))
-			if record.Result != nil {
-				prompt.WriteString(fmt.Sprintf("      \"result\": \"%v\",\n", record.Result))
-			}
-			if record.Error != "" {
-				prompt.WriteString(fmt.Sprintf("      \"error\": \"%s\",\n", record.Error))
-			}
-			prompt.WriteString(fmt.Sprintf("      \"timestamp\": \"%s\"\n", record.Timestamp.Format("2006-01-02 15:04:05")))
-			if i < len(toolHistory)-1 {
-				prompt.WriteString("    },\n")
-			} else {
-				prompt.WriteString("    }\n")
-			}
-		}
-		prompt.WriteString("  ],\n")
-	}
-
 	prompt.WriteString("  \"available_tools\": [\n")
 	prompt.WriteString("    \"file_read\",\n")
 	prompt.WriteString("    \"file_write\",\n")
@@ -178,7 +154,7 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("【字段含义说明】\n")
-	prompt.WriteString("1. **context**: 用户主动选择或提供的核心文件内容，如果存在，就是你需要修改的内容！！\n")
+	prompt.WriteString("1. **context**: 用户主动选择或提供的核心文件内容，如果存在，就是你需要修改的内容！！里面所有的文件以及其内容都是完整的\n")
 	prompt.WriteString("   - 格式：{\"文件路径\": \"文件完整内容\"}\n")
 	prompt.WriteString("   - 用途：了解现有代码结构、依赖关系、编码风格等\n")
 	prompt.WriteString("   - 注意：这些文件的内容是完整且准确的，可以直接基于此进行分析和修改！！\n\n")
@@ -190,7 +166,9 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 
 	prompt.WriteString("3. **tool_history**: 之前的工具调用历史记录\n")
 	prompt.WriteString("   - 包含之前所有工具调用的结果和状态\n")
-	prompt.WriteString("   - 用于了解已经执行的操作和获取的信息\n\n")
+	prompt.WriteString("   - 用于了解已经执行的操作和获取的信息\n")
+	prompt.WriteString("   - 特别注意：file_read工具的结果会显示读取到的文件内容\n")
+	prompt.WriteString("   - 这些是实际执行后的结果，不是AI的请求\n\n")
 
 	prompt.WriteString("4. **available_tools**: 你可以使用的工具列表\n")
 	prompt.WriteString("   - file_read: 读取指定文件的完整内容\n")
@@ -288,14 +266,15 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("1. **分析阶段**：\n")
 	prompt.WriteString("   - 仔细阅读context中的文件内容，理解现有代码结构\n")
 	prompt.WriteString("   - 查看file_tree了解项目整体布局\n")
-	prompt.WriteString("   - 查看tool_history了解之前的操作\n")
+	prompt.WriteString("   - 查看tool_history了解之前的操作和获取的信息\n")
+	prompt.WriteString("   - 特别注意：tool_history中的file_read结果显示了实际读取到的文件内容\n")
 	prompt.WriteString("   - 确定需要修改、创建或删除的文件\n\n")
 
 	prompt.WriteString("2. **信息收集**：\n")
 	prompt.WriteString("   - 如果context中的信息不足，使用file_read工具获取更多信息\n")
 	prompt.WriteString("   - 优先读取配置文件（package.json, tsconfig.json, 等）了解项目配置\n")
 	prompt.WriteString("   - 读取相关的组件或模块文件了解代码风格和模式\n")
-	prompt.WriteString("   - 状态设为\"retry\"，等待工具执行结果\n\n")
+	prompt.WriteString("   - 状态设为\"retry\"，等待工具执行结果\n")
 
 	prompt.WriteString("3. **代码修改**：\n")
 	prompt.WriteString("   - 使用file_write或file_create工具进行代码修改\n")
@@ -321,6 +300,46 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("10. 如果context里面存在的文件，就是你需要修改的文件\n")
 
 	prompt.WriteString("请根据以上要求，仔细分析用户需求，按照工作流程执行。每次响应必须包含至少一个工具调用。\n\n")
+
+	// 在提示词的最后面添加工具调用历史记录
+	if len(toolHistory) > 0 {
+		prompt.WriteString("【工具调用历史记录】\n")
+		prompt.WriteString("以下是之前执行过的工具调用及其结果：\n\n")
+
+		for i, record := range toolHistory {
+			prompt.WriteString(fmt.Sprintf("工具调用 #%d:\n", i+1))
+			prompt.WriteString(fmt.Sprintf("- 工具类型: %s\n", record.Tool))
+			prompt.WriteString(fmt.Sprintf("- 文件路径: %s\n", record.Path))
+			prompt.WriteString(fmt.Sprintf("- 执行状态: %s\n", record.Status))
+			if record.Result != nil {
+				// 优化文件读取结果的显示逻辑
+				resultStr := fmt.Sprintf("%v", record.Result)
+				if record.Tool == "file_read" {
+					if resultStr == "" || resultStr == "<nil>" || resultStr == "null" {
+						prompt.WriteString("- 执行结果: 【文件存在但内容为空】\n")
+					} else {
+						prompt.WriteString(fmt.Sprintf("- 执行结果: %s\n", resultStr))
+					}
+				} else {
+					prompt.WriteString(fmt.Sprintf("- 执行结果: %s\n", resultStr))
+				}
+			}
+			if record.Error != "" {
+				prompt.WriteString(fmt.Sprintf("- 错误信息: %s\n", record.Error))
+			}
+			prompt.WriteString(fmt.Sprintf("- 执行时间: %s\n", record.Timestamp.Format("2006-01-02 15:04:05")))
+			prompt.WriteString("\n")
+		}
+
+		prompt.WriteString("【重要说明】\n")
+		prompt.WriteString("1. 如果file_read工具的执行状态为\"success\"但结果显示【文件存在但内容为空】，说明该文件确实存在但没有内容\n")
+		prompt.WriteString("2. 如果file_read工具的执行状态为\"failed\"或有错误信息，说明该文件不存在或无法访问\n")
+		prompt.WriteString("3. 对于存在但为空的文件，可以直接使用file_write工具写入内容\n")
+		prompt.WriteString("4. 对于不存在的文件，使用file_create工具创建新文件并写入内容\n")
+		prompt.WriteString("5. 避免重复读取同一个文件，除非确实需要获取最新的文件内容\n\n")
+
+		prompt.WriteString("请基于以上工具调用历史记录，了解已经执行的操作和获取的信息，然后继续执行下一步操作。\n\n")
+	}
 
 	// 移除调试输出
 	fmt.Println(prompt.String())

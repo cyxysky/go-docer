@@ -4,9 +4,6 @@ interface CodeChange {
   filePath: string;
   originalCode: string;
   newCode: string;
-  description: string;
-  changeType: 'insert' | 'replace' | 'delete' | 'modify';
-  confidence: number;
   applied?: boolean;
 }
 

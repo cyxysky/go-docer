@@ -10,11 +10,11 @@ interface FileContextType {
   currentDirectory: string;
   isLoading: boolean;
   error: string | null;
-  
+
   // 标签页管理
   openTabs: Map<string, Tab>;
   activeTab: string | null;
-  
+
   // 文件操作
   loadFileTree: (workspaceId: string, path?: string) => Promise<void>;
   loadSubFiles: (workspaceId: string, path: string) => Promise<FileItem[]>;
@@ -22,7 +22,7 @@ interface FileContextType {
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   updateTabContent: (tabId: string, content: string) => void;
-  
+
   // 文件系统操作
   createFile: (fileName: string) => Promise<void>;
   createFolder: (folderName: string) => Promise<void>;
@@ -30,7 +30,7 @@ interface FileContextType {
   renameFile: (oldPath: string, newName: string) => Promise<void>;
   moveFile: (sourcePath: string, targetPath: string) => Promise<void>;
   refreshFileTree: () => Promise<void>;
-  
+
   // 获取当前激活的标签页内容
   getActiveTabContent: () => string;
   getTabContent: (tabId: string) => string | null;
@@ -58,11 +58,11 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
   const [currentDirectory, setCurrentDirectory] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // 标签页状态
   const [openTabs, setOpenTabs] = useState<Map<string, Tab>>(new Map());
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  
+
   const { showError } = useNotification();
 
   // 加载文件树
@@ -72,7 +72,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     console.log(`📁 加载文件树: ${workspaceId}, 路径: ${path || '/'}`);
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const data = await fileAPI.getFileTree(workspaceId, path);
       const fileList = Array.isArray(data) ? data : [];
@@ -112,6 +112,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
 
   // 打开文件
   const openFile = useCallback(async (filePath: string) => {
+    console.log('FileContext: 打开文件:', filePath);
     if (!currentWorkspace) {
       throw new Error('请先选择工作空间');
     }
@@ -132,7 +133,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
         newTabs.set(tabId, newTab);
         return newTabs;
       });
-      
+
       setActiveTab(tabId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '打开文件失败';
@@ -169,11 +170,11 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     setOpenTabs(prev => {
       const tab = prev.get(tabId);
       if (!tab) return prev;
-      
+
       if (tab.content === content) {
         return prev; // 内容没有变化，避免不必要的重新渲染
       }
-      
+
       const newTabs = new Map(prev);
       const updatedTab = {
         ...tab,
@@ -205,7 +206,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
 
     const filePath = currentDirectory ? `${currentDirectory}/${fileName}` : fileName;
-    
+
     try {
       await fileAPI.createFile(currentWorkspace, filePath);
       await loadFileTree(currentWorkspace, currentDirectory);
@@ -222,7 +223,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
 
     const folderPath = currentDirectory ? `${currentDirectory}/${folderName}` : folderName;
-    
+
     try {
       await fileAPI.createFolder(currentWorkspace, folderPath);
       await loadFileTree(currentWorkspace, currentDirectory);
@@ -270,17 +271,17 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
 
     try {
       await fileAPI.moveFile(currentWorkspace, oldPath, newPath);
-      
+
       // 更新相关的tab路径
       setOpenTabs(prev => {
         const newTabs = new Map(prev);
         const updatedTabs = new Map<string, Tab>();
-        
+
         for (const [tabId, tab] of newTabs) {
           if (tab.path === oldPath) {
             const updatedTab = { ...tab, path: newPath };
             updatedTabs.set(newPath, updatedTab);
-            
+
             if (activeTab === tabId) {
               setActiveTab(newPath);
             }
@@ -288,10 +289,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
             updatedTabs.set(tabId, tab);
           }
         }
-        
+
         return updatedTabs;
       });
-      
+
       await loadFileTree(currentWorkspace, currentDirectory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '重命名失败';
@@ -308,16 +309,16 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
 
     try {
       await fileAPI.moveFile(currentWorkspace, sourcePath, targetPath);
-      
+
       setOpenTabs(prev => {
         const newTabs = new Map(prev);
         const updatedTabs = new Map<string, Tab>();
-        
+
         for (const [tabId, tab] of newTabs) {
           if (tab.path === sourcePath) {
             const updatedTab = { ...tab, path: targetPath };
             updatedTabs.set(targetPath, updatedTab);
-            
+
             if (activeTab === tabId) {
               setActiveTab(targetPath);
             }
@@ -325,10 +326,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
             updatedTabs.set(tabId, tab);
           }
         }
-        
+
         return updatedTabs;
       });
-      
+
       await loadFileTree(currentWorkspace, currentDirectory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '移动文件失败';
@@ -340,7 +341,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
   // 工作空间变化时重置状态
   React.useEffect(() => {
     console.log('🔄 工作空间变化:', currentWorkspace);
-    
+
     if (!currentWorkspace) {
       setFiles([]);
       setCurrentDirectory('');
@@ -353,7 +354,7 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
       clearAllCache();
       setFiles([]);
       setCurrentDirectory('');
-      
+
       const loadNewWorkspace = async () => {
         try {
           await loadFileTree(currentWorkspace, '');
@@ -361,33 +362,10 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
           console.error('❌ 加载工作空间文件失败:', error);
         }
       };
-      
+
       loadNewWorkspace();
     }
   }, [currentWorkspace, loadFileTree]);
-
-  // 监听open-file-in-tab事件
-  React.useEffect(() => {
-    const handleOpenFileInTab = async (event: CustomEvent) => {
-      const { filePath } = event.detail;
-      console.log('FileContext: 收到open-file-in-tab事件:', filePath);
-      
-      if (filePath && currentWorkspace) {
-        try {
-          await openFile(filePath);
-          console.log('FileContext: 文件已打开到tab:', filePath);
-        } catch (error) {
-          console.error('FileContext: 打开文件失败:', error);
-        }
-      }
-    };
-
-    window.addEventListener('open-file-in-tab', handleOpenFileInTab as EventListener);
-    
-    return () => {
-      window.removeEventListener('open-file-in-tab', handleOpenFileInTab as EventListener);
-    };
-  }, [currentWorkspace, openFile]);
 
   // 工作空间状态变化时刷新文件列表
   React.useEffect(() => {

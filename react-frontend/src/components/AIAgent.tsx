@@ -2,18 +2,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ToolCall from './ToolCall';
 import './AIAgent.css';
 import { useDrag } from '../contexts/DragContext';
+import { fileAPI } from '../services/api';
 import { useAICodeChanges } from '../contexts/AICodeChangesContext';
 
-// 从AICodeChangesContext导入CodeChange类型
-interface CodeChange {
-  filePath: string;
-  originalCode: string;
-  newCode: string;
-  description: string;
-  changeType: 'insert' | 'replace' | 'delete' | 'modify';
-  confidence: number;
-  applied?: boolean;
-}
+
+
+// 移除CodeChange接口，现在使用tools中的工具调用
 
 interface AIAgentProps {
   editor: any;
@@ -29,7 +23,6 @@ interface AIMessage {
   type: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  codeChanges?: CodeChange[];
   tools?: ToolCall[];
   model?: string;
   status?: 'pending' | 'completed' | 'error';
@@ -45,8 +38,6 @@ interface ThinkingProcess {
   next_steps?: string;
 }
 
-
-
 interface ToolCall {
   name: string;
   parameters: any;
@@ -55,6 +46,15 @@ interface ToolCall {
   output?: string;
   executionId?: string;
   actionTaken?: 'accept' | 'reject' | null;
+  rollback?: {
+    type: string;
+    path: string;
+    content: string;
+    command: string;
+    description: string;
+    is_visible: boolean;
+  };
+  isRolledBack?: boolean;
 }
 
 interface AIModel {
@@ -71,10 +71,16 @@ interface AICodeGenerationResponse {
   success: boolean;
   code?: string;
   message?: string;
-  code_changes?: CodeChange[];
   tools?: ToolCall[];
   thinking?: ThinkingProcess;
+  fileChanges?: CodeChange[];
   status?: string; // "finish", "retry"
+}
+
+interface CodeChange {
+  file_path: string;
+  original_code: string;
+  new_code: string;
 }
 
 interface AICodeGenerationRequest {
@@ -114,8 +120,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [autoMode, setAutoMode] = useState(false);
-  const [strategy, setStrategy] = useState<'preview' | 'auto' | 'manual'>('preview');
-  const [processedTools, setProcessedTools] = useState<Set<string>>(new Set());
+  const [strategy, setStrategy] = useState<'auto' | 'manual'>('auto');
+  // const [processedTools, setProcessedTools] = useState<Set<string>>(new Set());
   const [sidebarWidth, setSidebarWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -214,6 +220,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
     setIsDragOver(true);
   }, [isDragging]);
 
+  // 拖拽处理
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     if (!isDragging) return;
     e.preventDefault();
@@ -222,6 +229,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
     setIsDragOver(false);
   }, [isDragging]);
 
+  // 拖拽处理
   const handleDrop = useCallback((e: React.DragEvent) => {
     if (!isDragging) return;
     e.preventDefault();
@@ -234,6 +242,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
     }
   }, [isDragging, selectedFiles]);
 
+  // 加载可用模型
   const loadAvailableModels = async () => {
     try {
       const response = await fetch('/api/v1/ai/models');
@@ -274,35 +283,12 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
     setMessages(prev => [...prev, userMessage]);
 
-    // 初始化工具历史记录和重试计数
-    let toolHistory: ToolExecutionRecord[] = [];
-    let retryCount = 0;
-    const maxRetries = 20;
-
-    // 收集现有的工具调用历史记录
-    messages.forEach(msg => {
-      if (msg.tools) {
-        msg.tools.forEach(tool => {
-          toolHistory.push({
-            tool: tool.name,
-            path: tool.parameters?.path || '',
-            status: tool.status,
-            error: tool.status === 'error' ? tool.output : undefined,
-            result: tool.result,
-            timestamp: new Date().toISOString()
-          });
-        });
-      }
-    });
-
     try {
-      while (retryCount < maxRetries) {
-        // 构建增强的提示词
-        let enhancedPrompt = prompt;
-        
-        // 如果有选中的文件，在提示词中突出显示
-        if (selectedFiles.length > 0) {
-          enhancedPrompt = `用户重点关注以下文件，请优先考虑这些文件的修改：
+      // 构建增强的提示词
+      let enhancedPrompt = prompt;
+      // 如果有选中的文件，在提示词中突出显示
+      if (selectedFiles.length > 0) {
+        enhancedPrompt = `用户重点关注以下文件，请优先考虑这些文件的修改：
 
 ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
 
@@ -312,171 +298,118 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
 1. 优先修改上述文件中的代码
 2. 如果需要在其他文件中进行修改，请确保与上述文件的修改保持一致
 3. 在修改前请仔细分析这些文件的内容和结构`;
-        }
-
-        const requestBody: AICodeGenerationRequest = {
-          prompt: enhancedPrompt,
-          workspace: currentWorkspace,
-          model: selectedModel,
-          strategy: strategy,
-          file_paths: filePaths,
-          auto_apply: autoMode,
-          max_file_size: 1024 * 1024,
-          tool_history: toolHistory
-        };
-
-        const response = await fetch('/api/v1/ai/generate-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-          // 设置超时时间为120秒
-          signal: AbortSignal.timeout(120000),
-        });
-
-        let data: AICodeGenerationResponse = await response.json();
-        if (typeof data === 'string') {
-          data = JSON.parse(data);
-        }
-
-        // 构建消息内容 - 只显示简要信息，详细内容通过工具调用展示
-        let messageContent = '';
-        
-        // 如果有工具调用，显示简要摘要
-        if (data.tools && data.tools.length > 0) {
-          const fileOperations = data.tools.filter(tool => 
-            ['file_write', 'file_create', 'file_delete'].includes(tool.name)
-          );
-          const otherOperations = data.tools.filter(tool => 
-            !['file_write', 'file_create', 'file_delete'].includes(tool.name)
-          );
-          
-          if (fileOperations.length > 0) {
-            messageContent += `📁 文件操作: ${fileOperations.length} 个\n`;
-          }
-          if (otherOperations.length > 0) {
-            messageContent += `⚡ 其他操作: ${otherOperations.length} 个\n`;
-          }
-        }
-
-        // 添加状态信息
-        if (data.status) {
-          if (data.status === 'retry') {
-            messageContent += `🔄 正在获取更多信息... (${retryCount + 1}/${maxRetries})`;
-          } else if (data.status === 'finish') {
-            messageContent += `✅ 任务完成`;
-          }
-        }
-
-        const assistantMessage: AIMessage = {
-          id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: messageContent,
-          timestamp: new Date(),
-          codeChanges: data.code_changes || [],
-          tools: (data.tools || []).map(tool => ({ ...tool, actionTaken: null })),
-          model: selectedModel,
-          status: data.status === 'finish' ? 'completed' : data.status === 'retry' ? 'pending' : 'error',
-          thinking: data.thinking
-        };
-
-        setMessages(prev => [...prev, assistantMessage]);
-        
-        // 将代码修改添加到全局状态
-        if (data.code_changes && data.code_changes.length > 0) {
-          addPendingChanges(data.code_changes);
-          
-          // 为每个代码修改触发文件操作预览
-          data.code_changes.forEach(change => {
-            const operation = change.changeType === 'insert' ? 'create' : 
-                            change.changeType === 'delete' ? 'delete' : 'edit';
-            
-            // 触发文件操作预览事件
-            window.dispatchEvent(new CustomEvent('file-operation', {
-              detail: {
-                operation,
-                filePath: change.filePath,
-                content: change.newCode,
-                originalContent: change.originalCode
-              }
-            }));
-
-            // 确保文件在tab中打开
-            window.dispatchEvent(new CustomEvent('open-file-in-tab', {
-              detail: { filePath: change.filePath }
-            }));
-          });
-          
-          // 发送代码差异到编辑器（保持向后兼容）
-          const event = new CustomEvent('ai-code-changes', {
-            detail: { codeChanges: data.code_changes }
-          });
-          window.dispatchEvent(event);
-        }
-
-        // 处理工具调用结果，添加到历史记录
-        if (data.tools && data.tools.length > 0) {
-          console.log('AI工具调用:', data.tools);
-          
-          const newToolRecords: ToolExecutionRecord[] = data.tools.map(tool => ({
-            tool: tool.name,
-            path: tool.parameters?.path || '',
-            content: tool.parameters?.content || '',
-            reason: tool.parameters?.summary || '执行工具',
-            status: tool.status,
-            error: tool.status === 'error' ? tool.output : undefined,
-            result: tool.result,
-            timestamp: new Date().toISOString(),
-          }));
-          
-          toolHistory = [...toolHistory, ...newToolRecords];
-        }
-
-        // 处理思考过程
-        if (data.thinking) {
-          console.log('AI思考过程:', data.thinking);
-        }
-
-        // 检查状态
-        if (data.status === 'finish') {
-          console.log('AI任务完成');
-          
-          // 自动应用代码更改（如果启用）
-          if (autoMode && data.code_changes && data.code_changes.length > 0) {
-            await applyAllCodeChanges(data.code_changes);
-          }
-          
-          break;
-        } else if (data.status === 'retry') {
-          console.log(`AI需要更多信息，重试次数: ${retryCount + 1}`);
-          retryCount++;
-          
-          // 如果达到最大重试次数，显示错误
-          if (retryCount >= maxRetries) {
-            const errorMessage: AIMessage = {
-              id: (Date.now() + 1).toString(),
-              type: 'system',
-              content: `错误: 达到最大重试次数 (${maxRetries})，任务未完成`,
-              timestamp: new Date(),
-              status: 'error'
-            };
-            setMessages(prev => [...prev, errorMessage]);
-            break;
-          }
-          
-          continue;
-        } else {
-          // 默认状态，假设完成
-          
-          // 自动应用代码更改（如果启用）
-          if (autoMode && data.code_changes && data.code_changes.length > 0) {
-            await applyAllCodeChanges(data.code_changes);
-          }
-          
-          break;
-        }
       }
+
+      const requestBody: AICodeGenerationRequest = {
+        prompt: enhancedPrompt,
+        workspace: currentWorkspace,
+        model: selectedModel,
+        strategy: strategy,
+        file_paths: filePaths,
+        auto_apply: autoMode,
+        max_file_size: 1024 * 1024,
+      };
+
+      // const response = await fetch('/api/v1/ai/generate-code', {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //   },
+      //   body: JSON.stringify(requestBody),
+      //   // 设置超时时间为120秒
+      //   signal: AbortSignal.timeout(120000),
+      // });
+
+      let data: AICodeGenerationResponse =
+      // await response.json();
+      {
+        "success": true,
+        "message": "代码生成成功 (第1次尝试)",
+        "tools": [
+          {
+            "name": "file_write",
+            "parameters": {
+              "code": {
+                "originalCode": "console.log('aaa');",
+                "newCode": "console.log('hello world');"
+              },
+              "content": "console.log('hello world');",
+              "path": "test.js"
+            },
+            "result": "文件内容替换成功",
+            "status": "success",
+            "executionId": "tool_1754470125068815561",
+            "output": "替换文件 test.js 内容成功，长度: 27",
+            "rollback": {
+              "type": "file_write",
+              "path": "test.js",
+              "content": "console.log('aaa');",
+              "command": "",
+              "description": "恢复文件 test.js 的原始内容",
+              "is_visible": true
+            }
+          }
+        ],
+        "fileChanges": [
+          {
+            "file_path": "test.js",
+            "original_code": "console.log('aaa');",
+            "new_code": "console.log('hello world');"
+          },
+          {
+            "file_path": "xxx.js",
+            "original_code": "console.log('xxx');",
+            "new_code": "console.log('this is new');"
+          }
+        ],
+        "thinking": {
+          "analysis": "用户需求是将test.js文件中的内容修改为输出'hello world'。当前context中提供的test.js文件内容是console.log('aaa')。",
+          "planning": "直接修改test.js文件内容，将console.log('aaa')替换为console.log('hello world')。",
+          "considerations": "这是一个简单的修改，不需要考虑依赖关系或潜在问题。",
+          "decisions": "决定直接修改test.js文件内容，因为这是用户明确指定的需求。"
+        },
+        "status": "finish"
+      }
+
+      if (typeof data === 'string') {
+        data = JSON.parse(data);
+      }
+      // 构建消息内容 - 只显示简要信息，详细内容通过工具调用展示
+      let messageContent = '';
+
+      const assistantMessage: AIMessage = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: messageContent,
+        timestamp: new Date(),
+        tools: (data.tools || []).map(tool => ({ ...tool, actionTaken: null })),
+        model: selectedModel,
+        status: data.status === 'finish' ? 'completed' : data.status === 'retry' ? 'pending' : 'error',
+        thinking: data.thinking
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+
+      // 处理文件变更，在编辑器中打开差异视图
+      if (data.fileChanges && data.fileChanges.length > 0) {
+        // 遍历所有文件变更
+        data.fileChanges.forEach(async (fileChange) => {
+          try {
+            // 触发文件打开事件，确保文件在编辑器中打开
+            addPendingChanges([{
+              filePath: fileChange.file_path,
+              newCode: fileChange.new_code,
+              originalCode: fileChange.original_code
+            }]);
+            window.dispatchEvent(new CustomEvent('file-click', {
+              detail: { filePath: fileChange.file_path }
+            }));
+          } catch (error) {
+            console.error('处理文件变更失败:', error);
+          }
+        });
+      }
+
     } catch (error) {
       console.error('Error generating code:', error);
       const errorMessage: AIMessage = {
@@ -525,26 +458,6 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
           console.error('Failed to read original file content:', error);
         }
       }
-
-      // 确保文件在tab中打开
-      console.log('触发文件打开事件:', filePath);
-      window.dispatchEvent(new CustomEvent('open-file-in-tab', {
-        detail: { filePath }
-      }));
-
-      // 延迟一点时间确保文件已打开，然后触发编辑器预览事件，显示差异
-      setTimeout(() => {
-        console.log('触发文件操作预览事件:', { operation, filePath });
-        window.dispatchEvent(new CustomEvent('file-operation', {
-          detail: {
-            operation,
-            filePath,
-            content: finalContent,
-            originalContent: finalOriginalContent || ''
-          }
-        }));
-      }, 300); // 给文件打开更多时间
-
     } catch (error) {
       console.error('Error handling file operation preview:', error);
       alert(`文件操作预览失败: ${error}`);
@@ -648,69 +561,72 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
       if (msg.id === messageId && msg.tools) {
         const updatedTools = [...msg.tools];
         if (updatedTools[toolIndex]) {
-          updatedTools[toolIndex] = { ...updatedTools[toolIndex], actionTaken: action };
+          // 如果是自动模式且是拒绝操作，标记为已回退
+          if (autoMode && action === 'reject') {
+            updatedTools[toolIndex] = {
+              ...updatedTools[toolIndex],
+              actionTaken: action,
+              isRolledBack: true
+            };
+          } else {
+            updatedTools[toolIndex] = { ...updatedTools[toolIndex], actionTaken: action };
+          }
         }
         return { ...msg, tools: updatedTools };
       }
       return msg;
     }));
-
-    // 记录已处理的工具
-    const toolKey = `${messageId}-${toolIndex}`;
-    setProcessedTools(prev => new Set([...prev, toolKey]));
   };
 
   /**
-   * 应用代码更改
-   * @param change 代码更改
+   * 处理回退操作
+   * @param executionId 执行ID
    */
-  const applyCodeChange = async (change: CodeChange) => {
+  const handleRollback = async (executionId: string) => {
+    if (!currentWorkspace) {
+      console.error('No workspace selected');
+      return;
+    }
+
     try {
-      if (change.filePath && change.newCode && currentWorkspace) {
-        // 实际写入文件
-        const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/files/write`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            path: change.filePath,
-            content: change.newCode,
-          }),
-        });
+      const response = await fetch('/api/v1/ai/rollback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workspace_id: currentWorkspace,
+          execution_id: executionId
+        })
+      });
 
-        if (response.ok) {
-          // 标记为已应用
-          setMessages(prev =>
-            prev.map(msg => ({
-              ...msg,
-              codeChanges: msg.codeChanges?.map(c =>
-                c === change ? { ...c, applied: true } : c
-              )
-            }))
-          );
+      const result = await response.json();
 
-          // 如果是当前打开的文件，通知编辑器刷新
-          await openFile(change.filePath);
+      if (result.success) {
+        console.log('回退成功:', result.message);
 
-          console.log('✅ 代码更改已应用到文件:', change.filePath);
-        } else {
-          throw new Error(`Failed to write file: ${response.statusText}`);
-        }
+        // 更新消息中的工具调用状态
+        setMessages(prev => prev.map(msg => ({
+          ...msg,
+          tools: msg.tools?.map(tool =>
+            tool.executionId === executionId
+              ? { ...tool, isRolledBack: true, actionTaken: 'reject' }
+              : tool
+          )
+        })));
+
+        // 显示成功消息
+        alert(`回退成功: ${result.message}`);
+
+        // 刷新文件系统
+        window.dispatchEvent(new CustomEvent('file-system-refresh'));
+      } else {
+        console.error('回退失败:', result.error);
+        alert(`回退失败: ${result.error}`);
       }
     } catch (error) {
-      console.error('Error applying code change:', error);
-      alert(`应用代码更改失败: ${error}`);
-    }
-  };
-
-  /**
-   * 应用所有代码更改
-   * @param changes 代码更改列表
-   */
-  const applyAllCodeChanges = async (changes: CodeChange[]) => {
-    for (const change of changes) {
-      await applyCodeChange(change);
+      console.error('回退操作请求失败:', error);
+      alert(`回退操作失败: ${error}`);
     }
   };
 
@@ -753,9 +669,7 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
    * @param message 消息
    */
   const renderCodeComparison = (message: AIMessage) => {
-    if (!message.codeChanges || message.codeChanges.length === 0) return null;
-
-    // 不在侧边栏显示代码差异，将其移动到编辑器中
+    // 现在代码差异通过工具调用显示，不在侧边栏显示
     return null;
   };
 
@@ -844,9 +758,14 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
               status={tool.status}
               output={tool.output}
               executionId={tool.executionId}
+              rollback={tool.rollback}
               onFileOperation={handleFileOperation}
               onActionTaken={(action) => handleToolActionTaken(message.id, index, action)}
+              onRollback={handleRollback}
               actionTaken={tool.actionTaken}
+              isRolledBack={tool.isRolledBack}
+              currentWorkspace={currentWorkspace}
+              isAutoMode={autoMode}
             />
           );
         })}
@@ -881,31 +800,6 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
     );
   };
 
-  /**
-   * 打开文件
-   * @param filePath 文件路径
-   */
-  const openFile = async (filePath: string) => {
-    console.log('Opening file:', filePath);
-    // 触发文件打开事件
-    window.dispatchEvent(new CustomEvent('open-file-in-tab', {
-      detail: { filePath }
-    }));
-  };
-
-  // 监听文件打开事件
-  useEffect(() => {
-    const handleOpenFile = (event: CustomEvent) => {
-      const { filePath } = event.detail;
-      console.log('Received open file event:', filePath);
-    };
-
-    window.addEventListener('open-file-in-tab', handleOpenFile as EventListener);
-    return () => {
-      window.removeEventListener('open-file-in-tab', handleOpenFile as EventListener);
-    };
-  }, []);
-
   // 监听文件操作执行事件
   useEffect(() => {
     const handleExecuteFileOperation = (event: CustomEvent) => {
@@ -920,6 +814,8 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
     };
   }, [executeFileOperation]);
 
+
+
   if (!isVisible) {
     return null;
   }
@@ -929,7 +825,6 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
   // 获取策略显示名称
   const getStrategyDisplayName = (strategyKey: string) => {
     const strategyMap = {
-      'preview': '预览',
       'auto': '自动',
       'manual': '手动'
     };
@@ -965,7 +860,7 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
             <div key={message.id} className={`ai-agent-message ${message.type}`}>
               <div className="ai-agent-message-header">
                 <span className="ai-agent-message-sender">
-                  {message.type === 'user' ? 'You' : 'Cursor AI'}
+                  {message.type === 'user' ? 'You' : 'AI'}
                 </span>
                 <span className="ai-agent-message-time">
                   {message.timestamp.toLocaleTimeString()}
@@ -1101,7 +996,6 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
                 {showStrategyDropdown && (
                   <div className="ai-agent-strategy-dropdown">
                     {[
-                      { key: 'preview', label: '预览' },
                       { key: 'auto', label: '自动' },
                       { key: 'manual', label: '手动' }
                     ].map(mode => (

@@ -37,11 +37,10 @@ type AICodeGenerationRequest struct {
 
 type AICodeGenerationResponse struct {
 	Success     bool             `json:"success"`
-	Code        string           `json:"code,omitempty"`
 	Message     string           `json:"message,omitempty"`
-	CodeChanges []CodeChange     `json:"code_changes,omitempty"`
 	Tools       []ToolCall       `json:"tools,omitempty"`
 	Thinking    *ThinkingProcess `json:"thinking,omitempty"`
+	FileChanges []CodeChange     `json:"file_changes,omitempty"` // 新增：文件变更记录
 	// 新增：状态码，finish表示完成，retry表示需要重试
 	Status string `json:"status"` // "finish", "retry"
 }
@@ -56,24 +55,32 @@ type ThinkingProcess struct {
 }
 
 type CodeChange struct {
-	FilePath     string  `json:"file_path"`
-	OriginalCode string  `json:"original_code"`
-	NewCode      string  `json:"new_code"`
-	Description  string  `json:"description"`
-	ChangeType   string  `json:"change_type"`
-	Confidence   float64 `json:"confidence"`
+	FilePath     string `json:"file_path"`
+	OriginalCode string `json:"original_code"`
+	NewCode      string `json:"new_code"`
 }
 
 type ToolCall struct {
-	Name        string      `json:"name"`
-	Parameters  interface{} `json:"parameters"`
-	Result      interface{} `json:"result,omitempty"`
-	Status      string      `json:"status"` // "pending", "success", "error"
-	Error       string      `json:"error,omitempty"`
-	ExecutionId string      `json:"execution_id,omitempty"`
-	StartTime   *time.Time  `json:"start_time,omitempty"`
-	EndTime     *time.Time  `json:"end_time,omitempty"`
-	Output      string      `json:"output,omitempty"` // 用于存储shell命令输出
+	Name        string          `json:"name"`
+	Parameters  interface{}     `json:"parameters"`
+	Result      interface{}     `json:"result,omitempty"`
+	Status      string          `json:"status"` // "pending", "success", "error"
+	Error       string          `json:"error,omitempty"`
+	ExecutionId string          `json:"execution_id,omitempty"`
+	StartTime   *time.Time      `json:"start_time,omitempty"`
+	EndTime     *time.Time      `json:"end_time,omitempty"`
+	Output      string          `json:"output,omitempty"`   // 用于存储shell命令输出
+	Rollback    *RollbackAction `json:"rollback,omitempty"` // 回退操作
+}
+
+// 回退操作结构体
+type RollbackAction struct {
+	Type        string `json:"type"`        // 回退操作类型
+	Path        string `json:"path"`        // 文件路径
+	Content     string `json:"content"`     // 原始内容（用于恢复）
+	Command     string `json:"command"`     // 回退命令
+	Description string `json:"description"` // 回退描述
+	IsVisible   bool   `json:"is_visible"`  // 是否在前端显示回退按钮
 }
 
 // 新增：AI模型配置
@@ -338,8 +345,15 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 		fileTree = []string{} // 如果失败，使用空数组
 	}
 
-	// 构建AI提示词
-	prompt := oem.buildAIPrompt(req.Prompt, req.Context, fileContents, req.ToolHistory)
+	// 实现循环重试机制，最多20次
+	maxRetries := 20
+	var executionHistory []ToolExecutionHistory
+	var toolHistory []ToolExecutionRecord
+
+	// 初始化工具历史：只保留前端发送的有效历史记录
+
+	// 构建AI提示词 - 使用后端管理的工具历史，而不是前端发送的历史
+	prompt := oem.buildAIPrompt(req.Prompt, req.Context, fileContents, toolHistory)
 
 	// 替换文件树占位符
 	fileTreeJSON := ""
@@ -353,7 +367,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 		// 如果没有文件树，至少提供一个空的提示
 		fileTreeJSON = "    \"(暂无文件)\""
 	}
-	prompt = strings.ReplaceAll(prompt, "    \"{{FILE_TREE_PLACEHOLDER}}\"", fileTreeJSON)
+	prompt = strings.ReplaceAll(prompt, "\"{{FILE_TREE_PLACEHOLDER}}\"", fileTreeJSON)
 
 	// 调用AI API
 	response, err := oem.callAIWithModel(prompt, model)
@@ -363,11 +377,6 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 			Message: fmt.Sprintf("AI服务调用失败: %v", err),
 		}, err
 	}
-
-	// 实现循环重试机制，最多20次
-	maxRetries := 20
-	var executionHistory []ToolExecutionHistory
-	var toolHistory []ToolExecutionRecord
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// 记录本次尝试的开始
@@ -381,6 +390,13 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 		// 复制当前文件内容到历史记录
 		for k, v := range fileContents {
 			historyEntry.FilesRead[k] = v
+		}
+
+		// 调试输出：显示当前的工具历史状态
+		fmt.Printf("=== 第%d次尝试开始 ===\n", attempt)
+		fmt.Printf("当前工具历史记录数量: %d\n", len(toolHistory))
+		for i, record := range toolHistory {
+			fmt.Printf("工具历史[%d]: %s - %s - %s\n", i, record.Tool, record.Path, record.Status)
 		}
 
 		oem.logInfo("AI代码生成尝试", map[string]interface{}{
@@ -406,25 +422,80 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 					"next_step":        autoRetryErr.NextStep,
 				})
 
-				// 合并新获取的文件内容
+				// 将新获取的文件内容添加到历史记录中，但不修改原始的fileContents
 				for filePath, content := range autoRetryErr.AdditionalFiles {
-					fileContents[filePath] = content
 					historyEntry.FilesRead[filePath] = content
 				}
 
-				// 将工具调用添加到历史记录
+				// 将实际执行后的工具调用结果添加到历史记录
 				for _, tool := range tools {
+					// 安全地获取路径参数
+					var path string
+					if params, ok := tool.Parameters.(map[string]interface{}); ok {
+						if pathVal, exists := params["path"]; exists {
+							if pathStr, ok := pathVal.(string); ok {
+								path = pathStr
+							}
+						}
+					}
+
+					// 只记录实际执行成功的工具调用
+					// 对于file_read工具，记录读取到的文件内容
+					var result interface{}
+					if tool.Name == "file_read" {
+						// 直接使用Result，这应该是文件内容
+						result = tool.Result
+					} else {
+						result = tool.Result
+					}
+
 					toolRecord := ToolExecutionRecord{
 						Tool:      tool.Name,
-						Path:      tool.Parameters.(map[string]interface{})["path"].(string),
+						Path:      path,
 						Status:    tool.Status,
-						Result:    tool.Result,
+						Result:    result,
 						Error:     tool.Error,
 						Timestamp: time.Now(),
 					}
 					toolHistory = append(toolHistory, toolRecord)
+
+					// 调试输出
+					fmt.Printf("添加工具历史记录: %s - %s - %s\n", tool.Name, path, tool.Status)
+					if tool.Name == "file_read" && result != nil {
+						fmt.Printf("文件读取结果长度: %d\n", len(fmt.Sprintf("%v", result)))
+					}
 				}
 
+				// 调试输出
+				fmt.Printf("当前工具历史记录数量: %d\n", len(toolHistory))
+				for i, record := range toolHistory {
+					fmt.Printf("工具历史[%d]: %s - %s - %s\n", i, record.Tool, record.Path, record.Status)
+				}
+
+				// 将工具调用也添加到历史记录的ToolsCalled字段中
+				// 注意：这里只添加实际的文件操作工具，不添加execution_summary
+				for _, tool := range tools {
+					if tool.Status == "success" && tool.Name != "execution_summary" {
+						// 安全地获取路径参数
+						var path string
+						if params, ok := tool.Parameters.(map[string]interface{}); ok {
+							if pathVal, exists := params["path"]; exists {
+								if pathStr, ok := pathVal.(string); ok {
+									path = pathStr
+								}
+							}
+						}
+
+						historyEntry.ToolsCalled = append(historyEntry.ToolsCalled, ToolExecutionRecord{
+							Tool:      tool.Name,
+							Path:      path,
+							Status:    tool.Status,
+							Result:    tool.Result,
+							Error:     tool.Error,
+							Timestamp: time.Now(),
+						})
+					}
+				}
 				// 保存历史记录
 				executionHistory = append(executionHistory, historyEntry)
 
@@ -433,7 +504,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 					return &AICodeGenerationResponse{
 						Success: false,
 						Message: fmt.Sprintf("达到最大重试次数(%d)，最后错误: %s", maxRetries, autoRetryErr.Message),
-						Tools:   oem.buildToolHistorySummary(executionHistory),
+						Tools:   []ToolCall{},
 						Status:  "retry",
 					}, fmt.Errorf("达到最大重试次数: %d", maxRetries)
 				}
@@ -451,10 +522,17 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 				} else {
 					fileTreeJSON = "    \"(暂无文件)\""
 				}
-				prompt = strings.ReplaceAll(prompt, "    \"{{FILE_TREE_PLACEHOLDER}}\"", fileTreeJSON)
+				prompt = strings.ReplaceAll(prompt, "\"{{FILE_TREE_PLACEHOLDER}}\"", fileTreeJSON)
 
 				// 添加重试上下文信息
 				prompt += fmt.Sprintf("\n\n【前置信息】\n这是第%d次尝试（共%d次）。之前的尝试失败原因：%s\n", attempt+1, maxRetries, autoRetryErr.Message)
+
+				// 调试输出：显示重新构建的提示词中的工具历史
+				fmt.Printf("=== 重新构建提示词 ===\n")
+				fmt.Printf("传递的工具历史记录数量: %d\n", len(toolHistory))
+				for i, record := range toolHistory {
+					fmt.Printf("传递的工具历史[%d]: %s - %s - %s\n", i, record.Tool, record.Path, record.Status)
+				}
 
 				// 重新调用AI API
 				response, err = oem.callAIWithModel(prompt, model)
@@ -466,7 +544,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 					return &AICodeGenerationResponse{
 						Success: false,
 						Message: fmt.Sprintf("AI服务重试调用失败: %v", err),
-						Tools:   oem.buildToolHistorySummary(executionHistory),
+						Tools:   []ToolCall{},
 					}, err
 				}
 
@@ -481,7 +559,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 				return &AICodeGenerationResponse{
 					Success: false,
 					Message: fmt.Sprintf("AI响应解析失败: %v", err),
-					Tools:   oem.buildToolHistorySummary(executionHistory),
+					Tools:   []ToolCall{},
 				}, err
 			}
 		}
@@ -499,11 +577,10 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 
 		return &AICodeGenerationResponse{
 			Success:     true,
-			Code:        response,
 			Message:     fmt.Sprintf("代码生成成功 (第%d次尝试)", attempt),
-			CodeChanges: codeChanges,
-			Tools:       append(tools, oem.buildToolHistorySummary(executionHistory)...),
+			Tools:       tools,
 			Thinking:    thinking,
+			FileChanges: codeChanges,
 			Status:      "finish",
 		}, nil
 	}
@@ -512,7 +589,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 	return &AICodeGenerationResponse{
 		Success: false,
 		Message: "未知错误：超出最大重试次数",
-		Tools:   oem.buildToolHistorySummary(executionHistory),
+		Tools:   []ToolCall{},
 		Status:  "retry",
 	}, fmt.Errorf("未知错误：超出最大重试次数")
 }
@@ -631,9 +708,24 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 	for _, tool := range aiResponse.Tools {
 		startTime := time.Now()
 
+		// 构建参数映射
+		parameters := make(map[string]interface{})
+		if tool.Path != "" {
+			parameters["path"] = tool.Path
+		}
+		if tool.Content != "" {
+			parameters["content"] = tool.Content
+		}
+		if tool.Command != "" {
+			parameters["command"] = tool.Command
+		}
+		if tool.Code != nil {
+			parameters["code"] = tool.Code
+		}
+
 		toolCall := ToolCall{
 			Name:        tool.Type,
-			Parameters:  map[string]interface{}{"path": tool.Path},
+			Parameters:  parameters,
 			Status:      "pending",
 			ExecutionId: fmt.Sprintf("tool_%d", time.Now().UnixNano()),
 			StartTime:   &startTime,
@@ -650,6 +742,7 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 				toolCall.Status = "success"
 				toolCall.Result = content
 				toolCall.Output = fmt.Sprintf("读取文件 %s 成功，长度: %d", tool.Path, len(content))
+				// 文件读取操作不生成回退操作
 			}
 
 		case "file_write":
@@ -657,30 +750,30 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 				toolCall.Status = "error"
 				toolCall.Error = "文件内容不能为空"
 			} else {
-				// 读取原始文件内容用于代码对比
+				// 读取原始文件内容用于代码对比和回退
 				originalContent, _ := oem.ReadFile(workspaceID, tool.Path)
 
-				// 执行文件写入
-				err := oem.WriteFile(workspaceID, tool.Path, tool.Code.NewCode)
+				// 执行文件内容替换
+				err := oem.ReplaceFileContent(workspaceID, tool.Path, tool.Code.NewCode)
 				if err != nil {
 					toolCall.Status = "error"
 					toolCall.Error = err.Error()
 				} else {
 					toolCall.Status = "success"
-					toolCall.Result = "文件写入成功"
-					toolCall.Output = fmt.Sprintf("写入文件 %s 成功，长度: %d", tool.Path, len(tool.Code.NewCode))
+					toolCall.Result = "文件内容替换成功"
+					toolCall.Output = fmt.Sprintf("替换文件 %s 内容成功，长度: %d", tool.Path, len(tool.Code.NewCode))
 					if params, ok := toolCall.Parameters.(map[string]interface{}); ok {
 						params["content"] = tool.Code.NewCode
 					}
+
+					// 生成回退操作
+					toolCall.Rollback = oem.generateRollbackAction("file_write", tool.Path, originalContent)
 
 					// 创建代码变更记录
 					codeChange := CodeChange{
 						FilePath:     tool.Path,
 						OriginalCode: originalContent,
 						NewCode:      tool.Code.NewCode,
-						Description:  tool.Summary,
-						ChangeType:   "modify",
-						Confidence:   0.95,
 					}
 					codeChanges = append(codeChanges, codeChange)
 				}
@@ -710,14 +803,14 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 							params["content"] = tool.Content
 						}
 
+						// 生成回退操作
+						toolCall.Rollback = oem.generateRollbackAction("file_create", tool.Path, "")
+
 						// 创建代码变更记录
 						codeChange := CodeChange{
 							FilePath:     tool.Path,
 							OriginalCode: "",
 							NewCode:      tool.Content,
-							Description:  tool.Summary,
-							ChangeType:   "insert",
-							Confidence:   0.95,
 						}
 						codeChanges = append(codeChanges, codeChange)
 					}
@@ -725,6 +818,9 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 			}
 
 		case "file_delete":
+			// 读取原始文件内容用于回退
+			originalContent, _ := oem.ReadFile(workspaceID, tool.Path)
+
 			// 执行文件删除
 			err := oem.DeleteFile(workspaceID, tool.Path)
 			if err != nil {
@@ -735,14 +831,14 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 				toolCall.Result = "文件删除成功"
 				toolCall.Output = fmt.Sprintf("删除文件 %s 成功", tool.Path)
 
+				// 生成回退操作
+				toolCall.Rollback = oem.generateRollbackAction("file_delete", tool.Path, originalContent)
+
 				// 创建代码变更记录
 				codeChange := CodeChange{
 					FilePath:     tool.Path,
 					OriginalCode: "文件已删除",
 					NewCode:      "",
-					Description:  tool.Summary,
-					ChangeType:   "delete",
-					Confidence:   0.95,
 				}
 				codeChanges = append(codeChanges, codeChange)
 			}
@@ -757,6 +853,17 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 				toolCall.Status = "success"
 				toolCall.Result = "文件夹创建成功"
 				toolCall.Output = fmt.Sprintf("创建文件夹 %s 成功", tool.Path)
+
+				// 生成回退操作
+				toolCall.Rollback = oem.generateRollbackAction("file_create_folder", tool.Path, "")
+
+				// 创建代码变更记录
+				codeChange := CodeChange{
+					FilePath:     tool.Path,
+					OriginalCode: "",
+					NewCode:      "",
+				}
+				codeChanges = append(codeChanges, codeChange)
 			}
 
 		case "file_delete_folder":
@@ -769,6 +876,17 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 				toolCall.Status = "success"
 				toolCall.Result = "文件夹删除成功"
 				toolCall.Output = fmt.Sprintf("删除文件夹 %s 成功", tool.Path)
+
+				// 生成回退操作
+				toolCall.Rollback = oem.generateRollbackAction("file_delete_folder", tool.Path, "")
+
+				// 创建代码变更记录
+				codeChange := CodeChange{
+					FilePath:     tool.Path,
+					OriginalCode: "",
+					NewCode:      "",
+				}
+				codeChanges = append(codeChanges, codeChange)
 			}
 
 		case "shell_exec":
@@ -781,15 +899,29 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 				toolCall.Status = "success"
 				toolCall.Result = "命令执行成功"
 				toolCall.Output = output
+
+				// 生成回退操作
+				toolCall.Rollback = oem.generateRollbackAction("shell_exec", "", tool.Command)
 			}
 
 		default:
 			toolCall.Status = "error"
 			toolCall.Error = fmt.Sprintf("不支持的工具: %s", tool.Type)
 		}
-
 		endTime := time.Now()
 		toolCall.EndTime = &endTime
+
+		// 存储工具调用到历史中
+		oem.toolHistoryMutex.Lock()
+		historyEntry := &ToolCallHistory{
+			ExecutionID:  toolCall.ExecutionId,
+			ToolCall:     &toolCall,
+			Rollback:     toolCall.Rollback,
+			IsRolledBack: false,
+		}
+		oem.toolCallHistory[toolCall.ExecutionId] = historyEntry
+		oem.toolHistoryMutex.Unlock()
+
 		toolCalls = append(toolCalls, toolCall)
 	}
 
@@ -803,12 +935,19 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 		for _, toolCall := range toolCalls {
 			if toolCall.Name == "file_read" && toolCall.Status == "success" {
 				if content, ok := toolCall.Result.(string); ok {
-					additionalFiles[toolCall.Parameters.(map[string]interface{})["path"].(string)] = content
+					// 安全地获取路径参数
+					if params, ok := toolCall.Parameters.(map[string]interface{}); ok {
+						if pathVal, exists := params["path"]; exists {
+							if pathStr, ok := pathVal.(string); ok {
+								additionalFiles[pathStr] = content
+							}
+						}
+					}
 				}
 			}
 		}
 
-		return nil, nil, nil, &AutoRetryError{
+		return codeChanges, toolCalls, thinking, &AutoRetryError{
 			Message:         aiResponse.Message,
 			AdditionalFiles: additionalFiles,
 			NextStep:        "继续处理工具调用结果",
@@ -822,186 +961,256 @@ func (e *AutoRetryError) Error() string {
 	return fmt.Sprintf("需要自动重试: %s", e.Message)
 }
 
-// 执行AI建议的必需工具（带详细记录）
-func (oem *OnlineEditorManager) executeRequiredTools(workspaceID string, requiredTools []struct {
-	Tool   string `json:"tool"`
-	Path   string `json:"path"`
-	Reason string `json:"reason,omitempty"`
-}) (map[string]string, error) {
-	additionalFiles := make(map[string]string)
-	var executionRecords []ToolExecutionRecord
+// 执行回退操作
+func (oem *OnlineEditorManager) ExecuteRollback(workspaceID, executionID string) (*RollbackResponse, error) {
+	// 从历史中获取工具调用
+	oem.toolHistoryMutex.RLock()
+	historyEntry, exists := oem.toolCallHistory[executionID]
+	oem.toolHistoryMutex.RUnlock()
 
-	for _, tool := range requiredTools {
-		record := ToolExecutionRecord{
-			Tool:      tool.Tool,
-			Path:      tool.Path,
-			Reason:    tool.Reason,
-			Timestamp: time.Now(),
-		}
-
-		oem.logInfo("执行AI建议的工具", map[string]interface{}{
-			"tool":   tool.Tool,
-			"path":   tool.Path,
-			"reason": tool.Reason,
-		})
-
-		switch tool.Tool {
-		case "file_read":
-			content, err := oem.ReadFile(workspaceID, tool.Path)
-			if err != nil {
-				record.Status = "error"
-				record.Error = err.Error()
-				oem.logError("自动文件读取失败", err)
-				executionRecords = append(executionRecords, record)
-				// 不要因为单个文件读取失败就终止整个流程
-				continue
-			}
-			record.Status = "success"
-			record.Result = fmt.Sprintf("成功读取 %d 字符", len(content))
-			additionalFiles[tool.Path] = content
-
-		case "file_create":
-			// 创建空文件或默认模板
-			err := oem.CreateFile(workspaceID, tool.Path)
-			if err != nil {
-				record.Status = "error"
-				record.Error = err.Error()
-				oem.logError("自动文件创建失败", err)
-				executionRecords = append(executionRecords, record)
-				continue
-			}
-			record.Status = "success"
-			record.Result = "文件创建成功"
-			additionalFiles[tool.Path] = ""
-
-		case "file_create_folder":
-			// 创建文件夹
-			err := oem.CreateFolder(workspaceID, tool.Path)
-			if err != nil {
-				record.Status = "error"
-				record.Error = err.Error()
-				oem.logError("自动文件夹创建失败", err)
-				executionRecords = append(executionRecords, record)
-				continue
-			}
-			record.Status = "success"
-			record.Result = "文件夹创建成功"
-
-		default:
-			record.Status = "skipped"
-			record.Error = "不支持的工具类型"
-			oem.logInfo("跳过不支持的自动工具", map[string]interface{}{
-				"tool": tool.Tool,
-			})
-		}
-
-		executionRecords = append(executionRecords, record)
+	if !exists {
+		return &RollbackResponse{
+			Success: false,
+			Error:   fmt.Sprintf("找不到执行ID为 %s 的工具调用", executionID),
+		}, nil
 	}
 
-	// 记录执行结果
-	oem.logInfo("工具执行完成", map[string]interface{}{
-		"total_tools":       len(requiredTools),
-		"files_read":        len(additionalFiles),
-		"execution_records": len(executionRecords),
-	})
+	if historyEntry.IsRolledBack {
+		return &RollbackResponse{
+			Success: false,
+			Error:   "该工具调用已经被回退过了",
+		}, nil
+	}
 
-	return additionalFiles, nil
+	if historyEntry.Rollback == nil {
+		return &RollbackResponse{
+			Success: false,
+			Error:   "该工具调用没有对应的回退操作",
+		}, nil
+	}
+
+	// 执行回退操作
+	switch historyEntry.Rollback.Type {
+	case "file_write":
+		// 恢复文件原始内容
+		err := oem.ReplaceFileContent(workspaceID, historyEntry.Rollback.Path, historyEntry.Rollback.Content)
+		if err != nil {
+			return &RollbackResponse{
+				Success: false,
+				Error:   fmt.Sprintf("恢复文件内容失败: %v", err),
+			}, nil
+		}
+
+		// 标记为已回退
+		oem.toolHistoryMutex.Lock()
+		historyEntry.IsRolledBack = true
+		now := time.Now()
+		historyEntry.RollbackTime = &now
+		oem.toolHistoryMutex.Unlock()
+
+		return &RollbackResponse{
+			Success: true,
+			Message: fmt.Sprintf("成功恢复文件 %s 的原始内容", historyEntry.Rollback.Path),
+		}, nil
+
+	case "file_create":
+		// 删除创建的文件
+		err := oem.DeleteFile(workspaceID, historyEntry.Rollback.Path)
+		if err != nil {
+			return &RollbackResponse{
+				Success: false,
+				Error:   fmt.Sprintf("删除文件失败: %v", err),
+			}, nil
+		}
+
+		// 标记为已回退
+		oem.toolHistoryMutex.Lock()
+		historyEntry.IsRolledBack = true
+		now := time.Now()
+		historyEntry.RollbackTime = &now
+		oem.toolHistoryMutex.Unlock()
+
+		return &RollbackResponse{
+			Success: true,
+			Message: fmt.Sprintf("成功删除文件 %s", historyEntry.Rollback.Path),
+		}, nil
+
+	case "file_delete":
+		// 恢复删除的文件
+		err := oem.CreateFile(workspaceID, historyEntry.Rollback.Path)
+		if err != nil {
+			return &RollbackResponse{
+				Success: false,
+				Error:   fmt.Sprintf("创建文件失败: %v", err),
+			}, nil
+		}
+		if historyEntry.Rollback.Content != "" {
+			err = oem.WriteFile(workspaceID, historyEntry.Rollback.Path, historyEntry.Rollback.Content)
+			if err != nil {
+				return &RollbackResponse{
+					Success: false,
+					Error:   fmt.Sprintf("写入文件内容失败: %v", err),
+				}, nil
+			}
+		}
+
+		// 标记为已回退
+		oem.toolHistoryMutex.Lock()
+		historyEntry.IsRolledBack = true
+		now := time.Now()
+		historyEntry.RollbackTime = &now
+		oem.toolHistoryMutex.Unlock()
+
+		return &RollbackResponse{
+			Success: true,
+			Message: fmt.Sprintf("成功恢复文件 %s", historyEntry.Rollback.Path),
+		}, nil
+
+	case "file_create_folder":
+		// 删除创建的文件夹
+		err := oem.DeleteFile(workspaceID, historyEntry.Rollback.Path) // DeleteFile也可以删除文件夹
+		if err != nil {
+			return &RollbackResponse{
+				Success: false,
+				Error:   fmt.Sprintf("删除文件夹失败: %v", err),
+			}, nil
+		}
+
+		// 标记为已回退
+		oem.toolHistoryMutex.Lock()
+		historyEntry.IsRolledBack = true
+		now := time.Now()
+		historyEntry.RollbackTime = &now
+		oem.toolHistoryMutex.Unlock()
+
+		return &RollbackResponse{
+			Success: true,
+			Message: fmt.Sprintf("成功删除文件夹 %s", historyEntry.Rollback.Path),
+		}, nil
+
+	case "file_delete_folder":
+		// 恢复删除的文件夹
+		err := oem.CreateFolder(workspaceID, historyEntry.Rollback.Path)
+		if err != nil {
+			return &RollbackResponse{
+				Success: false,
+				Error:   fmt.Sprintf("创建文件夹失败: %v", err),
+			}, nil
+		}
+
+		// 标记为已回退
+		oem.toolHistoryMutex.Lock()
+		historyEntry.IsRolledBack = true
+		now := time.Now()
+		historyEntry.RollbackTime = &now
+		oem.toolHistoryMutex.Unlock()
+
+		return &RollbackResponse{
+			Success: true,
+			Message: fmt.Sprintf("成功恢复文件夹 %s", historyEntry.Rollback.Path),
+		}, nil
+
+	case "shell_exec":
+		// 执行回退命令
+		_, err := oem.ShellExec(workspaceID, historyEntry.Rollback.Command)
+		if err != nil {
+			return &RollbackResponse{
+				Success: false,
+				Error:   fmt.Sprintf("执行回退命令失败: %v", err),
+			}, nil
+		}
+
+		// 标记为已回退
+		oem.toolHistoryMutex.Lock()
+		historyEntry.IsRolledBack = true
+		now := time.Now()
+		historyEntry.RollbackTime = &now
+		oem.toolHistoryMutex.Unlock()
+
+		return &RollbackResponse{
+			Success: true,
+			Message: fmt.Sprintf("成功执行回退命令: %s", historyEntry.Rollback.Command),
+		}, nil
+
+	default:
+		return &RollbackResponse{
+			Success: false,
+			Error:   fmt.Sprintf("不支持的回退操作类型: %s", historyEntry.Rollback.Type),
+		}, nil
+	}
 }
 
-// 构建工具历史摘要
-func (oem *OnlineEditorManager) buildToolHistorySummary(history []ToolExecutionHistory) []ToolCall {
-	var toolCalls []ToolCall
+// 获取工具调用状态
+func (oem *OnlineEditorManager) GetToolCallStatus(workspaceID string) *ToolCallStatusResponse {
+	oem.toolHistoryMutex.RLock()
+	defer oem.toolHistoryMutex.RUnlock()
 
-	for _, entry := range history {
-		// 为每次尝试创建一个摘要工具调用
-		startTime := entry.Timestamp
-		endTime := entry.Timestamp.Add(time.Second) // 估算结束时间
-
-		toolCall := ToolCall{
-			Name: "execution_summary",
-			Parameters: map[string]interface{}{
-				"attempt":      entry.Attempt,
-				"status":       entry.Status,
-				"files_read":   len(entry.FilesRead),
-				"tools_called": len(entry.ToolsCalled),
-			},
-			Status:      entry.Status,
-			ExecutionId: fmt.Sprintf("attempt_%d", entry.Attempt),
-			StartTime:   &startTime,
-			EndTime:     &endTime,
-			Output:      fmt.Sprintf("第%d次尝试: %s", entry.Attempt, entry.Status),
-		}
-
-		if entry.Error != "" {
-			toolCall.Error = entry.Error
-		}
-
-		toolCalls = append(toolCalls, toolCall)
+	var tools []*ToolCallHistory
+	for _, historyEntry := range oem.toolCallHistory {
+		// 只返回属于当前工作空间的工具调用
+		// 这里可以根据需要添加工作空间过滤逻辑
+		tools = append(tools, historyEntry)
 	}
 
-	return toolCalls
+	return &ToolCallStatusResponse{
+		Success: true,
+		Tools:   tools,
+	}
 }
 
-// 验证AI操作的完整性
-func (oem *OnlineEditorManager) validateAIOperations(operations []struct {
-	Tool    string `json:"tool"`
-	Path    string `json:"path"`
-	Content string `json:"content,omitempty"`
-}) error {
-	supportedTools := map[string]bool{
-		"file_read":          true,
-		"file_write":         true,
-		"file_create":        true,
-		"file_delete":        true,
-		"file_create_folder": true,
-		"file_delete_folder": true,
+// 生成回退操作
+func (oem *OnlineEditorManager) generateRollbackAction(toolType, path, originalContent string) *RollbackAction {
+	switch toolType {
+	case "file_write":
+		return &RollbackAction{
+			Type:        "file_write",
+			Path:        path,
+			Content:     originalContent,
+			Description: fmt.Sprintf("恢复文件 %s 的原始内容", path),
+			IsVisible:   true,
+		}
+	case "file_create":
+		return &RollbackAction{
+			Type:        "file_delete",
+			Path:        path,
+			Description: fmt.Sprintf("删除创建的文件 %s", path),
+			IsVisible:   true,
+		}
+	case "file_delete":
+		return &RollbackAction{
+			Type:        "file_create",
+			Path:        path,
+			Content:     originalContent,
+			Description: fmt.Sprintf("恢复删除的文件 %s", path),
+			IsVisible:   true,
+		}
+	case "file_create_folder":
+		return &RollbackAction{
+			Type:        "file_delete_folder",
+			Path:        path,
+			Description: fmt.Sprintf("删除创建的文件夹 %s", path),
+			IsVisible:   true,
+		}
+	case "file_delete_folder":
+		return &RollbackAction{
+			Type:        "file_create_folder",
+			Path:        path,
+			Description: fmt.Sprintf("恢复删除的文件夹 %s", path),
+			IsVisible:   true,
+		}
+	case "shell_exec":
+		return &RollbackAction{
+			Type:        "shell_exec",
+			Command:     fmt.Sprintf("echo '回退shell命令: %s'", originalContent), // 这里originalContent实际上是command
+			Description: fmt.Sprintf("回退shell命令: %s", originalContent),
+			IsVisible:   true,
+		}
+	case "file_read":
+		// 文件读取操作不生成回退操作
+		return nil
+	default:
+		return nil
 	}
-
-	// 移除调试输出
-	fmt.Println(operations)
-
-	for i, op := range operations {
-		// 验证工具名称
-		if !supportedTools[op.Tool] {
-			return fmt.Errorf("操作 %d: 不支持的工具 '%s'", i+1, op.Tool)
-		}
-
-		// 验证路径
-		if op.Path == "" {
-			return fmt.Errorf("操作 %d: 路径不能为空", i+1)
-		}
-
-		// 验证路径格式（不能是绝对路径，不能包含危险字符）
-		if strings.HasPrefix(op.Path, "/") || strings.HasPrefix(op.Path, "\\") {
-			return fmt.Errorf("操作 %d: 路径不能是绝对路径: %s", i+1, op.Path)
-		}
-
-		if strings.Contains(op.Path, "..") {
-			return fmt.Errorf("操作 %d: 路径不能包含 '..' : %s", i+1, op.Path)
-		}
-
-		// 验证需要内容的操作
-		needsContent := map[string]bool{
-			"file_write":  true,
-			"file_create": true,
-		}
-
-		if needsContent[op.Tool] && op.Content == "" {
-			return fmt.Errorf("操作 %d: %s 操作必须提供文件内容", i+1, op.Tool)
-		}
-
-		// 验证文件夹操作
-		folderOps := map[string]bool{
-			"file_create_folder": true,
-			"file_delete_folder": true,
-		}
-
-		if folderOps[op.Tool] && op.Content != "" {
-			return fmt.Errorf("操作 %d: 文件夹操作不应包含内容", i+1)
-		}
-	}
-
-	return nil
 }
 
 // 新增：AI工具调用结构体，按照xxx.md的格式
@@ -1026,4 +1235,33 @@ type AIResponse struct {
 	Message  string           `json:"message,omitempty"`
 	Tools    []AIToolCall     `json:"tools,omitempty"`
 	Thinking *ThinkingProcess `json:"thinking,omitempty"`
+}
+
+// 回退操作请求
+type RollbackRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	ExecutionID string `json:"execution_id"` // 工具调用的执行ID
+}
+
+// 回退操作响应
+type RollbackResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// 工具调用状态响应
+type ToolCallStatusResponse struct {
+	Success bool               `json:"success"`
+	Tools   []*ToolCallHistory `json:"tools,omitempty"`
+	Error   string             `json:"error,omitempty"`
+}
+
+// 工具调用历史记录（用于管理回退操作）
+type ToolCallHistory struct {
+	ExecutionID  string          `json:"execution_id"`
+	ToolCall     *ToolCall       `json:"tool_call"`
+	Rollback     *RollbackAction `json:"rollback,omitempty"`
+	IsRolledBack bool            `json:"is_rolled_back"`          // 是否已经回退
+	RollbackTime *time.Time      `json:"rollback_time,omitempty"` // 回退时间
 }

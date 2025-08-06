@@ -161,6 +161,10 @@ type OnlineEditorManager struct {
 	// 新增：AI配置
 	aiConfig       *AIConfig
 	aiModelManager *AIModelManager
+
+	// 新增：工具调用历史存储
+	toolCallHistory  map[string]*ToolCallHistory // 存储工具调用历史，key为ExecutionID
+	toolHistoryMutex sync.RWMutex                // 工具调用历史锁
 }
 
 // 脚本和命令管理
@@ -380,6 +384,8 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 		importTasks:       make(map[string]*ImportTaskInfo),
 		aiConfig:          &AIConfig{DefaultModel: "gpt-3.5-turbo", Models: make(map[string]*AIModel)},
 		aiModelManager:    &AIModelManager{models: make(map[string]*AIModel)},
+		toolCallHistory:   make(map[string]*ToolCallHistory),
+		toolHistoryMutex:  sync.RWMutex{},
 	}
 
 	// 从Go配置文件加载AI配置

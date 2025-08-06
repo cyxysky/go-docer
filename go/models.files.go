@@ -147,6 +147,47 @@ func (oem *OnlineEditorManager) WriteFile(workspaceID, filePath, content string)
 	return nil
 }
 
+// 替换文件内容 - 实现内容替换而不是整个文件写入
+func (oem *OnlineEditorManager) ReplaceFileContent(workspaceID, filePath, newContent string) error {
+	oem.mutex.Lock()
+	defer oem.mutex.Unlock()
+
+	workspace, exists := oem.workspaces[workspaceID]
+	if !exists {
+		return fmt.Errorf("工作空间不存在: %s", workspaceID)
+	}
+
+	// 只在工作空间明确失败或停止时才禁止访问文件系统
+	if workspace.Status == "failed" || workspace.Status == "stopped" {
+		return fmt.Errorf("工作空间状态异常，无法访问文件系统。当前状态: %s", workspace.Status)
+	}
+
+	workspaceDir := filepath.Join(oem.workspacesDir, workspaceID)
+	fullPath := filepath.Join(workspaceDir, filePath)
+
+	// 检查路径是否在工作空间内
+	if !strings.HasPrefix(fullPath, workspaceDir) {
+		return fmt.Errorf("访问路径超出工作空间范围")
+	}
+
+	// 检查文件是否存在
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return fmt.Errorf("文件不存在: %s", filePath)
+	}
+
+	// 检查文件是否存在（不需要读取内容）
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return fmt.Errorf("文件不存在: %s", filePath)
+	}
+
+	// 写入新内容
+	if err := os.WriteFile(fullPath, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("替换文件内容失败: %v", err)
+	}
+
+	return nil
+}
+
 // 删除文件
 func (oem *OnlineEditorManager) DeleteFile(workspaceID, filePath string) error {
 	oem.mutex.Lock()
