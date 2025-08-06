@@ -54,6 +54,7 @@ interface ToolCall {
   status: 'pending' | 'success' | 'error';
   output?: string;
   executionId?: string;
+  actionTaken?: 'accept' | 'reject' | null;
 }
 
 interface AIModel {
@@ -114,6 +115,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [autoMode, setAutoMode] = useState(false);
   const [strategy, setStrategy] = useState<'preview' | 'auto' | 'manual'>('preview');
+  const [processedTools, setProcessedTools] = useState<Set<string>>(new Set());
   const [sidebarWidth, setSidebarWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -295,8 +297,25 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
     try {
       while (retryCount < maxRetries) {
+        // 构建增强的提示词
+        let enhancedPrompt = prompt;
+        
+        // 如果有选中的文件，在提示词中突出显示
+        if (selectedFiles.length > 0) {
+          enhancedPrompt = `用户重点关注以下文件，请优先考虑这些文件的修改：
+
+${selectedFiles.map(file => `📁 ${file}`).join('\n')}
+
+用户需求：${prompt}
+
+请特别注意：
+1. 优先修改上述文件中的代码
+2. 如果需要在其他文件中进行修改，请确保与上述文件的修改保持一致
+3. 在修改前请仔细分析这些文件的内容和结构`;
+        }
+
         const requestBody: AICodeGenerationRequest = {
-          prompt,
+          prompt: enhancedPrompt,
           workspace: currentWorkspace,
           model: selectedModel,
           strategy: strategy,
@@ -312,6 +331,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(requestBody),
+          // 设置超时时间为120秒
+          signal: AbortSignal.timeout(120000),
         });
 
         let data: AICodeGenerationResponse = await response.json();
@@ -319,22 +340,32 @@ const AIAgent: React.FC<AIAgentProps> = ({
           data = JSON.parse(data);
         }
 
-        // 构建消息内容
-        let messageContent = data.code || data.message || '';
+        // 构建消息内容 - 只显示简要信息，详细内容通过工具调用展示
+        let messageContent = '';
         
-        // 如果有工具调用，添加到消息内容中
+        // 如果有工具调用，显示简要摘要
         if (data.tools && data.tools.length > 0) {
-          messageContent += '\n\n执行的工具调用:\n';
-          data.tools.forEach((tool, index) => {
-            messageContent += `${index + 1}. ${tool.name}: ${tool.parameters?.summary || '执行工具'}\n`;
-          });
+          const fileOperations = data.tools.filter(tool => 
+            ['file_write', 'file_create', 'file_delete'].includes(tool.name)
+          );
+          const otherOperations = data.tools.filter(tool => 
+            !['file_write', 'file_create', 'file_delete'].includes(tool.name)
+          );
+          
+          if (fileOperations.length > 0) {
+            messageContent += `📁 文件操作: ${fileOperations.length} 个\n`;
+          }
+          if (otherOperations.length > 0) {
+            messageContent += `⚡ 其他操作: ${otherOperations.length} 个\n`;
+          }
         }
 
         // 添加状态信息
         if (data.status) {
-          messageContent += `\n状态: ${data.status}`;
           if (data.status === 'retry') {
-            messageContent += ` (重试次数: ${retryCount + 1}/${maxRetries})`;
+            messageContent += `🔄 正在获取更多信息... (${retryCount + 1}/${maxRetries})`;
+          } else if (data.status === 'finish') {
+            messageContent += `✅ 任务完成`;
           }
         }
 
@@ -344,7 +375,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
           content: messageContent,
           timestamp: new Date(),
           codeChanges: data.code_changes || [],
-          tools: data.tools || [],
+          tools: (data.tools || []).map(tool => ({ ...tool, actionTaken: null })),
           model: selectedModel,
           status: data.status === 'finish' ? 'completed' : data.status === 'retry' ? 'pending' : 'error',
           thinking: data.thinking
@@ -355,6 +386,27 @@ const AIAgent: React.FC<AIAgentProps> = ({
         // 将代码修改添加到全局状态
         if (data.code_changes && data.code_changes.length > 0) {
           addPendingChanges(data.code_changes);
+          
+          // 为每个代码修改触发文件操作预览
+          data.code_changes.forEach(change => {
+            const operation = change.changeType === 'insert' ? 'create' : 
+                            change.changeType === 'delete' ? 'delete' : 'edit';
+            
+            // 触发文件操作预览事件
+            window.dispatchEvent(new CustomEvent('file-operation', {
+              detail: {
+                operation,
+                filePath: change.filePath,
+                content: change.newCode,
+                originalContent: change.originalCode
+              }
+            }));
+
+            // 确保文件在tab中打开
+            window.dispatchEvent(new CustomEvent('open-file-in-tab', {
+              detail: { filePath: change.filePath }
+            }));
+          });
           
           // 发送代码差异到编辑器（保持向后兼容）
           const event = new CustomEvent('ai-code-changes', {
@@ -438,6 +490,174 @@ const AIAgent: React.FC<AIAgentProps> = ({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  /**
+   * 处理文件操作预览（显示差异）
+   * @param operation 操作类型
+   * @param filePath 文件路径
+   * @param content 文件内容
+   * @param originalContent 原始内容
+   */
+  const handleFileOperation = async (operation: 'create' | 'edit' | 'delete', filePath: string, content?: string, originalContent?: string) => {
+    if (!currentWorkspace) {
+      console.error('No workspace selected');
+      return;
+    }
+
+    console.log('AIAgent处理文件操作:', { operation, filePath, contentLength: content?.length, originalContentLength: originalContent?.length });
+
+    try {
+      let finalOriginalContent = originalContent || '';
+      let finalContent = content || '';
+
+      // 如果是编辑操作且没有原始内容，需要先读取文件
+      if (operation === 'edit' && !originalContent) {
+        try {
+          console.log('读取原始文件内容:', filePath);
+          const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/files/read?path=${encodeURIComponent(filePath)}`);
+          if (response.ok) {
+            const fileData = await response.json();
+            finalOriginalContent = fileData.content || '';
+            console.log('读取到原始内容长度:', finalOriginalContent.length);
+          }
+        } catch (error) {
+          console.error('Failed to read original file content:', error);
+        }
+      }
+
+      // 确保文件在tab中打开
+      console.log('触发文件打开事件:', filePath);
+      window.dispatchEvent(new CustomEvent('open-file-in-tab', {
+        detail: { filePath }
+      }));
+
+      // 延迟一点时间确保文件已打开，然后触发编辑器预览事件，显示差异
+      setTimeout(() => {
+        console.log('触发文件操作预览事件:', { operation, filePath });
+        window.dispatchEvent(new CustomEvent('file-operation', {
+          detail: {
+            operation,
+            filePath,
+            content: finalContent,
+            originalContent: finalOriginalContent || ''
+          }
+        }));
+      }, 300); // 给文件打开更多时间
+
+    } catch (error) {
+      console.error('Error handling file operation preview:', error);
+      alert(`文件操作预览失败: ${error}`);
+    }
+  };
+
+  /**
+   * 执行实际的文件操作（在用户确认后调用）
+   * @param operation 操作类型
+   * @param filePath 文件路径
+   * @param content 文件内容
+   */
+  const executeFileOperation = async (operation: 'create' | 'edit' | 'delete', filePath: string, content?: string) => {
+    if (!currentWorkspace) {
+      console.error('No workspace selected');
+      return;
+    }
+
+    try {
+      switch (operation) {
+        case 'create':
+          if (content) {
+            const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/files/write`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                path: filePath,
+                content: content,
+              }),
+            });
+
+            if (response.ok) {
+              console.log('✅ 文件已创建:', filePath);
+              // 通知文件系统刷新
+              window.dispatchEvent(new CustomEvent('file-system-refresh'));
+            } else {
+              throw new Error(`Failed to create file: ${response.statusText}`);
+            }
+          }
+          break;
+
+        case 'edit':
+          if (content) {
+            const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/files/write`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                path: filePath,
+                content: content,
+              }),
+            });
+
+            if (response.ok) {
+              console.log('✅ 文件已更新:', filePath);
+              // 通知文件系统刷新
+              window.dispatchEvent(new CustomEvent('file-system-refresh'));
+            } else {
+              throw new Error(`Failed to update file: ${response.statusText}`);
+            }
+          }
+          break;
+
+        case 'delete':
+          const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/files/delete`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              path: filePath,
+            }),
+          });
+
+          if (response.ok) {
+            console.log('✅ 文件已删除:', filePath);
+            // 通知文件系统刷新
+            window.dispatchEvent(new CustomEvent('file-system-refresh'));
+          } else {
+            throw new Error(`Failed to delete file: ${response.statusText}`);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('Error executing file operation:', error);
+      alert(`文件操作执行失败: ${error}`);
+    }
+  };
+
+  /**
+   * 处理工具操作完成
+   * @param messageId 消息ID
+   * @param toolIndex 工具索引
+   * @param action 操作类型
+   */
+  const handleToolActionTaken = (messageId: string, toolIndex: number, action: 'accept' | 'reject') => {
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId && msg.tools) {
+        const updatedTools = [...msg.tools];
+        if (updatedTools[toolIndex]) {
+          updatedTools[toolIndex] = { ...updatedTools[toolIndex], actionTaken: action };
+        }
+        return { ...msg, tools: updatedTools };
+      }
+      return msg;
+    }));
+
+    // 记录已处理的工具
+    const toolKey = `${messageId}-${toolIndex}`;
+    setProcessedTools(prev => new Set([...prev, toolKey]));
   };
 
   /**
@@ -553,7 +773,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
     if (!hasContent) return null;
 
     return (
-      <div className="ai-agent-thinking-container">
+      <div className="ai-agent-thinking-container thinking-fade-in">
         <div className="ai-agent-thinking-header">
           <span className="ai-agent-thinking-icon">🧠</span>
           <span className="ai-agent-thinking-title">AI 思考过程</span>
@@ -607,19 +827,29 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const renderToolCalls = (message: AIMessage) => {
     if (!message.tools || message.tools.length === 0) return null;
 
+    // 修改：显示所有工具调用，不过滤已处理的
+    const visibleTools = message.tools;
+
+    if (visibleTools.length === 0) return null;
+
     return (
-      <div style={{ marginTop: '8px' }}>
-        {message.tools.map((tool, index) => (
-          <ToolCall
-            key={index}
-            name={tool.name}
-            parameters={tool.parameters}
-            result={tool.result}
-            status={tool.status}
-            output={tool.output}
-            executionId={tool.executionId}
-          />
-        ))}
+      <div style={{ marginTop: '8px' }} className="tool-call-enter">
+        {visibleTools.map((tool, index) => {
+          return (
+            <ToolCall
+              key={`${message.id}-${index}`}
+              name={tool.name}
+              parameters={tool.parameters}
+              result={tool.result}
+              status={tool.status}
+              output={tool.output}
+              executionId={tool.executionId}
+              onFileOperation={handleFileOperation}
+              onActionTaken={(action) => handleToolActionTaken(message.id, index, action)}
+              actionTaken={tool.actionTaken}
+            />
+          );
+        })}
         {/* 显示工具执行结果摘要 */}
         <div className="ai-agent-tools-summary">
           <div className="ai-agent-tools-summary-header">
@@ -640,6 +870,11 @@ const AIAgent: React.FC<AIAgentProps> = ({
                 ✗ {message.tools.filter(t => t.status === 'error').length} 失败
               </span>
             )}
+            {message.tools.filter(t => t.actionTaken).length > 0 && (
+              <span className="ai-agent-tools-summary-processed">
+                🔄 {message.tools.filter(t => t.actionTaken).length} 已处理
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -652,7 +887,38 @@ const AIAgent: React.FC<AIAgentProps> = ({
    */
   const openFile = async (filePath: string) => {
     console.log('Opening file:', filePath);
+    // 触发文件打开事件
+    window.dispatchEvent(new CustomEvent('open-file-in-tab', {
+      detail: { filePath }
+    }));
   };
+
+  // 监听文件打开事件
+  useEffect(() => {
+    const handleOpenFile = (event: CustomEvent) => {
+      const { filePath } = event.detail;
+      console.log('Received open file event:', filePath);
+    };
+
+    window.addEventListener('open-file-in-tab', handleOpenFile as EventListener);
+    return () => {
+      window.removeEventListener('open-file-in-tab', handleOpenFile as EventListener);
+    };
+  }, []);
+
+  // 监听文件操作执行事件
+  useEffect(() => {
+    const handleExecuteFileOperation = (event: CustomEvent) => {
+      const { operation, filePath, content } = event.detail;
+      console.log('Executing file operation:', { operation, filePath, content });
+      executeFileOperation(operation, filePath, content);
+    };
+
+    window.addEventListener('execute-file-operation', handleExecuteFileOperation as EventListener);
+    return () => {
+      window.removeEventListener('execute-file-operation', handleExecuteFileOperation as EventListener);
+    };
+  }, [executeFileOperation]);
 
   if (!isVisible) {
     return null;

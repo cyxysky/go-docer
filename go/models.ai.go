@@ -556,7 +556,7 @@ func (oem *OnlineEditorManager) callAIWithModel(prompt string, model *AIModel) (
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+model.APIKey)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("请求失败: %v", err)

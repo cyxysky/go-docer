@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -196,5 +197,15 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./static")))
 
 	log.Printf("在线代码编辑器服务器启动在端口 %d", port)
-	return http.ListenAndServe(fmt.Sprintf(":%d", port), router)
+
+	// 创建HTTP服务器并设置超时
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%d", port),
+		Handler:      router,
+		ReadTimeout:  120 * time.Second, // 读取超时
+		WriteTimeout: 120 * time.Second, // 写入超时
+		IdleTimeout:  120 * time.Second, // 空闲超时
+	}
+
+	return server.ListenAndServe()
 }

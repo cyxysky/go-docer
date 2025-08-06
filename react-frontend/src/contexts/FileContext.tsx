@@ -366,6 +366,29 @@ export const FileProvider: React.FC<FileProviderProps> = ({ children, currentWor
     }
   }, [currentWorkspace, loadFileTree]);
 
+  // 监听open-file-in-tab事件
+  React.useEffect(() => {
+    const handleOpenFileInTab = async (event: CustomEvent) => {
+      const { filePath } = event.detail;
+      console.log('FileContext: 收到open-file-in-tab事件:', filePath);
+      
+      if (filePath && currentWorkspace) {
+        try {
+          await openFile(filePath);
+          console.log('FileContext: 文件已打开到tab:', filePath);
+        } catch (error) {
+          console.error('FileContext: 打开文件失败:', error);
+        }
+      }
+    };
+
+    window.addEventListener('open-file-in-tab', handleOpenFileInTab as EventListener);
+    
+    return () => {
+      window.removeEventListener('open-file-in-tab', handleOpenFileInTab as EventListener);
+    };
+  }, [currentWorkspace, openFile]);
+
   // 工作空间状态变化时刷新文件列表
   React.useEffect(() => {
     if (currentWorkspace && workspaceStatus === 'running' && files.length === 0) {

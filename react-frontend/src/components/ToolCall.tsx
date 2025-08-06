@@ -8,6 +8,9 @@ interface ToolCallProps {
   status: 'pending' | 'success' | 'error';
   output?: string;
   executionId?: string;
+  onFileOperation?: (operation: 'create' | 'edit' | 'delete', filePath: string, content?: string, originalContent?: string) => void;
+  onActionTaken?: (action: 'accept' | 'reject') => void;
+  actionTaken?: 'accept' | 'reject' | null;
 }
 
 const ToolCall: React.FC<ToolCallProps> = ({
@@ -17,6 +20,9 @@ const ToolCall: React.FC<ToolCallProps> = ({
   status,
   output,
   executionId,
+  onFileOperation,
+  onActionTaken,
+  actionTaken,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -41,10 +47,14 @@ const ToolCall: React.FC<ToolCallProps> = ({
         return 'Read';
       case 'file_write':
         return 'Write';
+      case 'file_create':
+        return 'Create';
+      case 'file_delete':
+        return 'Delete';
       case 'code_analysis':
         return 'Analyze';
       default:
-        return "";
+        return name;
     }
   };
 
@@ -63,6 +73,57 @@ const ToolCall: React.FC<ToolCallProps> = ({
 
   const hasDetails = () => {
     return output || result || (parameters && Object.keys(parameters).length > 1);
+  };
+
+  const isFileOperation = () => {
+    return ['file_write', 'file_create', 'file_delete'].includes(name);
+  };
+
+  const getFileOperationType = () => {
+    switch (name) {
+      case 'file_write':
+        return 'edit';
+      case 'file_create':
+        return 'create';
+      case 'file_delete':
+        return 'delete';
+      default:
+        return null;
+    }
+  };
+
+  const handleFileOperation = (action: 'accept' | 'reject') => {
+    if (!onFileOperation || !isFileOperation()) return;
+
+    const operationType = getFileOperationType();
+    const filePath = parameters?.path || parameters?.file_path;
+    
+    if (!operationType || !filePath) return;
+
+    if (action === 'accept') {
+      if (operationType === 'delete') {
+        onFileOperation('delete', filePath);
+      } else if (operationType === 'create') {
+        onFileOperation('create', filePath, parameters?.content || '');
+      } else if (operationType === 'edit') {
+        onFileOperation('edit', filePath, parameters?.content || '', parameters?.original_content || '');
+      }
+    } else {
+      // 拒绝操作 - 恢复原始内容
+      if (operationType === 'delete' && parameters?.original_content) {
+        // 删除操作被拒绝，恢复文件
+        onFileOperation('create', filePath, parameters.original_content);
+      } else if (operationType === 'create') {
+        // 创建操作被拒绝，删除文件（如果已创建）
+        onFileOperation('delete', filePath);
+      } else if (operationType === 'edit' && parameters?.original_content) {
+        // 编辑操作被拒绝，恢复原始内容
+        onFileOperation('edit', filePath, parameters.original_content, parameters?.content || '');
+      }
+    }
+
+    // 通知父组件操作已完成
+    onActionTaken?.(action);
   };
 
   const mainParam = getMainParameter();
@@ -92,6 +153,35 @@ const ToolCall: React.FC<ToolCallProps> = ({
           <span className="tool-call-param">
             {truncatedParam}
           </span>
+        )}
+
+        {/* 文件操作按钮 */}
+        {isFileOperation() && status === 'success' && !actionTaken && (
+          <div className="tool-call-actions" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="tool-call-action-btn tool-call-accept"
+              onClick={() => handleFileOperation('accept')}
+              title="接受此操作"
+            >
+              ✓
+            </button>
+            <button
+              className="tool-call-action-btn tool-call-reject"
+              onClick={() => handleFileOperation('reject')}
+              title="拒绝此操作"
+            >
+              ✗
+            </button>
+          </div>
+        )}
+        
+        {/* 操作状态显示 */}
+        {actionTaken && (
+          <div className="tool-call-action-status">
+            <span className={`tool-call-action-status-${actionTaken}`}>
+              {actionTaken === 'accept' ? '✓ 已接受' : '✗ 已拒绝'}
+            </span>
+          </div>
         )}
 
         {/* 展开按钮 */}

@@ -21,36 +21,47 @@ const AICodeChangesIndicator: React.FC = () => {
       top: '60px',
       right: '20px',
       zIndex: 1000,
-      background: '#ff6b6b',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       color: 'white',
-      padding: '8px 12px',
-      borderRadius: '6px',
-      fontSize: '12px',
-      fontWeight: '500',
-      boxShadow: '0 2px 8px rgba(255, 107, 107, 0.3)',
+      padding: '10px 16px',
+      borderRadius: '8px',
+      fontSize: '13px',
+      fontWeight: '600',
+      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
       display: 'flex',
       alignItems: 'center',
-      gap: '8px',
+      gap: '10px',
       cursor: 'pointer',
-      transition: 'all 0.2s ease'
+      transition: 'all 0.3s ease',
+      border: '1px solid rgba(255, 255, 255, 0.2)',
+      backdropFilter: 'blur(10px)'
     }}
     onMouseEnter={(e) => {
-      e.currentTarget.style.transform = 'scale(1.05)';
+      e.currentTarget.style.transform = 'scale(1.05) translateY(-2px)';
+      e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.6)';
     }}
     onMouseLeave={(e) => {
-      e.currentTarget.style.transform = 'scale(1)';
+      e.currentTarget.style.transform = 'scale(1) translateY(0)';
+      e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
     }}
     >
       <div style={{
-        width: '8px',
-        height: '8px',
+        width: '10px',
+        height: '10px',
         borderRadius: '50%',
-        background: 'white',
-        animation: 'pulse 2s infinite'
+        background: 'linear-gradient(45deg, #ff6b6b, #ffa500)',
+        animation: 'pulse 2s infinite',
+        boxShadow: '0 0 10px rgba(255, 107, 107, 0.5)'
       }} />
-      <span>
-        {pendingChanges.length} 个AI代码修改待处理
-        {tabsWithChanges.length > 0 && ` (${tabsWithChanges.length} 个已打开)`}
+      <span style={{
+        textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
+      }}>
+        🤖 {pendingChanges.length} 个AI操作待处理
+        {tabsWithChanges.length > 0 && (
+          <span style={{ opacity: 0.8, fontSize: '11px' }}>
+            {' '}({tabsWithChanges.length} 个已打开)
+          </span>
+        )}
       </span>
     </div>
   );

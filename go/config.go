@@ -178,7 +178,7 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("【字段含义说明】\n")
-	prompt.WriteString("1. **context**: 用户主动选择或提供的核心文件内容，这些是你需要重点分析和修改的文件！！\n")
+	prompt.WriteString("1. **context**: 用户主动选择或提供的核心文件内容，如果存在，就是你需要修改的内容！！\n")
 	prompt.WriteString("   - 格式：{\"文件路径\": \"文件完整内容\"}\n")
 	prompt.WriteString("   - 用途：了解现有代码结构、依赖关系、编码风格等\n")
 	prompt.WriteString("   - 注意：这些文件的内容是完整且准确的，可以直接基于此进行分析和修改！！\n\n")
@@ -309,14 +309,16 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("   - 如果还有问题，状态设为\"retry\"继续处理\n\n")
 
 	prompt.WriteString("【严格要求】\n")
-	prompt.WriteString("1. 必须返回纯JSON格式，不要包含```json等markdown标记\n")
+	prompt.WriteString("1. 必须返回纯JSON格式，不要包含```json等markdown标记,并且里面的所有字段都是字符串格式！\n")
 	prompt.WriteString("2. status字段必须是\"finish\"或\"retry\"\n")
 	prompt.WriteString("3. 每次响应必须至少包含一个工具调用\n")
 	prompt.WriteString("4. 如果信息不足，使用file_read工具获取信息，状态设为\"retry\"\n")
 	prompt.WriteString("5. 如果完成所有修改，状态设为\"finish\"\n")
 	prompt.WriteString("6. 所有工具调用必须包含summary字段说明目的\n")
 	prompt.WriteString("7. 路径使用相对路径，以项目根目录为基准\n")
-	prompt.WriteString("8. 编译测试使用shell_exec工具，命令用&&连接多个命令\n\n")
+	prompt.WriteString("8. 编译测试使用shell_exec工具，命令用&&连接多个命令\n")
+	prompt.WriteString("9. 如果编译有错误，根据错误信息继续修改\n")
+	prompt.WriteString("10. 如果context里面存在的文件，就是你需要修改的文件\n")
 
 	prompt.WriteString("请根据以上要求，仔细分析用户需求，按照工作流程执行。每次响应必须包含至少一个工具调用。\n\n")
 

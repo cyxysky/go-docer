@@ -199,17 +199,41 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   }, [cleanupEditor, theme, setupEditorEvents]);
 
   // 预览代码差异
-  const previewCodeDiff = useCallback((originalCode: string, modifiedCode: string, language: string) => {
+  const previewCodeDiff = useCallback((originalCode: string, modifiedCode: string, language: string, operation?: 'create' | 'edit' | 'delete') => {
     if (!editorRef.current) return;
     cleanupEditor();
     const diffEditor = monaco.editor.createDiffEditor(editorRef.current, {
       ...diffEditorConfig,
       theme: theme === 'dark' ? 'vs-dark' : 'vs'
     });
+    
+    // 根据操作类型设置不同的标题
+    let originalTitle = 'Original';
+    let modifiedTitle = 'Modified';
+    
+    if (operation === 'create') {
+      originalTitle = 'Empty File';
+      modifiedTitle = 'New File';
+    } else if (operation === 'delete') {
+      originalTitle = 'Current File';
+      modifiedTitle = 'Will be deleted';
+    }
+    
     diffEditor.setModel({
       original: monaco.editor.createModel(originalCode, language),
       modified: monaco.editor.createModel(modifiedCode, language),
     });
+    
+    // 设置标题
+    const originalModel = diffEditor.getModel()?.original;
+    const modifiedModel = diffEditor.getModel()?.modified;
+    if (originalModel) {
+      originalModel.setValue(originalCode);
+    }
+    if (modifiedModel) {
+      modifiedModel.setValue(modifiedCode);
+    }
+    
     diffEditorRef.current = diffEditor;
     setIsDiffMode(true);
   }, [cleanupEditor, theme]);
@@ -218,31 +242,210 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   const switchToNormalEditor = useCallback((content: string = '', language: string = 'javascript') => {
     if (!editorRef.current) return;
 
+    console.log('切换回普通编辑器:', { content: content.length, language });
+    
     cleanupEditor();
     setIsDiffMode(false);
     createEditor(content, language);
-  }, [cleanupEditor, createEditor]);
+    
+    // 更新tab内容
+    if (filePath) {
+      updateTabContent(filePath, content);
+      console.log('已更新tab内容');
+    }
+  }, [cleanupEditor, createEditor, filePath, updateTabContent]);
 
   // 应用代码更改
   const applyCodeChanges = useCallback(() => {
     if (!filePath || !diffEditorRef.current) return;
 
+    console.log('开始应用代码更改:', filePath);
+
     const editor = diffEditorRef.current;
     const modifiedContent = editor.getModel()?.modified?.getValue() || '';
+    const originalContent = editor.getModel()?.original?.getValue() || '';
 
+    console.log('应用代码更改内容:', { 
+      originalLength: originalContent.length, 
+      modifiedLength: modifiedContent.length 
+    });
+
+    // 根据内容判断操作类型
+    let operation = 'edit';
+    if (originalContent === '' && modifiedContent !== '') {
+      operation = 'create';
+    } else if (originalContent !== '' && modifiedContent === '') {
+      operation = 'delete';
+    }
+
+    console.log('文件操作类型:', operation);
+
+    // 触发实际的文件操作
+    window.dispatchEvent(new CustomEvent('execute-file-operation', {
+      detail: {
+        operation,
+        filePath,
+        content: modifiedContent
+      }
+    }));
+
+    // 更新tab内容
     updateTabContent(filePath, modifiedContent);
+    console.log('已更新tab内容');
+    
+    // 移除待处理的修改
     removePendingChanges(filePath);
+    console.log('已移除待处理的修改');
+    
+    // 标记为已应用
     markChangeAsApplied(filePath);
+    console.log('已标记为已应用');
+    
+    // 切换到普通编辑器
     switchToNormalEditor(modifiedContent, getLanguageFromPath(filePath));
+    console.log('应用代码更改完成');
   }, [filePath, updateTabContent, removePendingChanges, markChangeAsApplied, switchToNormalEditor, getLanguageFromPath]);
+
+  // 处理文件操作
+  const handleFileOperation = useCallback((operation: 'create' | 'edit' | 'delete', filePath: string, content?: string, originalContent?: string) => {
+    if (!currentWorkspace) return;
+
+    const language = getLanguageFromPath(filePath);
+    console.log('Handling file operation:', { operation, filePath, content, originalContent });
+    
+    // 触发文件打开事件，确保文件在tab中打开
+    window.dispatchEvent(new CustomEvent('open-file-in-tab', {
+      detail: { filePath }
+    }));
+    
+    // 延迟一点时间确保文件已打开，然后显示差异
+    setTimeout(() => {
+      switch (operation) {
+        case 'create':
+          if (content) {
+            console.log('Showing create diff for:', filePath);
+            previewCodeDiff('', content, language, 'create');
+          }
+          break;
+        case 'edit':
+          if (content && originalContent) {
+            console.log('Showing edit diff for:', filePath);
+            previewCodeDiff(originalContent, content, language, 'edit');
+          }
+          break;
+        case 'delete':
+          if (originalContent) {
+            console.log('Showing delete diff for:', filePath);
+            previewCodeDiff(originalContent, '', language, 'delete');
+          }
+          break;
+      }
+    }, 200); // 给文件打开更多时间
+  }, [currentWorkspace, getLanguageFromPath, previewCodeDiff]);
+
+  // 监听文件操作事件
+  useEffect(() => {
+    const handleFileOperationEvent = (event: CustomEvent) => {
+      const { operation, filePath, content, originalContent } = event.detail;
+      console.log('MonacoEditor received file operation:', { operation, filePath, content, originalContent });
+      
+      // 如果当前编辑器显示的是这个文件，立即显示差异
+      if (filePath === activeTab) {
+        handleFileOperation(operation, filePath, content, originalContent);
+      } else {
+        // 如果当前编辑器显示的不是这个文件，但文件已打开，也显示差异
+        const changes = getChangesForFile(filePath);
+        if (changes) {
+          handleFileOperation(operation, filePath, content, originalContent);
+        }
+      }
+    };
+
+    window.addEventListener('file-operation', handleFileOperationEvent as EventListener);
+    return () => {
+      window.removeEventListener('file-operation', handleFileOperationEvent as EventListener);
+    };
+  }, [handleFileOperation, activeTab, getChangesForFile]);
+
+  // 监听文件打开事件，确保文件打开后显示差异
+  useEffect(() => {
+    const handleOpenFileEvent = (event: CustomEvent) => {
+      const { filePath } = event.detail;
+      console.log('MonacoEditor received open file event:', filePath);
+      
+      // 如果这个文件有待处理的变更，等待文件加载完成后显示差异
+      setTimeout(() => {
+        const changes = getChangesForFile(filePath);
+        if (changes) {
+          const language = getLanguageFromPath(filePath);
+          console.log('Showing diff for opened file:', filePath, changes);
+          
+          // 根据变更类型确定操作类型
+          let operation: 'create' | 'edit' | 'delete' | undefined;
+          if (changes.changeType === 'insert') {
+            operation = 'create';
+          } else if (changes.changeType === 'delete') {
+            operation = 'delete';
+          } else {
+            operation = 'edit';
+          }
+          
+          previewCodeDiff(changes.originalCode, changes.newCode, language, operation);
+        }
+      }, 200); // 给文件加载更多时间
+    };
+
+    window.addEventListener('open-file-in-tab', handleOpenFileEvent as EventListener);
+    return () => {
+      window.removeEventListener('open-file-in-tab', handleOpenFileEvent as EventListener);
+    };
+  }, [getChangesForFile, getLanguageFromPath, previewCodeDiff]);
 
   // 拒绝代码更改
   const rejectCodeChanges = useCallback(() => {
     if (!filePath) return;
 
-    const tabContent = getTabContent(filePath) || '';
+    console.log('开始拒绝代码更改:', filePath);
+
+    // 获取原始内容（从diff编辑器的original模型）
+    let originalContent = '';
+    if (diffEditorRef.current) {
+      originalContent = diffEditorRef.current.getModel()?.original?.getValue() || '';
+      console.log('从diff编辑器获取原始内容:', originalContent);
+    }
+
+    // 如果没有原始内容，尝试从tab内容获取
+    if (!originalContent) {
+      originalContent = getTabContent(filePath) || '';
+      console.log('从tab内容获取原始内容:', originalContent);
+    }
+
+    // 移除待处理的修改
     removePendingChanges(filePath);
-    switchToNormalEditor(tabContent, getLanguageFromPath(filePath));
+    console.log('已移除待处理的修改');
+    
+    // 切换到普通编辑器，显示原始内容
+    switchToNormalEditor(originalContent, getLanguageFromPath(filePath));
+    console.log('已切换到普通编辑器');
+    
+    // 如果是删除操作被拒绝，需要恢复文件
+    if (diffEditorRef.current) {
+      const modifiedContent = diffEditorRef.current.getModel()?.modified?.getValue() || '';
+      
+      if (originalContent !== '' && modifiedContent === '') {
+        console.log('删除操作被拒绝，恢复文件');
+        // 这是删除操作，拒绝时需要恢复文件
+        window.dispatchEvent(new CustomEvent('execute-file-operation', {
+          detail: {
+            operation: 'create',
+            filePath,
+            content: originalContent
+          }
+        }));
+      }
+    }
+
+    console.log('拒绝代码更改完成，恢复原始内容:', { filePath, originalContent });
   }, [filePath, getTabContent, removePendingChanges, switchToNormalEditor, getLanguageFromPath]);
 
   // 监听AI消息事件
@@ -283,7 +486,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   // 更新编辑器内容
   useEffect(() => {
-    console.log(pendingChanges)
+    console.log('更新编辑器内容:', { filePath, pendingChanges: pendingChanges.length });
     if (!filePath || isUpdating) return;
 
     setIsUpdating(true);
@@ -295,18 +498,34 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
       // 检查是否有待处理的代码变更
       const changes = getChangesForFile(filePath);
       if (changes) {
-        previewCodeDiff(changes.originalCode, changes.newCode, language);
+        console.log('发现待处理的代码变更，显示差异:', changes);
+        
+        // 根据变更类型确定操作类型
+        let operation: 'create' | 'edit' | 'delete' | undefined;
+        if (changes.changeType === 'insert') {
+          operation = 'create';
+        } else if (changes.changeType === 'delete') {
+          operation = 'delete';
+        } else {
+          operation = 'edit';
+        }
+        
+        previewCodeDiff(changes.originalCode, changes.newCode, language, operation);
         setIsUpdating(false);
         return;
       }
 
+      // 如果没有待处理的变更，且当前在差异模式，切换回普通编辑器
       if (isDiffMode) {
+        console.log('没有待处理的变更，切换回普通编辑器');
         switchToNormalEditor(tabContent, language);
         setIsUpdating(false);
         return;
       }
 
+      // 创建或更新普通编辑器
       if (!monacoRef.current) {
+        console.log('创建新编辑器');
         createEditor(tabContent, language);
         setIsUpdating(false);
         return;
@@ -317,6 +536,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
       // 只有当内容确实不同时才更新
       if (currentContent !== tabContent) {
+        console.log('更新编辑器内容');
         editor.setValue(tabContent);
 
         // 更新语言
@@ -350,7 +570,19 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     const changes = getChangesForFile(filePath);
     if (changes) {
       const language = getLanguageFromPath(filePath);
-      previewCodeDiff(changes.originalCode, changes.newCode, language);
+      
+      // 根据变更类型确定操作类型
+      let operation: 'create' | 'edit' | 'delete' | undefined;
+      if (changes.changeType === 'insert') {
+        operation = 'create';
+      } else if (changes.changeType === 'delete') {
+        operation = 'delete';
+      } else {
+        operation = 'edit';
+      }
+      
+      console.log('AI代码变化，显示差异:', { filePath, changes, operation });
+      previewCodeDiff(changes.originalCode, changes.newCode, language, operation);
     }
   }, [pendingChanges, filePath, previewCodeDiff, getLanguageFromPath, getChangesForFile]);
 
