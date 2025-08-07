@@ -17,7 +17,6 @@ import ResizablePanel from './components/ResizablePanel';
 import SplitEditor from './components/SplitEditor';
 import ToastComponent from './components/Toast';
 import ThemeToggle from './components/ThemeToggle';
-import AICodeChangesIndicator from './components/AICodeChangesIndicator';
 import './App.css';
 
 // 主应用组件
@@ -26,7 +25,7 @@ const AppContent: React.FC = () => {
   const [activeSidebarTab, setActiveSidebarTab] = useState('workspace');
   const [activePanel, setActivePanel] = useState('terminal');
   const { theme } = useTheme();
-  const [toasts] = useState<Array<{id: string, message: string, type: 'success' | 'error' | 'warning' | 'info'}>>([]);
+  const [toasts] = useState<Array<{ id: string, message: string, type: 'success' | 'error' | 'warning' | 'info' }>>([]);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(250);
   const [isResizingBottomPanel, setIsResizingBottomPanel] = useState(false);
   const startPosRef = useRef(0);
@@ -37,14 +36,14 @@ const AppContent: React.FC = () => {
   const handleBottomPanelMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     // 立即设置ref状态
     isResizingRef.current = true;
     setIsResizingBottomPanel(true);
-    
+
     startPosRef.current = e.clientY;
     startHeightRef.current = bottomPanelHeight;
-    
+
     document.addEventListener('mousemove', handleBottomPanelMouseMove);
     document.addEventListener('mouseup', handleBottomPanelMouseUp);
     document.body.style.cursor = 'row-resize';
@@ -52,13 +51,9 @@ const AppContent: React.FC = () => {
   };
 
   const handleBottomPanelMouseMove = (e: MouseEvent) => {
-    if (!isResizingRef.current) {
-      return;
-    }
-
+    if (!isResizingRef.current) return;
     const delta = startPosRef.current - e.clientY; // 向上拖动增加高度
     const newHeight = Math.max(150, Math.min(500, startHeightRef.current + delta));
-    
     setBottomPanelHeight(newHeight);
   };
 
@@ -109,21 +104,21 @@ const AppContent: React.FC = () => {
           <div className="sidebar">
             {/* 侧边栏标签 */}
             <div className="sidebar-tabs">
-              <div 
+              <div
                 className={`sidebar-tab ${activeSidebarTab === 'workspace' ? 'active' : ''}`}
                 onClick={() => setActiveSidebarTab('workspace')}
                 title="工作空间"
               >
                 <i className="fas fa-cube"></i>
               </div>
-              <div 
+              <div
                 className={`sidebar-tab ${activeSidebarTab === 'files' ? 'active' : ''}`}
                 onClick={() => setActiveSidebarTab('files')}
                 title="文件管理器"
               >
                 <i className="fas fa-folder-tree"></i>
               </div>
-              <div 
+              <div
                 className={`sidebar-tab ${activeSidebarTab === 'images' ? 'active' : ''}`}
                 onClick={() => setActiveSidebarTab('images')}
                 title="镜像管理"
@@ -166,7 +161,7 @@ const AppContent: React.FC = () => {
           </div>
 
           {/* 底部面板拖拽手柄 */}
-          <div 
+          <div
             className={`bottom-panel-resize-handle ${isResizingBottomPanel ? 'resizing' : ''}`}
             onMouseDown={handleBottomPanelMouseDown}
           >
@@ -174,27 +169,27 @@ const AppContent: React.FC = () => {
           </div>
 
           {/* 底部面板 - 可调整大小 */}
-          <div 
+          <div
             className="bottom-panel-container"
             style={{ height: `${bottomPanelHeight}px` }}
           >
             <div className="bottom-panel">
               <div className="panel-tabs">
-                <div 
+                <div
                   className={`panel-tab ${activePanel === 'terminal' ? 'active' : ''}`}
                   onClick={() => setActivePanel('terminal')}
                 >
                   <i className="fas fa-terminal"></i>
                   <span>终端</span>
                 </div>
-                <div 
+                <div
                   className={`panel-tab ${activePanel === 'git' ? 'active' : ''}`}
                   onClick={() => setActivePanel('git')}
                 >
                   <i className="fas fa-git-alt"></i>
                   <span>Git</span>
                 </div>
-                <div 
+                <div
                   className={`panel-tab ${activePanel === 'stats' ? 'active' : ''}`}
                   onClick={() => setActivePanel('stats')}
                 >
@@ -222,9 +217,6 @@ const AppContent: React.FC = () => {
       {/* 状态栏 */}
       <StatusBar />
 
-      {/* AI代码修改指示器 */}
-      <AICodeChangesIndicator />
-
       {/* Toast 通知 */}
       <ToastComponent toasts={toasts} />
     </div>
@@ -242,7 +234,7 @@ const StatusBar: React.FC = () => {
     <div className="status-bar">
       <div className="status-left">
         <div className="status-item">
-          <i className="fas fa-circle" style={{color: '#3fb950', fontSize: '8px'}}></i>
+          <i className="fas fa-circle" style={{ color: '#3fb950', fontSize: '8px' }}></i>
           <span>{activeTab || '未选择文件'}</span>
         </div>
         <div className="status-item">
@@ -283,12 +275,12 @@ const App: React.FC = () => {
 // 工作空间消费者组件
 const WorkspaceConsumer: React.FC = () => {
   const { currentWorkspace, workspaces } = useWorkspace();
-  
+
   // 获取当前工作空间的状态
-  const currentWorkspaceStatus = currentWorkspace 
-    ? workspaces.find(ws => ws.id === currentWorkspace)?.status 
+  const currentWorkspaceStatus = currentWorkspace
+    ? workspaces.find(ws => ws.id === currentWorkspace)?.status
     : undefined;
-  
+
   return (
     <FileProvider currentWorkspace={currentWorkspace} workspaceStatus={currentWorkspaceStatus}>
       <ImageProvider>

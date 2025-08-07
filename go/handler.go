@@ -1520,3 +1520,182 @@ func (oem *OnlineEditorManager) handleGetToolCallStatus(w http.ResponseWriter, r
 		return
 	}
 }
+
+// 执行拒绝操作
+func (oem *OnlineEditorManager) handleRejectOperation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req RejectOperationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		oem.logError("拒绝操作请求体解析失败", err)
+		http.Error(w, "请求体解析失败", http.StatusBadRequest)
+		return
+	}
+
+	// 验证请求
+	if req.WorkspaceID == "" {
+		http.Error(w, "工作空间ID不能为空", http.StatusBadRequest)
+		return
+	}
+
+	if req.Operation == "" {
+		http.Error(w, "操作类型不能为空", http.StatusBadRequest)
+		return
+	}
+
+	if req.FilePath == "" {
+		http.Error(w, "文件路径不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 记录请求信息
+	oem.logInfo("拒绝操作请求", map[string]interface{}{
+		"workspace_id": req.WorkspaceID,
+		"operation":    req.Operation,
+		"file_path":    req.FilePath,
+	})
+
+	// 执行拒绝操作
+	response, err := oem.ExecuteRejectOperation(req)
+	if err != nil {
+		oem.logError("拒绝操作执行", err)
+		http.Error(w, fmt.Sprintf("拒绝操作失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 记录响应信息
+	oem.logInfo("拒绝操作响应", map[string]interface{}{
+		"success": response.Success,
+		"message": response.Message,
+	})
+
+	// 返回响应
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		oem.logError("拒绝操作响应编码失败", err)
+		http.Error(w, "响应编码失败", http.StatusInternalServerError)
+		return
+	}
+}
+
+// 创建对话会话
+func (oem *OnlineEditorManager) handleCreateConversation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		WorkspaceID string `json:"workspace_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		oem.logError("创建对话会话请求体解析失败", err)
+		http.Error(w, "请求体解析失败", http.StatusBadRequest)
+		return
+	}
+
+	if req.WorkspaceID == "" {
+		http.Error(w, "工作空间ID不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 创建对话会话
+	conversation := oem.aiConversationManager.CreateConversation(req.WorkspaceID)
+
+	// 返回响应
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(conversation); err != nil {
+		oem.logError("创建对话会话响应编码失败", err)
+		http.Error(w, "响应编码失败", http.StatusInternalServerError)
+		return
+	}
+}
+
+// 获取工作空间的对话会话列表
+func (oem *OnlineEditorManager) handleGetConversations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := mux.Vars(r)
+	workspaceID := vars["id"]
+
+	if workspaceID == "" {
+		http.Error(w, "工作空间ID不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 获取对话会话列表
+	conversations := oem.aiConversationManager.GetConversationsByWorkspace(workspaceID)
+
+	// 返回响应
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(conversations); err != nil {
+		oem.logError("获取对话会话列表响应编码失败", err)
+		http.Error(w, "响应编码失败", http.StatusInternalServerError)
+		return
+	}
+}
+
+// 获取对话会话详情
+func (oem *OnlineEditorManager) handleGetConversation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := mux.Vars(r)
+	sessionID := vars["sessionId"]
+
+	if sessionID == "" {
+		http.Error(w, "会话ID不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 获取对话会话
+	conversation := oem.aiConversationManager.GetConversation(sessionID)
+	if conversation == nil {
+		http.Error(w, "对话会话不存在", http.StatusNotFound)
+		return
+	}
+
+	// 返回响应
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(conversation); err != nil {
+		oem.logError("获取对话会话详情响应编码失败", err)
+		http.Error(w, "响应编码失败", http.StatusInternalServerError)
+		return
+	}
+}
+
+// 删除对话会话
+func (oem *OnlineEditorManager) handleDeleteConversation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "DELETE" {
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := mux.Vars(r)
+	sessionID := vars["sessionId"]
+
+	if sessionID == "" {
+		http.Error(w, "会话ID不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 删除对话会话
+	err := oem.aiConversationManager.DeleteConversation(sessionID)
+	if err != nil {
+		oem.logError("删除对话会话失败", err)
+		http.Error(w, fmt.Sprintf("删除对话会话失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 返回响应
+	w.WriteHeader(http.StatusOK)
+}

@@ -148,7 +148,6 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("    \"file_delete\",\n")
 	prompt.WriteString("    \"file_create\",\n")
 	prompt.WriteString("    \"file_create_folder\",\n")
-	prompt.WriteString("    \"file_delete_folder\",\n")
 	prompt.WriteString("    \"shell_exec\"\n")
 	prompt.WriteString("  ]\n")
 	prompt.WriteString("}\n\n")
@@ -176,7 +175,6 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("   - file_create: 创建新文件（需要提供完整内容）\n")
 	prompt.WriteString("   - file_delete: 删除指定文件\n")
 	prompt.WriteString("   - file_create_folder: 创建新文件夹\n")
-	prompt.WriteString("   - file_delete_folder: 删除文件夹及其内容\n")
 	prompt.WriteString("   - shell_exec: 执行shell命令\n\n")
 
 	prompt.WriteString("【用户需求】\n")
@@ -188,7 +186,8 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 
 	prompt.WriteString("【状态说明】\n")
 	prompt.WriteString("- status: \"finish\" - 表示所有操作完成，可以返回结果给用户\n")
-	prompt.WriteString("- status: \"retry\" - 表示需要更多信息或执行工具调用，需要继续处理\n\n")
+	prompt.WriteString("- status: \"retry\" - 表示需要更多信息或执行工具调用，需要继续处理\n")
+	prompt.WriteString("- 【新增】如果用户输入过于模糊或无法理解，直接返回finish状态，不要retry\n\n")
 
 	prompt.WriteString("【工具调用格式】\n")
 	prompt.WriteString("tools数组中的每个工具调用必须按照以下格式：\n\n")
@@ -224,13 +223,6 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("  \"type\": \"file_create_folder\",\n")
 	prompt.WriteString("  \"path\": \"文件夹路径\",\n")
 	prompt.WriteString("  \"summary\": \"描述创建原因\"\n")
-	prompt.WriteString("}\n\n")
-
-	prompt.WriteString("5. **file_delete_folder** - 删除文件夹\n")
-	prompt.WriteString("{\n")
-	prompt.WriteString("  \"type\": \"file_delete_folder\",\n")
-	prompt.WriteString("  \"path\": \"文件夹路径\",\n")
-	prompt.WriteString("  \"summary\": \"描述删除原因\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("6. **shell_exec** - 执行shell命令\n")
@@ -298,6 +290,7 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("8. 编译测试使用shell_exec工具，命令用&&连接多个命令\n")
 	prompt.WriteString("9. 如果编译有错误，根据错误信息继续修改\n")
 	prompt.WriteString("10. 如果context里面存在的文件，就是你需要修改的文件\n")
+	prompt.WriteString("11. 【新增】如果用户输入过于模糊（如：\"你好\"、\"测试\"、\"看看\"等），直接返回finish状态，message说明需要更具体的需求\n")
 
 	prompt.WriteString("请根据以上要求，仔细分析用户需求，按照工作流程执行。每次响应必须包含至少一个工具调用。\n\n")
 
@@ -603,4 +596,188 @@ var defaultEnvVars = map[string]string{
 	"LC_ALL":          "C.UTF-8",
 	"DEBIAN_FRONTEND": "noninteractive",
 	"TZ":              "Asia/Shanghai",
+}
+
+// 构建带对话历史的AI提示词
+func (oem *OnlineEditorManager) buildAIPromptWithHistory(userPrompt, context string, fileContents map[string]string, conversationHistory []AIConversationMessage, toolHistory []ToolExecutionRecord) string {
+	var prompt strings.Builder
+
+	// 系统提示：强制输出纯JSON格式，并确保AI确认能够完成任务
+	prompt.WriteString("你是一个专业的代码编辑助手。你必须严格按照以下要求执行：\n\n")
+	prompt.WriteString("【重要原则】\n")
+	prompt.WriteString("1. 每次响应必须包含至少一个工具调用\n")
+	prompt.WriteString("2. 如果信息不足，使用file_read工具获取信息，状态设为\"retry\"\n")
+	prompt.WriteString("3. 如果完成所有修改，状态设为\"finish\"\n")
+	prompt.WriteString("4. 你的输出必须是完整的、可执行的、最终的结果\n")
+	prompt.WriteString("5. 绝对不允许输出不完整、有错误或不确定的代码\n\n")
+	prompt.WriteString("6. 输出的内容一定按照格式！！这是最重要的！！\n\n")
+
+	// 添加对话历史
+	if len(conversationHistory) > 0 {
+		prompt.WriteString("【对话历史】\n")
+		for _, message := range conversationHistory {
+			if message.Type == "user" {
+				prompt.WriteString(fmt.Sprintf("用户: %s\n", message.Content))
+			} else if message.Type == "assistant" {
+				prompt.WriteString(fmt.Sprintf("助手: %s\n", message.Content))
+				// 如果有工具调用，也显示
+				if len(message.Tools) > 0 {
+					prompt.WriteString("工具调用:\n")
+					for _, tool := range message.Tools {
+						prompt.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, tool.Status))
+					}
+				}
+			}
+		}
+		prompt.WriteString("\n")
+	}
+
+	// 构建代码上下文JSON
+	contextJSON := "{\n"
+	if len(fileContents) > 0 {
+		contextEntries := make([]string, 0)
+		for filePath, content := range fileContents {
+			// 转义JSON字符串
+			escapedContent := strings.ReplaceAll(content, "\\", "\\\\")
+			escapedContent = strings.ReplaceAll(escapedContent, "\"", "\\\"")
+			escapedContent = strings.ReplaceAll(escapedContent, "\n", "\\n")
+			escapedContent = strings.ReplaceAll(escapedContent, "\r", "\\r")
+			escapedContent = strings.ReplaceAll(escapedContent, "\t", "\\t")
+
+			contextEntries = append(contextEntries, fmt.Sprintf("    \"%s\": \"%s\"", filePath, escapedContent))
+		}
+		contextJSON += strings.Join(contextEntries, ",\n")
+	}
+	contextJSON += "\n  }"
+
+	// 提供完整的编辑信息
+	prompt.WriteString("【项目信息详解】\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"context\": ")
+	prompt.WriteString(contextJSON)
+	prompt.WriteString(",\n")
+	prompt.WriteString("  \"file_tree\": [\n")
+
+	// 文件树信息将在调用时动态添加
+	prompt.WriteString("    \"{{FILE_TREE_PLACEHOLDER}}\"\n")
+	prompt.WriteString("  ],\n")
+
+	prompt.WriteString("  \"available_tools\": [\n")
+	prompt.WriteString("    \"file_read\",\n")
+	prompt.WriteString("    \"file_write\",\n")
+	prompt.WriteString("    \"file_delete\",\n")
+	prompt.WriteString("    \"file_create\",\n")
+	prompt.WriteString("    \"file_create_folder\",\n")
+	prompt.WriteString("    \"shell_exec\"\n")
+	prompt.WriteString("  ]\n")
+	prompt.WriteString("}\n\n")
+
+	prompt.WriteString("【字段含义说明】\n")
+	prompt.WriteString("1. **context**: 用户主动选择或提供的核心文件内容，如果存在，就是你需要修改的内容！！里面所有的文件以及其内容都是完整的\n")
+	prompt.WriteString("   - 格式：{\"文件路径\": \"文件完整内容\"}\n")
+	prompt.WriteString("   - 用途：了解现有代码结构、依赖关系、编码风格等\n")
+	prompt.WriteString("   - 注意：这些文件的内容是完整且准确的，可以直接基于此进行分析和修改！！\n\n")
+
+	prompt.WriteString("2. **file_tree**: 项目的完整文件目录结构\n")
+	prompt.WriteString("   - 格式：[\"相对路径1\", \"相对路径2\", ...]\n")
+	prompt.WriteString("   - 用途：了解项目整体结构、找到相关文件、避免重复创建\n")
+	prompt.WriteString("   - 注意：包含所有文件，但不包含文件内容，需要时请使用file_read工具\n\n")
+
+	prompt.WriteString("3. **tool_history**: 之前的工具调用历史记录\n")
+	prompt.WriteString("   - 包含之前所有工具调用的结果和状态\n")
+	prompt.WriteString("   - 用于了解已经执行的操作和获取的信息\n")
+	prompt.WriteString("   - 特别注意：file_read工具的结果会显示读取到的文件内容\n")
+	prompt.WriteString("   - 这些是实际执行后的结果，不是AI的请求\n\n")
+
+	prompt.WriteString("4. **available_tools**: 你可以使用的工具列表\n")
+	prompt.WriteString("   - file_read: 读取指定文件的完整内容\n")
+	prompt.WriteString("   - file_write: 写入/覆盖文件内容（需要提供完整内容）\n")
+	prompt.WriteString("   - file_create: 创建新文件（需要提供完整内容）\n")
+	prompt.WriteString("   - file_delete: 删除指定文件\n")
+	prompt.WriteString("   - file_create_folder: 创建新文件夹\n")
+	prompt.WriteString("   - shell_exec: 执行shell命令\n\n")
+
+	prompt.WriteString("【用户需求】\n")
+	prompt.WriteString(userPrompt)
+	prompt.WriteString("\n\n")
+
+	prompt.WriteString("【输出要求】\n")
+	prompt.WriteString("请仔细分析用户需求和项目信息，并详细记录你的思考过程。输出以下JSON格式：\n\n")
+
+	prompt.WriteString("【状态说明】\n")
+	prompt.WriteString("- status: \"finish\" - 表示所有操作完成，可以返回结果给用户\n")
+	prompt.WriteString("- status: \"retry\" - 表示需要更多信息或执行工具调用，需要继续处理\n")
+	prompt.WriteString("- 【新增】如果用户输入过于模糊或无法理解，直接返回finish状态，不要retry\n\n")
+
+	prompt.WriteString("【工具调用格式】\n")
+	prompt.WriteString("tools数组中的每个工具调用必须按照以下格式：\n\n")
+
+	prompt.WriteString("1. **file_write** - 写入文件\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"type\": \"file_write\",\n")
+	prompt.WriteString("  \"path\": \"文件路径\",\n")
+	prompt.WriteString("  \"code\": {\n")
+	prompt.WriteString("    \"originalCode\": \"原始代码\",\n")
+	prompt.WriteString("    \"newCode\": \"新代码\"\n")
+	prompt.WriteString("  }\n")
+	prompt.WriteString("}\n\n")
+
+	prompt.WriteString("2. **file_create** - 创建文件\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"type\": \"file_create\",\n")
+	prompt.WriteString("  \"path\": \"文件路径\",\n")
+	prompt.WriteString("  \"content\": \"文件内容\"\n")
+	prompt.WriteString("}\n\n")
+
+	prompt.WriteString("3. **file_delete** - 删除文件\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"type\": \"file_delete\",\n")
+	prompt.WriteString("  \"path\": \"文件路径\"\n")
+	prompt.WriteString("}\n\n")
+
+	prompt.WriteString("4. **file_read** - 读取文件\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"type\": \"file_read\",\n")
+	prompt.WriteString("  \"path\": \"文件路径\"\n")
+	prompt.WriteString("}\n\n")
+
+	prompt.WriteString("5. **file_create_folder** - 创建文件夹\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"type\": \"file_create_folder\",\n")
+	prompt.WriteString("  \"path\": \"文件夹路径\"\n")
+	prompt.WriteString("}\n\n")
+
+	prompt.WriteString("6. **shell_exec** - 执行shell命令\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"type\": \"shell_exec\",\n")
+	prompt.WriteString("  \"command\": \"shell命令\"\n")
+	prompt.WriteString("}\n\n")
+
+	prompt.WriteString("【输出格式】\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"status\": \"finish\",\n")
+	prompt.WriteString("  \"message\": \"操作完成描述\",\n")
+	prompt.WriteString("  \"tools\": [\n")
+	prompt.WriteString("    // 工具调用数组\n")
+	prompt.WriteString("  ],\n")
+	prompt.WriteString("  \"thinking\": {\n")
+	prompt.WriteString("    \"analysis\": \"分析过程\",\n")
+	prompt.WriteString("    \"planning\": \"执行计划\",\n")
+	prompt.WriteString("    \"considerations\": \"考虑因素\",\n")
+	prompt.WriteString("    \"decisions\": \"决策过程\",\n")
+	prompt.WriteString("    \"missing_info\": \"缺失信息\",\n")
+	prompt.WriteString("    \"next_steps\": \"下一步行动\"\n")
+	prompt.WriteString("  }\n")
+	prompt.WriteString("}\n\n")
+
+	prompt.WriteString("【严格要求】\n")
+	prompt.WriteString("1. 必须返回纯JSON格式，不要包含```json等markdown标记\n")
+	prompt.WriteString("2. status字段必须是\"finish\"或\"retry\"\n")
+	prompt.WriteString("3. 每次响应必须至少包含一个工具调用\n")
+	prompt.WriteString("4. 如果信息不足，使用file_read工具获取信息，状态设为\"retry\"\n")
+	prompt.WriteString("5. 如果完成所有修改，状态设为\"finish\"\n")
+	prompt.WriteString("6. 【新增】如果用户输入过于模糊（如：\"你好\"、\"测试\"、\"看看\"等），直接返回finish状态，message说明需要更具体的需求\n\n")
+	prompt.WriteString("请根据以上要求，输出完整的JSON格式响应。\n")
+
+	return prompt.String()
 }

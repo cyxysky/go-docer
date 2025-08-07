@@ -7,9 +7,16 @@
   --primary-light: #dbeafe;
   --primary-dark: #1e40af;
   
+  /* 强调色 */
+  --accent-color: #007acc;
+  --accent-hover: #1177bb;
+  
   /* 背景色系 - 更柔和的深色主题 */
   --dark-bg: #0f172a;
   --darker-bg: #020617;
+  --bg: #1e293b;
+  --hover-bg: #334155;
+  --active-bg: #475569;
   --secondary-color: #1e293b;
   --tertiary-color: #334155;
   --quaternary-color: #475569;
@@ -65,8 +72,14 @@
   --primary-light: #eff6ff;
   --primary-dark: #1e40af;
   
+  --accent-color: #007acc;
+  --accent-hover: #1177bb;
+  
   --dark-bg: #ffffff;
   --darker-bg: #f8fafc;
+  --bg: #f1f5f9;
+  --hover-bg: #e2e8f0;
+  --active-bg: #cbd5e1;
   --secondary-color: #f1f5f9;
   --tertiary-color: #e2e8f0;
   --quaternary-color: #cbd5e1;
@@ -538,8 +551,8 @@ body {
 
 /* 滚动条样式 - 现代化设计 */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {

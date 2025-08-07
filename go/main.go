@@ -186,7 +186,14 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	// 新增：AI代码生成功能
 	api.HandleFunc("/ai/generate-code", oem.handleAIGenerateCode).Methods("POST")
 	api.HandleFunc("/ai/rollback", oem.handleRollback).Methods("POST")
+	api.HandleFunc("/ai/reject", oem.handleRejectOperation).Methods("POST")
 	api.HandleFunc("/workspaces/{id}/tool-calls/status", oem.handleGetToolCallStatus).Methods("GET")
+
+	// 对话管理路由
+	api.HandleFunc("/ai/conversations", oem.handleCreateConversation).Methods("POST")
+	api.HandleFunc("/workspaces/{id}/conversations", oem.handleGetConversations).Methods("GET")
+	api.HandleFunc("/ai/conversations/{sessionId}", oem.handleGetConversation).Methods("GET")
+	api.HandleFunc("/ai/conversations/{sessionId}", oem.handleDeleteConversation).Methods("DELETE")
 
 	// AI模型管理
 	api.HandleFunc("/ai/models", oem.handleGetAIModels).Methods("GET")

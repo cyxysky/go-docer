@@ -113,6 +113,7 @@
   margin-bottom: 12px;
   transition: all 0.2s ease;
   position: relative;
+  margin-right: 8px;
 }
 
 .image-item:hover {

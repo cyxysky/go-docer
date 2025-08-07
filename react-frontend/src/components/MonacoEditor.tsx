@@ -1,5 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import * as monaco from 'monaco-editor';
+import Editor, { type OnMount } from '@monaco-editor/react';
+import { DiffEditor, type DiffOnMount } from '@monaco-editor/react';
+import type * as monaco from 'monaco-editor';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useFile } from '../contexts/FileContext';
 import { useAICodeChanges } from '../contexts/AICodeChangesContext';
@@ -40,33 +42,31 @@ const languageMap: { [key: string]: string } = {
 /**
  * 默认编辑器配置
  */
-const defaultEditorConfig: monaco.editor.IStandaloneEditorConstructionOptions = {
-  value: '// 欢迎使用代码编辑器',
-  language: 'javascript',
+const defaultEditorConfig = {
   automaticLayout: true,
   codeLens: true,
   minimap: { enabled: true },
   scrollBeyondLastLine: false,
   fontSize: 14,
   fontFamily: 'Fira Code, Consolas, Monaco, monospace',
-  lineNumbers: 'on',
+  lineNumbers: 'on' as const,
   roundedSelection: false,
   scrollbar: {
-    vertical: 'visible',
-    horizontal: 'visible',
+    vertical: 'visible' as const,
+    horizontal: 'visible' as const,
     verticalScrollbarSize: 12,
     horizontalScrollbarSize: 12,
   },
   folding: true,
-  wordWrap: 'off',
-  renderWhitespace: 'selection',
+  wordWrap: 'off' as const,
+  renderWhitespace: 'selection' as const,
   selectOnLineNumbers: true,
   contextmenu: true,
   quickSuggestions: true,
   suggestOnTriggerCharacters: true,
-  acceptSuggestionOnEnter: 'on' as any,
-  tabCompletion: 'on',
-  wordBasedSuggestions: 'allDocuments',
+  acceptSuggestionOnEnter: 'on' as const,
+  tabCompletion: 'off' as const,
+  wordBasedSuggestions: 'allDocuments' as const,
   parameterHints: { enabled: true },
   hover: { enabled: true },
   links: true,
@@ -76,7 +76,7 @@ const defaultEditorConfig: monaco.editor.IStandaloneEditorConstructionOptions = 
 /**
  * Diff编辑器配置
  */
-const diffEditorConfig: monaco.editor.IStandaloneDiffEditorConstructionOptions = {
+const diffEditorConfig = {
   enableSplitViewResizing: true,
   renderMarginRevertIcon: true,
   renderOverviewRuler: true,
@@ -88,17 +88,6 @@ const diffEditorConfig: monaco.editor.IStandaloneDiffEditorConstructionOptions =
   renderSideBySide: false,
 };
 
-// 配置TypeScript
-monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-  noSemanticValidation: false,
-  noSyntaxValidation: false,
-});
-
-monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-  target: monaco.languages.typescript.ScriptTarget.ES2015,
-  allowNonTsExtensions: true,
-});
-
 interface MonacoEditorProps {
   className?: string;
   filePath?: string;
@@ -106,26 +95,24 @@ interface MonacoEditorProps {
   onActivate?: () => void;
 }
 
-
-
 const MonacoEditor: React.FC<MonacoEditorProps> = ({
   className,
   filePath,
   onActivate
 }) => {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isDiffMode, setIsDiffMode] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [isCreatingDiff, setIsCreatingDiff] = useState(false);
+  const [originalCode, setOriginalCode] = useState('');
+  const [modifiedCode, setModifiedCode] = useState('');
 
   const { currentWorkspace } = useWorkspace();
   const {
     updateTabContent,
     getTabContent,
-    activeTab
   } = useFile();
   const {
     pendingChanges,
@@ -136,109 +123,98 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   const { theme } = useTheme();
 
   // 获取文件扩展名对应的语言
-  const getLanguageFromPath = useCallback((path: string): string => {
+  const getLanguageFromPath = (path: string): string => {
     const extension = path.split('.').pop()?.toLowerCase();
     return languageMap[extension || ''] || 'plaintext';
-  }, []);
+  }
 
   // 保存文件
   const saveFile = useCallback(async () => {
-    if (!currentWorkspace || !filePath || !monacoRef.current) return;
-    const content = monacoRef.current.getValue();
+    if (!currentWorkspace || !filePath || !editorRef.current) return;
+    const content = editorRef.current.getValue();
     // 同步更新其他tab内容
     updateTabContent(filePath, content);
     await fileAPI.writeFile(currentWorkspace, filePath, content);
   }, [currentWorkspace, filePath, updateTabContent]);
 
   // 编辑器内容变化处理
-  const handleContentChange = useCallback(() => {
+  const handleContentChange = useCallback((value: string | undefined) => {
     if (!filePath) return;
-    const content = monacoRef.current?.getValue() || '';
+    const content = value || '';
     updateTabContent(filePath, content);
     // 防抖保存
-    saveTimeoutRef.current && clearTimeout(saveTimeoutRef.current);
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
     saveTimeoutRef.current = setTimeout(() => {
       saveFile();
     }, 2000);
-  }, [filePath, saveFile]);
+  }, [filePath, saveFile, updateTabContent]);
 
-  // 设置编辑器事件
-  const setupEditorEvents = useCallback((editor: monaco.editor.IStandaloneCodeEditor) => {
-    editor.updateOptions({ readOnly: false });
-    editor.onDidChangeModelContent(handleContentChange);
+  // 编辑器挂载完成
+  const handleEditorDidMount: OnMount = useCallback((editor, monaco) => {
+    editorRef.current = editor;
 
-    // 快捷键
+    // 配置TypeScript
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: false,
+      noSyntaxValidation: false,
+    });
+
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+      target: monaco.languages.typescript.ScriptTarget.ES2015,
+      allowNonTsExtensions: true,
+    });
+
+    // 添加保存快捷键
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveFile);
-  }, [handleContentChange, saveFile]);
+  }, [saveFile]);
 
-  // 清理编辑器
-  const cleanupEditor = useCallback(() => {
-    if (monacoRef.current) {
-      monacoRef.current.dispose();
-      monacoRef.current = null;
-    }
-    if (diffEditorRef.current) {
-      diffEditorRef.current.dispose();
-      diffEditorRef.current = null;
-    }
+  // 差异编辑器挂载完成
+  const handleDiffEditorDidMount: DiffOnMount = useCallback((editor, monaco) => {
+    diffEditorRef.current = editor;
+
+    // 配置TypeScript
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: false,
+      noSyntaxValidation: false,
+    });
+
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+      target: monaco.languages.typescript.ScriptTarget.ES2015,
+      allowNonTsExtensions: true,
+    });
   }, []);
 
-  // 创建编辑器
-  const createEditor = useCallback((content: string = '', language: string = 'javascript') => {
-    if (!editorRef.current) return;
-    cleanupEditor();
-    const editor = monaco.editor.create(editorRef.current, {
-      ...defaultEditorConfig,
-      theme: theme === 'dark' ? 'vs-dark' : 'vs',
-      value: content,
-      language,
-      readOnly: false,
-    });
-    monacoRef.current = editor;
-    setupEditorEvents(editor);
-  }, [cleanupEditor, theme, setupEditorEvents]);
-
   // 预览代码差异
-  const previewCodeDiff = useCallback((originalCode: string, modifiedCode: string, language: string) => {
-    if (!editorRef.current) return;
-    cleanupEditor();
-    const diffEditor = monaco.editor.createDiffEditor(editorRef.current, {
-      ...diffEditorConfig,
-      theme: theme === 'dark' ? 'vs-dark' : 'vs'
-    });
+  const previewCodeDiff = useCallback((originalCode: string, modifiedCode: string) => {
+    if (isCreatingDiff) return;
 
-    diffEditor.setModel({
-      original: monaco.editor.createModel(originalCode, language),
-      modified: monaco.editor.createModel(modifiedCode, language),
-    });
-
-    diffEditorRef.current = diffEditor;
+    setIsCreatingDiff(true);
+    setOriginalCode(originalCode);
+    setModifiedCode(modifiedCode);
     setIsDiffMode(true);
-  }, [cleanupEditor, theme]);
+    setIsCreatingDiff(false);
+  }, [isCreatingDiff]);
 
   // 切换回普通编辑器
-  const switchToNormalEditor = useCallback((content: string = '', language: string = 'javascript') => {
-    if (!editorRef.current) return;
-
-    console.log('切换回普通编辑器:', { content: content.length, language });
-
-    cleanupEditor();
+  const switchToNormalEditor = useCallback((content: string = '') => {
     setIsDiffMode(false);
-    createEditor(content, language);
+    setIsCreatingDiff(false);
+    setOriginalCode('');
+    setModifiedCode('');
 
     // 更新tab内容
     if (filePath) {
       updateTabContent(filePath, content);
-      console.log('已更新tab内容');
     }
-  }, [cleanupEditor, createEditor, filePath, updateTabContent]);
+  }, [filePath, updateTabContent]);
 
   // 应用代码更改
   const applyCodeChanges = useCallback(() => {
     if (!filePath || !diffEditorRef.current) return;
-    const editor = diffEditorRef.current;
-    const modifiedContent = editor.getModel()?.modified?.getValue() || '';
-    const originalContent = editor.getModel()?.original?.getValue() || '';
+    const modifiedContent = diffEditorRef.current.getModel()?.modified?.getValue() || '';
+    const originalContent = originalCode;
     // 根据内容判断操作类型
     let operation = 'edit';
     if (originalContent === '' && modifiedContent !== '') {
@@ -261,128 +237,67 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     // 标记为已应用
     markChangeAsApplied(filePath);
     // 切换到普通编辑器
-    switchToNormalEditor(modifiedContent, getLanguageFromPath(filePath));
-  }, [filePath, updateTabContent, removePendingChanges, markChangeAsApplied, switchToNormalEditor, getLanguageFromPath]);
+    switchToNormalEditor(modifiedContent);
+  }, [filePath, modifiedCode, originalCode, updateTabContent, removePendingChanges, markChangeAsApplied, switchToNormalEditor]);
 
-  // 拒绝代码更改
+
   const rejectCodeChanges = useCallback(() => {
     if (!filePath) return;
-    // 获取原始内容（从diff编辑器的original模型）
-    let originalContent = '';
-    if (diffEditorRef.current) {
-      originalContent = diffEditorRef.current.getModel()?.original?.getValue() || '';
-    }
+    // 获取原始内容
+    let originalContent = originalCode;
     // 如果没有原始内容，尝试从tab内容获取
     if (!originalContent) {
       originalContent = getTabContent(filePath) || '';
-      console.log('从tab内容获取原始内容:', originalContent);
     }
     // 移除待处理的修改
     removePendingChanges(filePath);
     // 切换到普通编辑器，显示原始内容
-    switchToNormalEditor(originalContent, getLanguageFromPath(filePath));
+    switchToNormalEditor(originalContent);
     // 如果是删除操作被拒绝，需要恢复文件
-    if (diffEditorRef.current) {
-      const modifiedContent = diffEditorRef.current.getModel()?.modified?.getValue() || '';
-      if (originalContent !== '' && modifiedContent === '') {
-        // 这是删除操作，拒绝时需要恢复文件
-        window.dispatchEvent(new CustomEvent('execute-file-operation', {
-          detail: {
-            operation: 'create',
-            filePath,
-            content: originalContent
-          }
-        }));
-      }
-    }
-
-    console.log('拒绝代码更改完成，恢复原始内容:', { filePath, originalContent });
-  }, [filePath, getTabContent, removePendingChanges, switchToNormalEditor, getLanguageFromPath]);
-
-  // 初始化编辑器
-  useEffect(() => {
-    if (!editorRef.current || monacoRef.current) return;
-
-    const containerHeight = editorRef.current.offsetHeight;
-    if (containerHeight === 0) {
-      requestAnimationFrame(() => {
-        if (editorRef.current && !monacoRef.current) {
-          createEditor();
+    if (originalContent !== '' && modifiedCode === '') {
+      // 这是删除操作，拒绝时需要恢复文件
+      window.dispatchEvent(new CustomEvent('execute-file-operation', {
+        detail: {
+          operation: 'create',
+          filePath,
+          content: originalContent
         }
-      });
-      return;
+      }));
     }
-    createEditor();
+  }, [filePath, originalCode, modifiedCode, getTabContent, removePendingChanges, switchToNormalEditor]);
+
+  // 清理定时器
+  useEffect(() => {
     return () => {
-      cleanupEditor();
-      saveTimeoutRef.current && clearTimeout(saveTimeoutRef.current);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
     };
-  }, [createEditor, cleanupEditor]);
-
-  // 更新编辑器内容
-  useEffect(() => {
-    if (!filePath || isUpdating) return;
-    setIsUpdating(true);
-    try {
-      const tabContent = getTabContent(filePath) || '';
-      const language = getLanguageFromPath(filePath);
-      // 检查是否有待处理的代码变更
-      const changes = getChangesForFile(filePath);
-      if (changes) {
-        previewCodeDiff(changes.originalCode, changes.newCode, language);
-        setIsUpdating(false);
-        return;
-      }
-      // 如果没有待处理的变更，且当前在差异模式，切换回普通编辑器
-      if (isDiffMode) {
-        switchToNormalEditor(tabContent, language);
-        setIsUpdating(false);
-        return;
-      }
-      // 创建或更新普通编辑器
-      if (!monacoRef.current) {
-        createEditor(tabContent, language);
-        setIsUpdating(false);
-        return;
-      }
-      const editor = monacoRef.current;
-      const currentContent = editor.getValue();
-      // 只有当内容确实不同时才更新
-      if (currentContent !== tabContent) {
-        editor.setValue(tabContent);
-        // 更新语言
-        const model = editor.getModel();
-        if (model) {
-          monaco.editor.setModelLanguage(model, language);
-        }
-      }
-    } catch (error) {
-      console.error('更新编辑器失败:', error);
-    } finally {
-      setIsUpdating(false);
-    }
-  }, [filePath, activeTab, isDiffMode, getTabContent, getLanguageFromPath, previewCodeDiff, switchToNormalEditor, createEditor]);
-
-  // 主题变化
-  useEffect(() => {
-    if (!monacoRef.current) return;
-
-    const editor = monacoRef.current;
-    const model = editor.getModel();
-    if (model) {
-      monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
-    }
-  }, [theme]);
+  }, []);
 
   // AI代码变化时预览差异
   useEffect(() => {
     if (!filePath) return;
     const changes = getChangesForFile(filePath);
     if (changes) {
-      const language = getLanguageFromPath(filePath);
-      previewCodeDiff(changes.originalCode, changes.newCode, language);
+      // 使用 setTimeout 确保在下一个事件循环中执行，避免重复触发
+      setTimeout(() => {
+        previewCodeDiff(changes.originalCode, changes.newCode);
+      }, 0);
     }
-  }, [pendingChanges, filePath, previewCodeDiff, getLanguageFromPath, getChangesForFile]);
+  }, [pendingChanges, filePath, getChangesForFile, previewCodeDiff]);
+
+  // 获取当前应该显示的内容
+  const getCurrentContent = () => {
+    if (!filePath) return '';
+    return getTabContent(filePath) || '';
+  };
+
+  // 获取当前语言
+  const getCurrentLanguage = () => {
+    if (!filePath) return 'javascript';
+    return getLanguageFromPath(filePath);
+  };
 
   return (
     <div
@@ -391,10 +306,31 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     >
       {/* 编辑器容器 */}
       <div
-        ref={editorRef}
         style={{ width: '100%', height: '100%' }}
         onClick={onActivate}
-      />
+      >
+        {isDiffMode ? (
+          <DiffEditor
+            height="100%"
+            language={getCurrentLanguage()}
+            original={originalCode}
+            modified={modifiedCode}
+            options={diffEditorConfig}
+            theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+            onMount={handleDiffEditorDidMount}
+          />
+        ) : (
+          <Editor
+            height="100%"
+            defaultLanguage={getCurrentLanguage()}
+            value={getCurrentContent()}
+            options={defaultEditorConfig}
+            theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+            onMount={handleEditorDidMount}
+            onChange={handleContentChange}
+          />
+        )}
+      </div>
 
       {/* 工作空间提示 */}
       {!currentWorkspace && (

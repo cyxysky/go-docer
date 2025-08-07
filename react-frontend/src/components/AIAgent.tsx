@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ToolCall from './ToolCall';
 import './AIAgent.css';
 import { useDrag } from '../contexts/DragContext';
-import { fileAPI } from '../services/api';
+import { aiAPI } from '../services/api';
 import { useAICodeChanges } from '../contexts/AICodeChangesContext';
 
 
@@ -71,10 +71,16 @@ interface AICodeGenerationResponse {
   success: boolean;
   code?: string;
   message?: string;
-  tools?: ToolCall[];
+  tools?: Array<{
+    name: string;
+    parameters: any;
+    result?: any;
+    status: string;
+  }>;
   thinking?: ThinkingProcess;
   fileChanges?: CodeChange[];
   status?: string; // "finish", "retry"
+  session_id?: string; // 新增：对话会话ID
 }
 
 interface CodeChange {
@@ -83,29 +89,29 @@ interface CodeChange {
   new_code: string;
 }
 
-interface AICodeGenerationRequest {
-  prompt: string;
-  context?: string;
-  workspace: string;
-  language?: string;
-  model?: string;
-  strategy?: string;
-  file_paths?: string[];
-  auto_apply?: boolean;
-  max_file_size?: number;
-  tool_history?: ToolExecutionRecord[];
+
+
+// 对话会话接口
+interface AIConversation {
+  session_id: string;
+  workspace_id: string;
+  created_at: string;
+  updated_at: string;
+  messages: AIConversationMessage[];
+  tool_history: any;
 }
 
-interface ToolExecutionRecord {
-  tool: string;
-  path: string;
-  content?: string;
-  reason?: string;
-  status: string;
-  error?: string;
-  result?: any;
+// 对话消息接口
+interface AIConversationMessage {
+  id: string;
+  type: 'user' | 'assistant';
+  content: string;
   timestamp: string;
+  tools?: ToolCall[];
+  thinking?: ThinkingProcess;
 }
+
+
 
 const AIAgent: React.FC<AIAgentProps> = ({
   onClose,
@@ -127,6 +133,10 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showStrategyDropdown, setShowStrategyDropdown] = useState(false);
+
+  // 对话会话相关状态
+  const [conversations, setConversations] = useState<AIConversation[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>('');
 
   const { addPendingChanges } = useAICodeChanges();
 
@@ -151,8 +161,11 @@ const AIAgent: React.FC<AIAgentProps> = ({
   useEffect(() => {
     if (isVisible) {
       loadAvailableModels();
+      if (currentWorkspace) {
+        loadConversations();
+      }
     }
-  }, [isVisible]);
+  }, [isVisible, currentWorkspace]);
 
   // 点击外部关闭下拉菜单
   useEffect(() => {
@@ -260,12 +273,56 @@ const AIAgent: React.FC<AIAgentProps> = ({
     }
   };
 
+  // 加载对话会话列表
+  const loadConversations = async () => {
+    if (!currentWorkspace) return;
+
+    try {
+      const conversationsData = await aiAPI.getConversations(currentWorkspace);
+      setConversations(conversationsData || []);
+    } catch (error) {
+      console.error('Failed to load conversations:', error);
+      setConversations([]); // 出错时设置为空数组
+    }
+  };
+
+  // 创建新对话会话
+  const createNewConversation = async () => {
+    if (!currentWorkspace) return;
+
+    try {
+      const newConversation = await aiAPI.createConversation(currentWorkspace);
+      setConversations(prev => [...(prev || []), newConversation]);
+      setCurrentSessionId(newConversation.session_id);
+    } catch (error) {
+      console.error('Failed to create conversation:', error);
+    }
+  };
+
+  // 删除对话会话
+  const deleteConversation = async (sessionId: string) => {
+    try {
+      await aiAPI.deleteConversation(sessionId);
+      setConversations(prev => (prev || []).filter(conv => conv.session_id !== sessionId));
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId('');
+      }
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+    }
+  };
+
+  // 切换对话会话
+  const switchConversation = (sessionId: string) => {
+    setCurrentSessionId(sessionId);
+  };
+
   /**
    * 生成代码
    * @param prompt 提示词
    * @param filePaths 文件路径
    */
-  const generateCode = async (prompt: string, filePaths: string[] = []) => {
+  const generateCode = async (prompt: string) => {
     if (!currentWorkspace) {
       console.error('No workspace selected');
       return;
@@ -300,80 +357,30 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
 3. 在修改前请仔细分析这些文件的内容和结构`;
       }
 
-      const requestBody: AICodeGenerationRequest = {
-        prompt: enhancedPrompt,
-        workspace: currentWorkspace,
-        model: selectedModel,
-        strategy: strategy,
-        file_paths: filePaths,
-        auto_apply: autoMode,
-        max_file_size: 1024 * 1024,
-      };
-
-      // const response = await fetch('/api/v1/ai/generate-code', {
-      //   method: 'POST',
-      //   headers: {
-      //     'Content-Type': 'application/json',
-      //   },
-      //   body: JSON.stringify(requestBody),
-      //   // 设置超时时间为120秒
-      //   signal: AbortSignal.timeout(120000),
-      // });
-
-      let data: AICodeGenerationResponse =
-      // await response.json();
-      {
-        "success": true,
-        "message": "代码生成成功 (第1次尝试)",
-        "tools": [
-          {
-            "name": "file_write",
-            "parameters": {
-              "code": {
-                "originalCode": "console.log('aaa');",
-                "newCode": "console.log('hello world');"
-              },
-              "content": "console.log('hello world');",
-              "path": "test.js"
-            },
-            "result": "文件内容替换成功",
-            "status": "success",
-            "executionId": "tool_1754470125068815561",
-            "output": "替换文件 test.js 内容成功，长度: 27",
-            "rollback": {
-              "type": "file_write",
-              "path": "test.js",
-              "content": "console.log('aaa');",
-              "command": "",
-              "description": "恢复文件 test.js 的原始内容",
-              "is_visible": true
-            }
-          }
-        ],
-        "fileChanges": [
-          {
-            "file_path": "test.js",
-            "original_code": "console.log('aaa');",
-            "new_code": "console.log('hello world');"
-          },
-          {
-            "file_path": "xxx.js",
-            "original_code": "console.log('xxx');",
-            "new_code": "console.log('this is new');"
-          }
-        ],
-        "thinking": {
-          "analysis": "用户需求是将test.js文件中的内容修改为输出'hello world'。当前context中提供的test.js文件内容是console.log('aaa')。",
-          "planning": "直接修改test.js文件内容，将console.log('aaa')替换为console.log('hello world')。",
-          "considerations": "这是一个简单的修改，不需要考虑依赖关系或潜在问题。",
-          "decisions": "决定直接修改test.js文件内容，因为这是用户明确指定的需求。"
-        },
-        "status": "finish"
+      // 使用aiAPI调用后端
+      let data: AICodeGenerationResponse;
+      try {
+        data = await aiAPI.generateCode({
+          prompt: enhancedPrompt,
+          context: '', // 提供默认值
+          workspace: currentWorkspace,
+          language: 'javascript', // 提供默认值
+          session_id: currentSessionId,
+        });
+      } catch (error) {
+        console.error('AI代码生成失败:', error);
+        throw error;
       }
 
       if (typeof data === 'string') {
         data = JSON.parse(data);
       }
+
+      // 更新会话ID（如果返回了新的会话ID）
+      if (data.session_id && data.session_id !== currentSessionId) {
+        setCurrentSessionId(data.session_id);
+      }
+
       // 构建消息内容 - 只显示简要信息，详细内容通过工具调用展示
       let messageContent = '';
 
@@ -382,7 +389,11 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
         type: 'assistant',
         content: messageContent,
         timestamp: new Date(),
-        tools: (data.tools || []).map(tool => ({ ...tool, actionTaken: null })),
+        tools: (data.tools || []).map(tool => ({
+          ...tool,
+          actionTaken: null,
+          status: tool.status as 'pending' | 'success' | 'error'
+        })),
         model: selectedModel,
         status: data.status === 'finish' ? 'completed' : data.status === 'retry' ? 'pending' : 'error',
         thinking: data.thinking
@@ -641,7 +652,7 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
     const prompt = input.trim();
     setInput('');
 
-    await generateCode(prompt, selectedFiles);
+    await generateCode(prompt);
   };
 
   /**
@@ -687,49 +698,13 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
     if (!hasContent) return null;
 
     return (
-      <div className="ai-agent-thinking-container thinking-fade-in">
-        <div className="ai-agent-thinking-header">
-          <span className="ai-agent-thinking-icon">🧠</span>
-          <span className="ai-agent-thinking-title">AI 思考过程</span>
-        </div>
-        <div className="ai-agent-thinking-content">
-          {thinking.analysis && (
-            <div className="ai-agent-thinking-section">
-              <div className="ai-agent-thinking-label">分析</div>
-              <div className="ai-agent-thinking-text">{thinking.analysis}</div>
-            </div>
-          )}
-          {thinking.planning && (
-            <div className="ai-agent-thinking-section">
-              <div className="ai-agent-thinking-label">规划</div>
-              <div className="ai-agent-thinking-text">{thinking.planning}</div>
-            </div>
-          )}
-          {thinking.considerations && (
-            <div className="ai-agent-thinking-section">
-              <div className="ai-agent-thinking-label">考虑因素</div>
-              <div className="ai-agent-thinking-text">{thinking.considerations}</div>
-            </div>
-          )}
-          {thinking.decisions && (
-            <div className="ai-agent-thinking-section">
-              <div className="ai-agent-thinking-label">决策</div>
-              <div className="ai-agent-thinking-text">{thinking.decisions}</div>
-            </div>
-          )}
-          {thinking.missing_info && (
-            <div className="ai-agent-thinking-section">
-              <div className="ai-agent-thinking-label">缺失信息</div>
-              <div className="ai-agent-thinking-text">{thinking.missing_info}</div>
-            </div>
-          )}
-          {thinking.next_steps && (
-            <div className="ai-agent-thinking-section">
-              <div className="ai-agent-thinking-label">下一步</div>
-              <div className="ai-agent-thinking-text">{thinking.next_steps}</div>
-            </div>
-          )}
-        </div>
+      <div>
+        <p className='ai-agent-thinking-title'>{thinking.analysis}</p>
+        <p className='ai-agent-thinking-title'>{thinking.planning}</p>
+        <p className='ai-agent-thinking-title'>{thinking.considerations}</p>
+        <p className='ai-agent-thinking-title'>{thinking.decisions}</p>
+        <p className='ai-agent-thinking-title'>{thinking.missing_info}</p>
+        <p className='ai-agent-thinking-title'>{thinking.next_steps}</p>
       </div>
     );
   };
@@ -769,33 +744,6 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
             />
           );
         })}
-        {/* 显示工具执行结果摘要 */}
-        <div className="ai-agent-tools-summary">
-          <div className="ai-agent-tools-summary-header">
-            <span className="ai-agent-tools-summary-icon">⚡</span>
-            <span className="ai-agent-tools-summary-title">执行摘要</span>
-          </div>
-          <div className="ai-agent-tools-summary-stats">
-            <span className="ai-agent-tools-summary-total">
-              共 {message.tools.length} 个操作
-            </span>
-            {message.tools.filter(t => t.status === 'success').length > 0 && (
-              <span className="ai-agent-tools-summary-success">
-                ✓ {message.tools.filter(t => t.status === 'success').length} 成功
-              </span>
-            )}
-            {message.tools.filter(t => t.status === 'error').length > 0 && (
-              <span className="ai-agent-tools-summary-error">
-                ✗ {message.tools.filter(t => t.status === 'error').length} 失败
-              </span>
-            )}
-            {message.tools.filter(t => t.actionTaken).length > 0 && (
-              <span className="ai-agent-tools-summary-processed">
-                🔄 {message.tools.filter(t => t.actionTaken).length} 已处理
-              </span>
-            )}
-          </div>
-        </div>
       </div>
     );
   };
@@ -843,16 +791,95 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
       {/* 主侧边栏 */}
       <div className="ai-agent-sidebar" style={{ width: `${sidebarWidth}px`, height: '100%' }}>
 
-        {/* 标题栏 */}
-        <div className="ai-agent-header">
-          <div className="ai-agent-title">
-            <span className="ai-agent-title-icon">🤖</span>
-            <span>AI助手</span>
+        {/* 顶部导航栏 */}
+        <div className="ai-agent-top-nav">
+
+          {/* 对话会话列表 */}
+          <div className="ai-agent-conversations-panel">
+            <div 
+              className="ai-agent-conversations-tabs"
+              role="tablist"
+              aria-label="AI对话列表"
+            >
+              {conversations.map(conversation => (
+                <div
+                  key={conversation.session_id}
+                  className={`ai-agent-conversation-tab ${currentSessionId === conversation.session_id ? 'active' : ''}`}
+                  onClick={() => switchConversation(conversation.session_id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      switchConversation(conversation.session_id);
+                    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                      e.preventDefault();
+                      deleteConversation(conversation.session_id);
+                    }
+                  }}
+                  data-tooltip={`对话 ${conversation.session_id.slice(-6)} - ${new Date(conversation.updated_at).toLocaleString()}`}
+                  tabIndex={0}
+                  role="tab"
+                  aria-selected={currentSessionId === conversation.session_id}
+                  aria-label={`对话 ${conversation.session_id.slice(-6)}`}
+                >
+                  <div className="ai-agent-tab-status"></div>
+                  <div className="ai-agent-tab-content">
+                    <div className="ai-agent-tab-info">
+                      <div className="ai-agent-tab-title">
+                        对话 {conversation.session_id.slice(-6)}
+                      </div>
+                      {/* <div className="ai-agent-tab-meta">
+                        <span className="ai-agent-tab-time">
+                          {new Date(conversation.updated_at).toLocaleDateString()}
+                        </span>
+                      </div> */}
+                    </div>
+                  </div>
+                  <button
+                    className="ai-agent-tab-close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteConversation(conversation.session_id);
+                    }}
+                    title="删除对话"
+                    aria-label={`删除对话 ${conversation.session_id.slice(-6)}`}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+
+            </div>
           </div>
-          <button className="ai-agent-close-btn" onClick={onClose}>
-            ✕
-          </button>
+
+          {/* 右侧操作按钮 */}
+          <div className="ai-agent-nav-actions">
+            <button
+              className="ai-agent-nav-btn"
+              onClick={createNewConversation}
+              title="新建对话"
+            >
+              <span className="ai-agent-nav-icon">+</span>
+            </button>
+            <button
+              className="ai-agent-nav-btn"
+              onClick={loadConversations}
+              title="刷新会话"
+            >
+              <span className="ai-agent-nav-icon">↻</span>
+            </button>
+            <button
+              className="ai-agent-nav-btn ai-agent-close-btn"
+              onClick={onClose}
+              title="关闭"
+            >
+              <span className="ai-agent-nav-icon">✕</span>
+            </button>
+          </div>
         </div>
+
+
 
         {/* 消息列表 */}
         <div className="ai-agent-messages">
@@ -954,9 +981,6 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
                   onClick={() => setShowModelDropdown(!showModelDropdown)}
                 >
                   <span>{selectedModelData?.name?.split(' ')[0] || '模型'}</span>
-                  <span className={`dropdown-arrow ${showModelDropdown ? 'open' : ''}`}>
-                    ▼
-                  </span>
                 </button>
 
                 {showModelDropdown && (
@@ -979,7 +1003,7 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
               </div>
 
               {/* 策略选择 */}
-              <div className="ai-agent-strategy-selector" ref={strategyDropdownRef}>
+              {/* <div className="ai-agent-strategy-selector" ref={strategyDropdownRef}>
                 <button
                   type="button"
                   className="ai-agent-strategy-button"
@@ -988,16 +1012,13 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     {getStrategyDisplayName(strategy)}
                   </span>
-                  <span className={`dropdown-arrow ${showStrategyDropdown ? 'open' : ''}`}>
-                    ▼
-                  </span>
                 </button>
 
                 {showStrategyDropdown && (
                   <div className="ai-agent-strategy-dropdown">
                     {[
                       { key: 'auto', label: '自动' },
-                      { key: 'manual', label: '手动' }
+                      // { key: 'manual', label: '手动' }
                     ].map(mode => (
                       <div
                         key={mode.key}
@@ -1017,7 +1038,7 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
                     ))}
                   </div>
                 )}
-              </div>
+              </div> */}
 
               {/* 右侧：发送按钮和图片上传 */}
               <div className="ai-agent-action-buttons">

@@ -162,9 +162,8 @@ type OnlineEditorManager struct {
 	aiConfig       *AIConfig
 	aiModelManager *AIModelManager
 
-	// 新增：工具调用历史存储
-	toolCallHistory  map[string]*ToolCallHistory // 存储工具调用历史，key为ExecutionID
-	toolHistoryMutex sync.RWMutex                // 工具调用历史锁
+	// 新增：AI对话管理器
+	aiConversationManager *AIConversationManager
 }
 
 // 脚本和命令管理
@@ -372,20 +371,19 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 				return true // 允许所有来源
 			},
 		},
-		dockerClient:      dockerCli,
-		networkName:       networkName,
-		portPool:          make(map[int]bool),
-		downloadsDir:      downloadsDir,
-		downloads:         make(map[string]*DownloadInfo),
-		downloadsMutex:    sync.RWMutex{},
-		customImages:      make(map[string]*ImageConfig),
-		customImagesMutex: sync.RWMutex{},
-		registryManager:   NewRegistryManager(), // 初始化镜像源管理器
-		importTasks:       make(map[string]*ImportTaskInfo),
-		aiConfig:          &AIConfig{DefaultModel: "gpt-3.5-turbo", Models: make(map[string]*AIModel)},
-		aiModelManager:    &AIModelManager{models: make(map[string]*AIModel)},
-		toolCallHistory:   make(map[string]*ToolCallHistory),
-		toolHistoryMutex:  sync.RWMutex{},
+		dockerClient:          dockerCli,
+		networkName:           networkName,
+		portPool:              make(map[int]bool),
+		downloadsDir:          downloadsDir,
+		downloads:             make(map[string]*DownloadInfo),
+		downloadsMutex:        sync.RWMutex{},
+		customImages:          make(map[string]*ImageConfig),
+		customImagesMutex:     sync.RWMutex{},
+		registryManager:       NewRegistryManager(), // 初始化镜像源管理器
+		importTasks:           make(map[string]*ImportTaskInfo),
+		aiConfig:              &AIConfig{DefaultModel: "gpt-3.5-turbo", Models: make(map[string]*AIModel)},
+		aiModelManager:        &AIModelManager{models: make(map[string]*AIModel)},
+		aiConversationManager: &AIConversationManager{conversations: make(map[string]*AIConversation)},
 	}
 
 	// 从Go配置文件加载AI配置

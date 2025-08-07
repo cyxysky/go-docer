@@ -33,6 +33,8 @@ type AICodeGenerationRequest struct {
 	MaxFileSize int64    `json:"max_file_size,omitempty"` // 新增：最大文件大小限制
 	// 新增：工具调用历史记录
 	ToolHistory []ToolExecutionRecord `json:"tool_history,omitempty"`
+	// 新增：对话会话ID
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type AICodeGenerationResponse struct {
@@ -43,6 +45,8 @@ type AICodeGenerationResponse struct {
 	FileChanges []CodeChange     `json:"file_changes,omitempty"` // 新增：文件变更记录
 	// 新增：状态码，finish表示完成，retry表示需要重试
 	Status string `json:"status"` // "finish", "retry"
+	// 新增：对话会话ID
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type ThinkingProcess struct {
@@ -113,6 +117,138 @@ type AIModelRequest struct {
 type AIModelManager struct {
 	models map[string]*AIModel
 	mutex  sync.RWMutex
+}
+
+// AI对话管理器
+type AIConversationManager struct {
+	conversations map[string]*AIConversation // 按sessionID索引
+	mutex         sync.RWMutex
+}
+
+// 创建新的对话会话
+func (acm *AIConversationManager) CreateConversation(workspaceID string) *AIConversation {
+	acm.mutex.Lock()
+	defer acm.mutex.Unlock()
+
+	sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
+	conversation := &AIConversation{
+		SessionID:   sessionID,
+		WorkspaceID: workspaceID,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+		Messages:    make([]AIConversationMessage, 0),
+		ToolHistory: make(map[string]*ToolCallHistory),
+	}
+
+	acm.conversations[sessionID] = conversation
+	return conversation
+}
+
+// 获取对话会话
+func (acm *AIConversationManager) GetConversation(sessionID string) *AIConversation {
+	acm.mutex.RLock()
+	defer acm.mutex.RUnlock()
+	return acm.conversations[sessionID]
+}
+
+// 获取工作空间的所有对话会话
+func (acm *AIConversationManager) GetConversationsByWorkspace(workspaceID string) []*AIConversation {
+	acm.mutex.RLock()
+	defer acm.mutex.RUnlock()
+
+	var conversations []*AIConversation
+	for _, conv := range acm.conversations {
+		if conv.WorkspaceID == workspaceID {
+			conversations = append(conversations, conv)
+		}
+	}
+	return conversations
+}
+
+// 添加用户消息
+func (acm *AIConversationManager) AddUserMessage(sessionID, content string) error {
+	acm.mutex.Lock()
+	defer acm.mutex.Unlock()
+
+	conversation, exists := acm.conversations[sessionID]
+	if !exists {
+		return fmt.Errorf("对话会话不存在: %s", sessionID)
+	}
+
+	message := AIConversationMessage{
+		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+		Type:      "user",
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+
+	conversation.Messages = append(conversation.Messages, message)
+	conversation.UpdatedAt = time.Now()
+	return nil
+}
+
+// 添加AI助手消息
+func (acm *AIConversationManager) AddAssistantMessage(sessionID, content string, tools []ToolCall, thinking *ThinkingProcess) error {
+	acm.mutex.Lock()
+	defer acm.mutex.Unlock()
+
+	conversation, exists := acm.conversations[sessionID]
+	if !exists {
+		return fmt.Errorf("对话会话不存在: %s", sessionID)
+	}
+
+	message := AIConversationMessage{
+		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+		Type:      "assistant",
+		Content:   content,
+		Timestamp: time.Now(),
+		Tools:     tools,
+		Thinking:  thinking,
+	}
+
+	conversation.Messages = append(conversation.Messages, message)
+	conversation.UpdatedAt = time.Now()
+
+	// 将工具调用添加到工具历史中
+	for _, tool := range tools {
+		if tool.ExecutionId != "" {
+			historyEntry := &ToolCallHistory{
+				ExecutionID:  tool.ExecutionId,
+				ToolCall:     &tool,
+				Rollback:     tool.Rollback,
+				IsRolledBack: false,
+			}
+			conversation.ToolHistory[tool.ExecutionId] = historyEntry
+		}
+	}
+
+	return nil
+}
+
+// 获取对话历史（用于构建AI提示词）
+func (acm *AIConversationManager) GetConversationHistory(sessionID string) []AIConversationMessage {
+	acm.mutex.RLock()
+	defer acm.mutex.RUnlock()
+
+	conversation, exists := acm.conversations[sessionID]
+	if !exists {
+		return nil
+	}
+
+	return conversation.Messages
+}
+
+// 删除对话会话
+func (acm *AIConversationManager) DeleteConversation(sessionID string) error {
+	acm.mutex.Lock()
+	defer acm.mutex.Unlock()
+
+	if _, exists := acm.conversations[sessionID]; !exists {
+		return fmt.Errorf("对话会话不存在: %s", sessionID)
+	}
+
+	delete(acm.conversations, sessionID)
+	return nil
 }
 
 // 新增：AI配置
@@ -284,6 +420,26 @@ func (amm *AIModelManager) GetDefaultModel() *AIModel {
 
 // 添加AI代码生成方法
 func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) (*AICodeGenerationResponse, error) {
+	// 处理对话会话
+	var conversation *AIConversation
+	if req.SessionID != "" {
+		conversation = oem.aiConversationManager.GetConversation(req.SessionID)
+		if conversation == nil {
+			// 如果会话不存在，创建新会话
+			conversation = oem.aiConversationManager.CreateConversation(req.Workspace)
+		}
+	} else {
+		// 如果没有指定会话ID，创建新会话
+		conversation = oem.aiConversationManager.CreateConversation(req.Workspace)
+	}
+
+	// 添加用户消息到对话历史
+	if err := oem.aiConversationManager.AddUserMessage(conversation.SessionID, req.Prompt); err != nil {
+		return &AICodeGenerationResponse{
+			Success: false,
+			Message: fmt.Sprintf("添加用户消息失败: %v", err),
+		}, err
+	}
 	// 确定使用的模型
 	var model *AIModel
 	if req.Model != "" {
@@ -350,10 +506,11 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 	var executionHistory []ToolExecutionHistory
 	var toolHistory []ToolExecutionRecord
 
-	// 初始化工具历史：只保留前端发送的有效历史记录
+	// 获取对话历史
+	conversationHistory := oem.aiConversationManager.GetConversationHistory(conversation.SessionID)
 
-	// 构建AI提示词 - 使用后端管理的工具历史，而不是前端发送的历史
-	prompt := oem.buildAIPrompt(req.Prompt, req.Context, fileContents, toolHistory)
+	// 构建AI提示词 - 使用对话历史和工具历史
+	prompt := oem.buildAIPromptWithHistory(req.Prompt, req.Context, fileContents, conversationHistory, toolHistory)
 
 	// 替换文件树占位符
 	fileTreeJSON := ""
@@ -393,11 +550,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 		}
 
 		// 调试输出：显示当前的工具历史状态
-		fmt.Printf("=== 第%d次尝试开始 ===\n", attempt)
-		fmt.Printf("当前工具历史记录数量: %d\n", len(toolHistory))
-		for i, record := range toolHistory {
-			fmt.Printf("工具历史[%d]: %s - %s - %s\n", i, record.Tool, record.Path, record.Status)
-		}
+		fmt.Printf("============================== 第%d次尝试开始 ==============================\n", attempt)
 
 		oem.logInfo("AI代码生成尝试", map[string]interface{}{
 			"attempt":     attempt,
@@ -539,7 +692,6 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 				if err != nil {
 					historyEntry.Status = "error"
 					historyEntry.Error = fmt.Sprintf("AI服务调用失败: %v", err)
-					executionHistory = append(executionHistory, historyEntry)
 
 					return &AICodeGenerationResponse{
 						Success: false,
@@ -554,7 +706,6 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 				// 非重试错误，直接返回失败
 				historyEntry.Status = "error"
 				historyEntry.Error = err.Error()
-				executionHistory = append(executionHistory, historyEntry)
 
 				return &AICodeGenerationResponse{
 					Success: false,
@@ -566,13 +717,19 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 
 		// 成功情况
 		historyEntry.Status = "success"
-		executionHistory = append(executionHistory, historyEntry)
+
+		// 添加AI助手消息到对话历史
+		assistantMessage := fmt.Sprintf("代码生成成功 (第%d次尝试)。执行了 %d 个工具调用，修改了 %d 个文件。", attempt, len(tools), len(codeChanges))
+		if err := oem.aiConversationManager.AddAssistantMessage(conversation.SessionID, assistantMessage, tools, thinking); err != nil {
+			oem.logError("添加AI助手消息失败", err)
+		}
 
 		oem.logInfo("AI代码生成成功", map[string]interface{}{
 			"attempt":      attempt,
 			"total_files":  len(fileContents),
 			"code_changes": len(codeChanges),
 			"tools_used":   len(tools),
+			"session_id":   conversation.SessionID,
 		})
 
 		return &AICodeGenerationResponse{
@@ -582,6 +739,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 			Thinking:    thinking,
 			FileChanges: codeChanges,
 			Status:      "finish",
+			SessionID:   conversation.SessionID,
 		}, nil
 	}
 
@@ -831,13 +989,18 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 				toolCall.Result = "文件删除成功"
 				toolCall.Output = fmt.Sprintf("删除文件 %s 成功", tool.Path)
 
+				// 将原始内容存储到参数中，供前端拒绝操作时使用
+				if params, ok := toolCall.Parameters.(map[string]interface{}); ok {
+					params["original_content"] = originalContent
+				}
+
 				// 生成回退操作
 				toolCall.Rollback = oem.generateRollbackAction("file_delete", tool.Path, originalContent)
 
 				// 创建代码变更记录
 				codeChange := CodeChange{
 					FilePath:     tool.Path,
-					OriginalCode: "文件已删除",
+					OriginalCode: originalContent,
 					NewCode:      "",
 				}
 				codeChanges = append(codeChanges, codeChange)
@@ -911,16 +1074,8 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 		endTime := time.Now()
 		toolCall.EndTime = &endTime
 
-		// 存储工具调用到历史中
-		oem.toolHistoryMutex.Lock()
-		historyEntry := &ToolCallHistory{
-			ExecutionID:  toolCall.ExecutionId,
-			ToolCall:     &toolCall,
-			Rollback:     toolCall.Rollback,
-			IsRolledBack: false,
-		}
-		oem.toolCallHistory[toolCall.ExecutionId] = historyEntry
-		oem.toolHistoryMutex.Unlock()
+		// 存储工具调用到对话历史中（如果有会话ID）
+		// 这里暂时不存储，因为我们需要先实现对话管理
 
 		toolCalls = append(toolCalls, toolCall)
 	}
@@ -961,200 +1116,86 @@ func (e *AutoRetryError) Error() string {
 	return fmt.Sprintf("需要自动重试: %s", e.Message)
 }
 
-// 执行回退操作
+// 执行回退操作（已废弃，使用拒绝操作替代）
 func (oem *OnlineEditorManager) ExecuteRollback(workspaceID, executionID string) (*RollbackResponse, error) {
-	// 从历史中获取工具调用
-	oem.toolHistoryMutex.RLock()
-	historyEntry, exists := oem.toolCallHistory[executionID]
-	oem.toolHistoryMutex.RUnlock()
+	return &RollbackResponse{
+		Success: false,
+		Error:   "回退操作已废弃，请使用拒绝操作",
+	}, nil
+}
 
-	if !exists {
-		return &RollbackResponse{
-			Success: false,
-			Error:   fmt.Sprintf("找不到执行ID为 %s 的工具调用", executionID),
-		}, nil
-	}
-
-	if historyEntry.IsRolledBack {
-		return &RollbackResponse{
-			Success: false,
-			Error:   "该工具调用已经被回退过了",
-		}, nil
-	}
-
-	if historyEntry.Rollback == nil {
-		return &RollbackResponse{
-			Success: false,
-			Error:   "该工具调用没有对应的回退操作",
-		}, nil
-	}
-
-	// 执行回退操作
-	switch historyEntry.Rollback.Type {
-	case "file_write":
-		// 恢复文件原始内容
-		err := oem.ReplaceFileContent(workspaceID, historyEntry.Rollback.Path, historyEntry.Rollback.Content)
+// 执行拒绝操作
+func (oem *OnlineEditorManager) ExecuteRejectOperation(req RejectOperationRequest) (*RejectOperationResponse, error) {
+	// 执行拒绝操作
+	switch req.Operation {
+	case "edit":
+		// 编辑拒绝：将新代码替换为旧代码
+		err := oem.ReplaceFileContent(req.WorkspaceID, req.FilePath, req.OriginalContent)
 		if err != nil {
-			return &RollbackResponse{
+			return &RejectOperationResponse{
 				Success: false,
 				Error:   fmt.Sprintf("恢复文件内容失败: %v", err),
 			}, nil
 		}
 
-		// 标记为已回退
-		oem.toolHistoryMutex.Lock()
-		historyEntry.IsRolledBack = true
-		now := time.Now()
-		historyEntry.RollbackTime = &now
-		oem.toolHistoryMutex.Unlock()
-
-		return &RollbackResponse{
+		return &RejectOperationResponse{
 			Success: true,
-			Message: fmt.Sprintf("成功恢复文件 %s 的原始内容", historyEntry.Rollback.Path),
+			Message: fmt.Sprintf("成功拒绝编辑操作，已恢复文件 %s 的原始内容", req.FilePath),
 		}, nil
 
-	case "file_create":
-		// 删除创建的文件
-		err := oem.DeleteFile(workspaceID, historyEntry.Rollback.Path)
+	case "create":
+		// 创建拒绝：删除文件
+		err := oem.DeleteFile(req.WorkspaceID, req.FilePath)
 		if err != nil {
-			return &RollbackResponse{
+			return &RejectOperationResponse{
 				Success: false,
 				Error:   fmt.Sprintf("删除文件失败: %v", err),
 			}, nil
 		}
 
-		// 标记为已回退
-		oem.toolHistoryMutex.Lock()
-		historyEntry.IsRolledBack = true
-		now := time.Now()
-		historyEntry.RollbackTime = &now
-		oem.toolHistoryMutex.Unlock()
-
-		return &RollbackResponse{
+		return &RejectOperationResponse{
 			Success: true,
-			Message: fmt.Sprintf("成功删除文件 %s", historyEntry.Rollback.Path),
+			Message: fmt.Sprintf("成功拒绝创建操作，已删除文件 %s", req.FilePath),
 		}, nil
 
-	case "file_delete":
-		// 恢复删除的文件
-		err := oem.CreateFile(workspaceID, historyEntry.Rollback.Path)
+	case "delete":
+		// 删除拒绝：创建文件并填充原内容
+		err := oem.CreateFile(req.WorkspaceID, req.FilePath)
 		if err != nil {
-			return &RollbackResponse{
+			return &RejectOperationResponse{
 				Success: false,
 				Error:   fmt.Sprintf("创建文件失败: %v", err),
 			}, nil
 		}
-		if historyEntry.Rollback.Content != "" {
-			err = oem.WriteFile(workspaceID, historyEntry.Rollback.Path, historyEntry.Rollback.Content)
+
+		if req.Content != "" {
+			err = oem.WriteFile(req.WorkspaceID, req.FilePath, req.Content)
 			if err != nil {
-				return &RollbackResponse{
+				return &RejectOperationResponse{
 					Success: false,
 					Error:   fmt.Sprintf("写入文件内容失败: %v", err),
 				}, nil
 			}
 		}
 
-		// 标记为已回退
-		oem.toolHistoryMutex.Lock()
-		historyEntry.IsRolledBack = true
-		now := time.Now()
-		historyEntry.RollbackTime = &now
-		oem.toolHistoryMutex.Unlock()
-
-		return &RollbackResponse{
+		return &RejectOperationResponse{
 			Success: true,
-			Message: fmt.Sprintf("成功恢复文件 %s", historyEntry.Rollback.Path),
-		}, nil
-
-	case "file_create_folder":
-		// 删除创建的文件夹
-		err := oem.DeleteFile(workspaceID, historyEntry.Rollback.Path) // DeleteFile也可以删除文件夹
-		if err != nil {
-			return &RollbackResponse{
-				Success: false,
-				Error:   fmt.Sprintf("删除文件夹失败: %v", err),
-			}, nil
-		}
-
-		// 标记为已回退
-		oem.toolHistoryMutex.Lock()
-		historyEntry.IsRolledBack = true
-		now := time.Now()
-		historyEntry.RollbackTime = &now
-		oem.toolHistoryMutex.Unlock()
-
-		return &RollbackResponse{
-			Success: true,
-			Message: fmt.Sprintf("成功删除文件夹 %s", historyEntry.Rollback.Path),
-		}, nil
-
-	case "file_delete_folder":
-		// 恢复删除的文件夹
-		err := oem.CreateFolder(workspaceID, historyEntry.Rollback.Path)
-		if err != nil {
-			return &RollbackResponse{
-				Success: false,
-				Error:   fmt.Sprintf("创建文件夹失败: %v", err),
-			}, nil
-		}
-
-		// 标记为已回退
-		oem.toolHistoryMutex.Lock()
-		historyEntry.IsRolledBack = true
-		now := time.Now()
-		historyEntry.RollbackTime = &now
-		oem.toolHistoryMutex.Unlock()
-
-		return &RollbackResponse{
-			Success: true,
-			Message: fmt.Sprintf("成功恢复文件夹 %s", historyEntry.Rollback.Path),
-		}, nil
-
-	case "shell_exec":
-		// 执行回退命令
-		_, err := oem.ShellExec(workspaceID, historyEntry.Rollback.Command)
-		if err != nil {
-			return &RollbackResponse{
-				Success: false,
-				Error:   fmt.Sprintf("执行回退命令失败: %v", err),
-			}, nil
-		}
-
-		// 标记为已回退
-		oem.toolHistoryMutex.Lock()
-		historyEntry.IsRolledBack = true
-		now := time.Now()
-		historyEntry.RollbackTime = &now
-		oem.toolHistoryMutex.Unlock()
-
-		return &RollbackResponse{
-			Success: true,
-			Message: fmt.Sprintf("成功执行回退命令: %s", historyEntry.Rollback.Command),
+			Message: fmt.Sprintf("成功拒绝删除操作，已恢复文件 %s", req.FilePath),
 		}, nil
 
 	default:
-		return &RollbackResponse{
+		return &RejectOperationResponse{
 			Success: false,
-			Error:   fmt.Sprintf("不支持的回退操作类型: %s", historyEntry.Rollback.Type),
+			Error:   fmt.Sprintf("不支持的操作类型: %s", req.Operation),
 		}, nil
 	}
 }
 
-// 获取工具调用状态
+// 获取工具调用状态（已废弃，使用对话管理替代）
 func (oem *OnlineEditorManager) GetToolCallStatus(workspaceID string) *ToolCallStatusResponse {
-	oem.toolHistoryMutex.RLock()
-	defer oem.toolHistoryMutex.RUnlock()
-
-	var tools []*ToolCallHistory
-	for _, historyEntry := range oem.toolCallHistory {
-		// 只返回属于当前工作空间的工具调用
-		// 这里可以根据需要添加工作空间过滤逻辑
-		tools = append(tools, historyEntry)
-	}
-
 	return &ToolCallStatusResponse{
-		Success: true,
-		Tools:   tools,
+		Success: false,
+		Error:   "工具调用状态已废弃，请使用对话管理",
 	}
 }
 
@@ -1250,6 +1291,22 @@ type RollbackResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// 拒绝操作请求
+type RejectOperationRequest struct {
+	WorkspaceID     string `json:"workspace_id"`
+	Operation       string `json:"operation"`        // 操作类型：edit, create, delete
+	FilePath        string `json:"file_path"`        // 文件路径
+	Content         string `json:"content"`          // 文件内容（用于编辑和创建）
+	OriginalContent string `json:"original_content"` // 原始内容（用于编辑）
+}
+
+// 拒绝操作响应
+type RejectOperationResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 // 工具调用状态响应
 type ToolCallStatusResponse struct {
 	Success bool               `json:"success"`
@@ -1264,4 +1321,24 @@ type ToolCallHistory struct {
 	Rollback     *RollbackAction `json:"rollback,omitempty"`
 	IsRolledBack bool            `json:"is_rolled_back"`          // 是否已经回退
 	RollbackTime *time.Time      `json:"rollback_time,omitempty"` // 回退时间
+}
+
+// AI对话会话
+type AIConversation struct {
+	SessionID   string                      `json:"session_id"`
+	WorkspaceID string                      `json:"workspace_id"`
+	CreatedAt   time.Time                   `json:"created_at"`
+	UpdatedAt   time.Time                   `json:"updated_at"`
+	Messages    []AIConversationMessage     `json:"messages"`
+	ToolHistory map[string]*ToolCallHistory `json:"tool_history"` // 按执行ID索引
+}
+
+// AI对话消息
+type AIConversationMessage struct {
+	ID        string           `json:"id"`
+	Type      string           `json:"type"` // "user", "assistant"
+	Content   string           `json:"content"`
+	Timestamp time.Time        `json:"timestamp"`
+	Tools     []ToolCall       `json:"tools,omitempty"`
+	Thinking  *ThinkingProcess `json:"thinking,omitempty"`
 }

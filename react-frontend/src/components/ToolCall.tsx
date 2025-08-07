@@ -38,23 +38,10 @@ const ToolCall: React.FC<ToolCallProps> = ({
   onRollback,
   actionTaken,
   // isRolledBack,
-  // currentWorkspace,
+  currentWorkspace,
   isAutoMode,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-
-  // const getStatusIcon = () => {
-  //   switch (status) {
-  //     case 'pending':
-  //       return <div className="status-spinner" />;
-  //     case 'success':
-  //       return <span className="status-icon status-success">✓</span>;
-  //     case 'error':
-  //       return <span className="status-icon status-error">✗</span>;
-  //     default:
-  //       return <span className="status-icon status-default">◦</span>;
-  //   }
-  // };
 
   const getToolDisplayName = () => {
     switch (name) {
@@ -96,16 +83,6 @@ const ToolCall: React.FC<ToolCallProps> = ({
     return ['file_write', 'file_create', 'file_delete'].includes(name);
   };
 
-  // const canShowRollback = () => {
-  //   return rollback && rollback.is_visible && !isRolledBack && status === 'success';
-  // };
-
-  // const handleRollback = () => {
-  //   if (executionId && onRollback) {
-  //     onRollback(executionId);
-  //   }
-  // };
-
   const getFileOperationType = () => {
     switch (name) {
       case 'file_write':
@@ -138,7 +115,7 @@ const ToolCall: React.FC<ToolCallProps> = ({
 
     const operationType = getFileOperationType();
     const filePath = parameters?.path || parameters?.file_path;
-    
+
     if (!operationType || !filePath) return;
 
     if (action === 'accept') {
@@ -150,22 +127,60 @@ const ToolCall: React.FC<ToolCallProps> = ({
       } else if (operationType === 'edit') {
         onFileOperation('edit', filePath, parameters?.content || '', parameters?.original_content || '');
       }
+    } else if (action === 'reject') {
+      // 拒绝操作 - 调用拒绝API
+      if (currentWorkspace) {
+        // 根据操作类型构建拒绝请求
+        let rejectRequest: any = {
+          workspace_id: currentWorkspace,
+          operation: operationType,
+          file_path: filePath,
+        };
+
+        if (operationType === 'edit') {
+          // 编辑拒绝：需要原始内容
+          rejectRequest.original_content = parameters?.original_content || '';
+        } else if (operationType === 'delete') {
+          // 删除拒绝：需要原始内容来恢复文件
+          rejectRequest.content = parameters?.original_content || '';
+        } else if (operationType === 'create') {
+          // 创建拒绝：不需要额外内容，直接删除文件
+        }
+
+        // 调用拒绝API
+        fetch('/api/v1/ai/reject', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(rejectRequest),
+        })
+        .then(response => response.json())
+        .then(result => {
+          if (result.success) {
+            console.log('拒绝操作成功:', result.message);
+            // 刷新文件系统
+            window.dispatchEvent(new CustomEvent('file-system-refresh'));
+          } else {
+            console.error('拒绝操作失败:', result.error);
+            alert(`拒绝操作失败: ${result.error}`);
+          }
+        })
+        .catch(error => {
+          console.error('拒绝操作请求失败:', error);
+          alert(`拒绝操作失败: ${error}`);
+        });
+      }
     }
-    // 取消操作 - 只是隐藏按钮，不执行任何操作
 
     // 通知父组件操作已完成
     onActionTaken?.(action);
   };
 
-  const mainParam = getMainParameter();
-  const truncatedParam = mainParam && String(mainParam).length > 30 
-    ? String(mainParam).substring(0, 30) + '...'
-    : String(mainParam || '');
-
   return (
     <div className="tool-call-container">
       {/* 主要的一行显示 */}
-      <div 
+      <div
         className={`tool-call-main ${!hasDetails() ? 'no-details' : ''}`}
         onClick={() => hasDetails() && setIsExpanded(!isExpanded)}
       >
@@ -173,62 +188,47 @@ const ToolCall: React.FC<ToolCallProps> = ({
         <span className="tool-call-name">
           {getToolDisplayName()}
         </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* 文件操作按钮 */}
+          {isFileOperation() && status === 'success' && !actionTaken && (
+            <div className="tool-call-actions" onClick={(e) => e.stopPropagation()}>
+              <span className="tool-call-action-btn tool-call-accept"
+                onClick={() => handleFileOperation('accept')}
+                title={isAutoMode ? "确认（隐藏按钮）" : "确认执行"}>
+                Accept
+              </span>
+              <span className="tool-call-action-btn tool-call-reject"
+                onClick={() => handleFileOperation('reject')}
+                title={isAutoMode ? "取消（执行回退）" : "取消（隐藏按钮）"}>
+                Reject
+              </span>
+            </div>
+          )}
 
-        {/* 主要参数 */}
-        {truncatedParam && (
-          <span className="tool-call-param">
-            {truncatedParam }
-          </span>
-        )}
 
-        {/* 文件操作按钮 */}
-        {isFileOperation() && status === 'success' && !actionTaken && (
-          <div className="tool-call-actions" onClick={(e) => e.stopPropagation()}>
-            <button
-              className="tool-call-action-btn tool-call-accept"
-              onClick={() => handleFileOperation('accept')}
-              title={isAutoMode ? "确认（隐藏按钮）" : "确认执行"}
-            >
-              ✓
-            </button>
-            <button
-              className="tool-call-action-btn tool-call-reject"
-              onClick={() => handleFileOperation('reject')}
-              title={isAutoMode ? "取消（执行回退）" : "取消（隐藏按钮）"}
-            >
-              ✗
-            </button>
-          </div>
-        )}
-        
-        {/* 操作状态显示 */}
-        {actionTaken && (
-          <div className="tool-call-action-status">
-            <span className={`tool-call-action-status-${actionTaken}`}>
-              {actionTaken === 'accept' 
-                ? (isAutoMode ? '✓ 已确认' : '✓ 已执行') 
-                : (isAutoMode ? '↩ 已回退' : '✗ 已取消')
-              }
+          {/* 操作状态显示 */}
+          {actionTaken && (
+            <div className="tool-call-action-status">
+              <span className={`tool-call-action-status-${actionTaken}`}>
+                {actionTaken === 'accept'
+                  ? (isAutoMode ? '✓ 已确认' : '✓ 已执行')
+                  : (isAutoMode ? '↩ 已回退' : '✗ 已取消')
+                }
+              </span>
+            </div>
+          )}
+
+          {/* 执行ID */}
+          {executionId && (
+            <span className="tool-call-id">
+              #{executionId.slice(-4)}
             </span>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* 展开按钮 */}
-        {hasDetails() && (
-          <span className={`tool-call-expand ${isExpanded ? 'expanded' : ''}`}>
-            ▼
-          </span>
-        )}
-
-        {/* 执行ID */}
-        {executionId && (
-          <span className="tool-call-id">
-            #{executionId.slice(-4)}
-          </span>
-        )}
       </div>
 
-      {/* 展开的详细信息 */}
+      {/* 展开的详细信息 可以使用差异编辑器展示*/}
       {isExpanded && hasDetails() && (
         <div className="tool-call-details">
           {/* 完整参数 */}

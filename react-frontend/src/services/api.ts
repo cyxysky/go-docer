@@ -11,6 +11,7 @@ export const aiAPI = {
     language: string;
     files?: string[];
     tools?: string[];
+    session_id?: string; // 新增：对话会话ID
   }): Promise<{ 
     success: boolean; 
     code?: string; 
@@ -27,6 +28,7 @@ export const aiAPI = {
       result?: any;
       status: string;
     }>;
+    session_id?: string; // 新增：对话会话ID
   }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/ai/generate-code`, {
@@ -45,6 +47,161 @@ export const aiAPI = {
       return data;
     } catch (error) {
       console.error('AI代码生成失败:', error);
+      throw error;
+    }
+  },
+
+  // 回退操作
+  rollback: async (workspaceId: string, executionId: string): Promise<{ 
+    success: boolean; 
+    message?: string; 
+    error?: string; 
+  }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/rollback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, execution_id: executionId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`回退操作请求失败: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('回退操作失败:', error);
+      throw error;
+    }
+  },
+
+  // 拒绝操作
+  rejectOperation: async (request: {
+    workspace_id: string;
+    execution_id: string;
+    operation: string;
+    file_path: string;
+    content?: string;
+    original_content?: string;
+  }): Promise<{ 
+    success: boolean; 
+    message?: string; 
+    error?: string; 
+  }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        throw new Error(`拒绝操作请求失败: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('拒绝操作失败:', error);
+      throw error;
+    }
+  },
+
+  // 创建对话会话
+  createConversation: async (workspaceId: string): Promise<{
+    session_id: string;
+    workspace_id: string;
+    created_at: string;
+    updated_at: string;
+    messages: any[];
+    tool_history: any;
+  }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/conversations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspace_id: workspaceId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('创建对话会话失败:', error);
+      throw error;
+    }
+  },
+
+  // 获取工作空间的对话会话列表
+  getConversations: async (workspaceId: string): Promise<{
+    session_id: string;
+    workspace_id: string;
+    created_at: string;
+    updated_at: string;
+    messages: any[];
+    tool_history: any;
+  }[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/workspaces/${workspaceId}/conversations`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('获取对话会话列表失败:', error);
+      throw error;
+    }
+  },
+
+  // 获取对话会话详情
+  getConversation: async (sessionId: string): Promise<{
+    session_id: string;
+    workspace_id: string;
+    created_at: string;
+    updated_at: string;
+    messages: any[];
+    tool_history: any;
+  }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/conversations/${sessionId}`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('获取对话会话详情失败:', error);
+      throw error;
+    }
+  },
+
+  // 删除对话会话
+  deleteConversation: async (sessionId: string): Promise<void> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/conversations/${sessionId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('删除对话会话失败:', error);
       throw error;
     }
   },
@@ -204,6 +361,8 @@ export const fileAPI = {
       body: JSON.stringify({ source_path: sourcePath, target_path: targetPath }),
     }),
 };
+
+
 
 // 镜像相关API
 export const imageAPI = {
