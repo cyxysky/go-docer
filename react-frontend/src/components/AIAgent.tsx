@@ -125,8 +125,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const [models, setModels] = useState<AIModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
-  const [autoMode, setAutoMode] = useState(false);
-  const [strategy, setStrategy] = useState<'auto' | 'manual'>('auto');
+  // 预留的自动模式与策略，目前未启用
+  const [autoMode] = useState(false);
   // const [processedTools, setProcessedTools] = useState<Set<string>>(new Set());
   const [sidebarWidth, setSidebarWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
@@ -166,6 +166,53 @@ const AIAgent: React.FC<AIAgentProps> = ({
       }
     }
   }, [isVisible, currentWorkspace]);
+
+  // 当会话列表变化后，若未选择当前会话，则默认选择第一个
+  useEffect(() => {
+    if (!currentSessionId && conversations && conversations.length > 0) {
+      setCurrentSessionId(conversations[0].session_id);
+    }
+  }, [conversations, currentSessionId]);
+
+  // 切换会话时，加载该会话的消息到本地 messages 状态
+  useEffect(() => {
+    if (!currentSessionId) {
+      setMessages([]);
+      return;
+    }
+    const conv = conversations.find(c => c.session_id === currentSessionId);
+    if (!conv) {
+      setMessages([]);
+      return;
+    }
+
+    const mapTool = (tool: any): ToolCall => ({
+      name: tool.name || tool.type,
+      parameters: tool.parameters || {
+        path: tool.path,
+        content: tool.content,
+        command: tool.command,
+        code: tool.code,
+      },
+      result: tool.result,
+      status: (tool.status || 'pending') as 'pending' | 'success' | 'error',
+      output: tool.output,
+      executionId: tool.executionId || tool.execution_id,
+      rollback: tool.rollback,
+      actionTaken: null,
+    });
+
+    const transformed: AIMessage[] = (conv.messages || []).map((m) => ({
+      id: m.id,
+      type: m.type === 'user' ? 'user' : 'assistant',
+      content: m.content,
+      timestamp: new Date(m.timestamp as any),
+      tools: (m.tools || []).map(mapTool),
+      thinking: m.thinking,
+      status: 'completed',
+    }));
+    setMessages(transformed);
+  }, [currentSessionId, conversations]);
 
   // 点击外部关闭下拉菜单
   useEffect(() => {
@@ -341,31 +388,16 @@ const AIAgent: React.FC<AIAgentProps> = ({
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      // 构建增强的提示词
-      let enhancedPrompt = prompt;
-      // 如果有选中的文件，在提示词中突出显示
-      if (selectedFiles.length > 0) {
-        enhancedPrompt = `用户重点关注以下文件，请优先考虑这些文件的修改：
-
-${selectedFiles.map(file => `📁 ${file}`).join('\n')}
-
-用户需求：${prompt}
-
-请特别注意：
-1. 优先修改上述文件中的代码
-2. 如果需要在其他文件中进行修改，请确保与上述文件的修改保持一致
-3. 在修改前请仔细分析这些文件的内容和结构`;
-      }
-
       // 使用aiAPI调用后端
       let data: AICodeGenerationResponse;
       try {
         data = await aiAPI.generateCode({
-          prompt: enhancedPrompt,
+          prompt: prompt,
           context: '', // 提供默认值
           workspace: currentWorkspace,
           language: 'javascript', // 提供默认值
           session_id: currentSessionId,
+          files: selectedFiles,
         });
       } catch (error) {
         console.error('AI代码生成失败:', error);
@@ -419,7 +451,13 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
             console.error('处理文件变更失败:', error);
           }
         });
+
+        // 后端已执行文件创建/删除/写入，主动刷新文件树
+        window.dispatchEvent(new CustomEvent('file-system-refresh'));
       }
+
+      // 同步刷新会话数据，确保本地对话面板与后端保持一致
+      loadConversations();
 
     } catch (error) {
       console.error('Error generating code:', error);
@@ -453,7 +491,8 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
 
     try {
       let finalOriginalContent = originalContent || '';
-      let finalContent = content || '';
+      // 预留：可能用于后续预览
+      // const finalContent = content || '';
 
       // 如果是编辑操作且没有原始内容，需要先读取文件
       if (operation === 'edit' && !originalContent) {
@@ -679,7 +718,7 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
    * 渲染代码差异
    * @param message 消息
    */
-  const renderCodeComparison = (message: AIMessage) => {
+  const renderCodeComparison = (_message: AIMessage) => {
     // 现在代码差异通过工具调用显示，不在侧边栏显示
     return null;
   };
@@ -771,13 +810,14 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
   const selectedModelData = models.find(m => m.id === selectedModel);
 
   // 获取策略显示名称
-  const getStrategyDisplayName = (strategyKey: string) => {
-    const strategyMap = {
-      'auto': '自动',
-      'manual': '手动'
-    };
-    return strategyMap[strategyKey as keyof typeof strategyMap] || strategyKey;
-  };
+  // 预留：策略显示名称（暂未使用）
+  // const getStrategyDisplayName = (strategyKey: string) => {
+  //   const strategyMap = {
+  //     'auto': '自动',
+  //     'manual': '手动'
+  //   };
+  //   return strategyMap[strategyKey as keyof typeof strategyMap] || strategyKey;
+  // };
 
   return (
     <div style={{ position: 'relative', height: '100%' }}>
@@ -934,13 +974,23 @@ ${selectedFiles.map(file => `📁 ${file}`).join('\n')}
           {/* 选中的文件 */}
           {selectedFiles.length > 0 && (
             <div className="ai-agent-files-section">
-              <label className="ai-agent-label">
-                上下文文件 ({selectedFiles.length})
-              </label>
+              {/* <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label className="ai-agent-label">
+                  上下文文件 ({selectedFiles.length})
+                </label>
+                <button
+                  className="ai-agent-file-remove"
+                  onClick={() => setSelectedFiles([])}
+                  title="清空全部"
+                  aria-label="清空上下文文件"
+                >
+                  清空
+                </button>
+              </div> */}
               <div className="ai-agent-files-container">
                 {selectedFiles.map(file => (
-                  <div key={file} className="ai-agent-file-item">
-                    <span className="ai-agent-file-name">
+                  <div key={file} className="ai-agent-file-item" title={file}>
+                    <span className="ai-agent-file-name" style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       📄 {file.split('/').pop()}
                     </span>
                     <button

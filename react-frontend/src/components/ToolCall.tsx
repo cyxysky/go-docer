@@ -236,7 +236,9 @@ const ToolCall: React.FC<ToolCallProps> = ({
             <div className="tool-call-section">
               <div className="tool-call-section-title">参数</div>
               <div className="tool-call-section-content">
-                {JSON.stringify(parameters, null, 2)}
+                <pre style={{ overflow: 'auto' }}>
+                  { JSON.stringify(parameters, null, 2) }
+                </pre>
               </div>
             </div>
           )}

@@ -294,7 +294,7 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 
 	prompt.WriteString("请根据以上要求，仔细分析用户需求，按照工作流程执行。每次响应必须包含至少一个工具调用。\n\n")
 
-	// 在提示词的最后面添加工具调用历史记录
+	// 在提示词的最后面添加工具调用历史记录（包含命令/输出/内容等完整信息）
 	if len(toolHistory) > 0 {
 		prompt.WriteString("【工具调用历史记录】\n")
 		prompt.WriteString("以下是之前执行过的工具调用及其结果：\n\n")
@@ -304,18 +304,45 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 			prompt.WriteString(fmt.Sprintf("- 工具类型: %s\n", record.Tool))
 			prompt.WriteString(fmt.Sprintf("- 文件路径: %s\n", record.Path))
 			prompt.WriteString(fmt.Sprintf("- 执行状态: %s\n", record.Status))
-			if record.Result != nil {
-				// 优化文件读取结果的显示逻辑
-				resultStr := fmt.Sprintf("%v", record.Result)
-				if record.Tool == "file_read" {
-					if resultStr == "" || resultStr == "<nil>" || resultStr == "null" {
-						prompt.WriteString("- 执行结果: 【文件存在但内容为空】\n")
-					} else {
-						prompt.WriteString(fmt.Sprintf("- 执行结果: %s\n", resultStr))
-					}
-				} else {
-					prompt.WriteString(fmt.Sprintf("- 执行结果: %s\n", resultStr))
+			// 详细信息：命令/内容/输出
+			if record.Tool == "shell_exec" {
+				if record.Content != "" {
+					prompt.WriteString(fmt.Sprintf("- 命令: %s\n", record.Content))
 				}
+				if record.Result != nil {
+					prompt.WriteString(fmt.Sprintf("- 输出: %v\n", record.Result))
+				}
+			} else if record.Tool == "file_create" || record.Tool == "file_write" {
+				if record.Content != "" {
+					prompt.WriteString("- 写入内容:\n")
+					prompt.WriteString(record.Content)
+					prompt.WriteString("\n")
+				}
+				if record.Result != nil {
+					prompt.WriteString(fmt.Sprintf("- 执行结果: %v\n", record.Result))
+				}
+			} else if record.Tool == "file_delete" {
+				if record.Content != "" {
+					prompt.WriteString("- 被删除文件原始内容:\n")
+					prompt.WriteString(record.Content)
+					prompt.WriteString("\n")
+				}
+				if record.Result != nil {
+					prompt.WriteString(fmt.Sprintf("- 执行结果: %v\n", record.Result))
+				}
+			} else if record.Tool == "file_read" {
+				if record.Result != nil {
+					resultStr := fmt.Sprintf("%v", record.Result)
+					if resultStr == "" || resultStr == "<nil>" || resultStr == "null" {
+						prompt.WriteString("- 读取内容: 【文件存在但内容为空】\n")
+					} else {
+						prompt.WriteString("- 读取内容:\n")
+						prompt.WriteString(resultStr)
+						prompt.WriteString("\n")
+					}
+				}
+			} else if record.Result != nil {
+				prompt.WriteString(fmt.Sprintf("- 执行结果: %v\n", record.Result))
 			}
 			if record.Error != "" {
 				prompt.WriteString(fmt.Sprintf("- 错误信息: %s\n", record.Error))
@@ -625,6 +652,32 @@ func (oem *OnlineEditorManager) buildAIPromptWithHistory(userPrompt, context str
 					prompt.WriteString("工具调用:\n")
 					for _, tool := range message.Tools {
 						prompt.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, tool.Status))
+						// 尽可能展示详细参数与输出
+						if tool.Parameters != nil {
+							if p, ok := tool.Parameters.(map[string]interface{}); ok {
+								if v, ok := p["path"].(string); ok && v != "" {
+									prompt.WriteString(fmt.Sprintf("    • path: %s\n", v))
+								}
+								if v, ok := p["command"].(string); ok && v != "" {
+									prompt.WriteString(fmt.Sprintf("    • command: %s\n", v))
+								}
+								if v, ok := p["content"].(string); ok && v != "" {
+									prompt.WriteString("    • content:\n")
+									prompt.WriteString(v)
+									prompt.WriteString("\n")
+								}
+								if v, ok := p["original_content"].(string); ok && v != "" {
+									prompt.WriteString("    • original_content:\n")
+									prompt.WriteString(v)
+									prompt.WriteString("\n")
+								}
+							}
+						}
+						if tool.Output != "" {
+							prompt.WriteString("    • output:\n")
+							prompt.WriteString(tool.Output)
+							prompt.WriteString("\n")
+						}
 					}
 				}
 			}

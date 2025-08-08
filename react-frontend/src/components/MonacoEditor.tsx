@@ -8,6 +8,22 @@ import { useAICodeChanges } from '../contexts/AICodeChangesContext';
 import { fileAPI } from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
 
+// 统一转换所有内容为纯文本，避免 monaco 在处理 JSON/对象时报 Z.split 错误
+const normalizeToString = (value: any, fallback: string = ''): string => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string') return value;
+  try {
+    // 对象或数组，尽量格式化为 JSON 字符串
+    if (typeof value === 'object') {
+      return JSON.stringify(value, null, 2);
+    }
+    // 数字、布尔等
+    return String(value);
+  } catch {
+    return fallback;
+  }
+};
+
 /**
  * 语言映射
  */
@@ -140,7 +156,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   // 编辑器内容变化处理
   const handleContentChange = useCallback((value: string | undefined) => {
     if (!filePath) return;
-    const content = value || '';
+    const content = normalizeToString(value, '');
     updateTabContent(filePath, content);
     // 防抖保存
     if (saveTimeoutRef.current) {
@@ -191,8 +207,8 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     if (isCreatingDiff) return;
 
     setIsCreatingDiff(true);
-    setOriginalCode(originalCode);
-    setModifiedCode(modifiedCode);
+    setOriginalCode(normalizeToString(originalCode, ''));
+    setModifiedCode(normalizeToString(modifiedCode, ''));
     setIsDiffMode(true);
     setIsCreatingDiff(false);
   }, [isCreatingDiff]);
@@ -290,7 +306,8 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   // 获取当前应该显示的内容
   const getCurrentContent = () => {
     if (!filePath) return '';
-    return getTabContent(filePath) || '';
+    const raw = getTabContent(filePath);
+    return normalizeToString(raw, '');
   };
 
   // 获取当前语言

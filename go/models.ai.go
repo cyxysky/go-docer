@@ -467,38 +467,79 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 		}, nil
 	}
 
-	// 读取相关文件内容
+	// 读取相关文件内容（支持文件夹路径自动展开）
 	fileContents := make(map[string]string)
 	maxFileSize := int64(1024 * 1024 * 10) // 默认10MB限制
 	if req.MaxFileSize > 0 {
 		maxFileSize = req.MaxFileSize
 	}
 
-	// 处理Files字段（已有文件内容）
-	if len(req.Files) > 0 {
-		for _, filePath := range req.Files {
-			content, err := oem.ReadFile(req.Workspace, filePath)
-			if err == nil && int64(len(content)) <= maxFileSize {
-				fileContents[filePath] = content
-			}
-		}
-	}
-
-	// 处理FilePaths字段（需要读取的文件路径）
-	if len(req.FilePaths) > 0 {
-		for _, filePath := range req.FilePaths {
-			content, err := oem.ReadFile(req.Workspace, filePath)
-			if err == nil && int64(len(content)) <= maxFileSize {
-				fileContents[filePath] = content
-			}
-		}
-	}
-
-	// 获取文件树
+	// 先获取文件树，便于将传入的文件夹路径展开为具体文件
 	fileTree, err := oem.GetWorkspaceFileTree(req.Workspace)
 	if err != nil {
 		oem.logError("获取文件树", err)
 		fileTree = []string{} // 如果失败，使用空数组
+	}
+
+	// 建立快速查找表
+	fileSet := make(map[string]struct{}, len(fileTree))
+	for _, f := range fileTree {
+		fileSet[f] = struct{}{}
+	}
+
+	expandPaths := func(paths []string) []string {
+		var expanded []string
+		seen := make(map[string]struct{})
+		for _, p := range paths {
+			if p == "" {
+				continue
+			}
+			// 归一化：去掉开头的'./'和前导'/'
+			clean := strings.TrimPrefix(p, "./")
+			clean = strings.TrimPrefix(clean, "/")
+			// 如果是精确文件
+			if _, ok := fileSet[clean]; ok {
+				if _, dup := seen[clean]; !dup {
+					expanded = append(expanded, clean)
+					seen[clean] = struct{}{}
+				}
+				continue
+			}
+			// 作为目录前缀展开
+			prefix := clean
+			if !strings.HasSuffix(prefix, "/") {
+				prefix += "/"
+			}
+			for _, f := range fileTree {
+				if strings.HasPrefix(f, prefix) {
+					if _, dup := seen[f]; !dup {
+						expanded = append(expanded, f)
+						seen[f] = struct{}{}
+					}
+				}
+			}
+		}
+		return expanded
+	}
+
+	// 处理Files字段（可能包含文件或文件夹路径）
+	if len(req.Files) > 0 {
+		for _, filePath := range expandPaths(req.Files) {
+			content, err := oem.ReadFile(req.Workspace, filePath)
+			if err == nil && int64(len(content)) <= maxFileSize {
+				fileContents[filePath] = content
+			}
+		}
+	}
+
+	// 处理FilePaths字段（可能包含文件或文件夹路径）
+	if len(req.FilePaths) > 0 {
+		for _, filePath := range expandPaths(req.FilePaths) {
+			content, err := oem.ReadFile(req.Workspace, filePath)
+			if err == nil && int64(len(content)) <= maxFileSize {
+				fileContents[filePath] = content
+			}
+		}
 	}
 
 	// 实现循环重试机制，最多20次
@@ -526,8 +567,8 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 	}
 	prompt = strings.ReplaceAll(prompt, "\"{{FILE_TREE_PLACEHOLDER}}\"", fileTreeJSON)
 
-	// 调用AI API
-	response, err := oem.callAIWithModel(prompt, model)
+	// 调用AI API（携带会话历史）
+	response, err := oem.callAIWithModel(prompt, model, conversationHistory)
 	if err != nil {
 		return &AICodeGenerationResponse{
 			Success: false,
@@ -580,7 +621,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 					historyEntry.FilesRead[filePath] = content
 				}
 
-				// 将实际执行后的工具调用结果添加到历史记录
+				// 将实际执行后的工具调用结果添加到历史记录（包含命令/内容/输出等详细信息）
 				for _, tool := range tools {
 					// 安全地获取路径参数
 					var path string
@@ -595,8 +636,35 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 					// 只记录实际执行成功的工具调用
 					// 对于file_read工具，记录读取到的文件内容
 					var result interface{}
+					var contentForRecord string
 					if tool.Name == "file_read" {
 						// 直接使用Result，这应该是文件内容
+						result = tool.Result
+					} else if tool.Name == "shell_exec" {
+						// 命令与输出
+						if params, ok := tool.Parameters.(map[string]interface{}); ok {
+							if cmd, ok := params["command"].(string); ok {
+								contentForRecord = cmd
+							}
+						}
+						if tool.Output != "" {
+							result = tool.Output
+						} else {
+							result = tool.Result
+						}
+					} else if tool.Name == "file_create" || tool.Name == "file_write" {
+						if params, ok := tool.Parameters.(map[string]interface{}); ok {
+							if c, ok := params["content"].(string); ok {
+								contentForRecord = c
+							}
+						}
+						result = tool.Result
+					} else if tool.Name == "file_delete" {
+						if params, ok := tool.Parameters.(map[string]interface{}); ok {
+							if oc, ok := params["original_content"].(string); ok {
+								contentForRecord = oc
+							}
+						}
 						result = tool.Result
 					} else {
 						result = tool.Result
@@ -605,6 +673,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 					toolRecord := ToolExecutionRecord{
 						Tool:      tool.Name,
 						Path:      path,
+						Content:   contentForRecord,
 						Status:    tool.Status,
 						Result:    result,
 						Error:     tool.Error,
@@ -649,8 +718,22 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 						})
 					}
 				}
-				// 保存历史记录
+				// 保存历史记录（并在日志中记录尝试次数和工具数，避免未使用append警告）
 				executionHistory = append(executionHistory, historyEntry)
+				oem.logInfo("工具执行历史已记录", map[string]interface{}{
+					"attempt_logged": attempt,
+					"history_len":    len(executionHistory),
+					"tools_in_entry": len(historyEntry.ToolsCalled),
+				})
+
+				// 将本次AI反馈也记录为对话消息，便于后续调用携带完整上下文
+				assistantRetryMsg := fmt.Sprintf("需要更多上下文 (第%d次尝试)。原因: %s", attempt, autoRetryErr.Message)
+				if err := oem.aiConversationManager.AddAssistantMessage(conversation.SessionID, assistantRetryMsg, tools, thinking); err != nil {
+					oem.logError("添加AI助手重试消息失败", err)
+				}
+
+				// 重新获取会话历史，保证下一次请求携带最新的上下文
+				conversationHistory = oem.aiConversationManager.GetConversationHistory(conversation.SessionID)
 
 				// 如果已经达到最大重试次数，返回失败
 				if attempt >= maxRetries {
@@ -687,8 +770,8 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 					fmt.Printf("传递的工具历史[%d]: %s - %s - %s\n", i, record.Tool, record.Path, record.Status)
 				}
 
-				// 重新调用AI API
-				response, err = oem.callAIWithModel(prompt, model)
+				// 重新调用AI API（携带会话历史）
+				response, err = oem.callAIWithModel(prompt, model, conversationHistory)
 				if err != nil {
 					historyEntry.Status = "error"
 					historyEntry.Error = fmt.Sprintf("AI服务调用失败: %v", err)
@@ -719,8 +802,8 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 		historyEntry.Status = "success"
 
 		// 添加AI助手消息到对话历史
-		assistantMessage := fmt.Sprintf("代码生成成功 (第%d次尝试)。执行了 %d 个工具调用，修改了 %d 个文件。", attempt, len(tools), len(codeChanges))
-		if err := oem.aiConversationManager.AddAssistantMessage(conversation.SessionID, assistantMessage, tools, thinking); err != nil {
+		// 成功消息不再写入冗余统计文本，统一由前端工具调用展示
+		if err := oem.aiConversationManager.AddAssistantMessage(conversation.SessionID, "", tools, thinking); err != nil {
 			oem.logError("添加AI助手消息失败", err)
 		}
 
@@ -734,7 +817,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 
 		return &AICodeGenerationResponse{
 			Success:     true,
-			Message:     fmt.Sprintf("代码生成成功 (第%d次尝试)", attempt),
+			Message:     "",
 			Tools:       tools,
 			Thinking:    thinking,
 			FileChanges: codeChanges,
@@ -753,22 +836,35 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 }
 
 // 调用AI API（支持多模型）
-func (oem *OnlineEditorManager) callAIWithModel(prompt string, model *AIModel) (string, error) {
+func (oem *OnlineEditorManager) callAIWithModel(prompt string, model *AIModel, history []AIConversationMessage) (string, error) {
 	// 构建工具定义
 	var functions []map[string]interface{}
 
+	// 构建对话消息，包含会话历史
+	var messages []map[string]string
+	messages = append(messages, map[string]string{
+		"role":    "system",
+		"content": "你是一个专业的代码助手，可以分析代码并提供改进建议。",
+	})
+	for _, m := range history {
+		role := "assistant"
+		if strings.ToLower(m.Type) == "user" {
+			role = "user"
+		}
+		messages = append(messages, map[string]string{
+			"role":    role,
+			"content": m.Content,
+		})
+	}
+	// 当前请求作为最后一条用户消息
+	messages = append(messages, map[string]string{
+		"role":    "user",
+		"content": prompt,
+	})
+
 	requestBody := map[string]interface{}{
-		"model": model.Name,
-		"messages": []map[string]string{
-			{
-				"role":    "system",
-				"content": "你是一个专业的代码助手，可以分析代码并提供改进建议。",
-			},
-			{
-				"role":    "user",
-				"content": prompt,
-			},
-		},
+		"model":       model.Name,
+		"messages":    messages,
 		"max_tokens":  model.MaxTokens,
 		"temperature": model.Temperature,
 	}
@@ -833,15 +929,9 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 
 	// 清理响应字符串，移除可能的markdown标记
 	cleanResponse := strings.TrimSpace(response)
-	if strings.HasPrefix(cleanResponse, "```json") {
-		cleanResponse = strings.TrimPrefix(cleanResponse, "```json")
-	}
-	if strings.HasPrefix(cleanResponse, "```") {
-		cleanResponse = strings.TrimPrefix(cleanResponse, "```")
-	}
-	if strings.HasSuffix(cleanResponse, "```") {
-		cleanResponse = strings.TrimSuffix(cleanResponse, "```")
-	}
+	cleanResponse = strings.TrimPrefix(cleanResponse, "```json")
+	cleanResponse = strings.TrimPrefix(cleanResponse, "```")
+	cleanResponse = strings.TrimSuffix(cleanResponse, "```")
 	cleanResponse = strings.TrimSpace(cleanResponse)
 
 	err := json.Unmarshal([]byte(cleanResponse), &aiResponse)
