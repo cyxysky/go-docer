@@ -56,6 +56,7 @@ func main() {
 	log.Println("  终端和命令:")
 	log.Println("    POST   /api/v1/workspaces/{id}/terminal - 创建终端")
 	log.Println("    GET    /api/v1/workspaces/{id}/terminal/{sessionId}/ws - 终端WebSocket")
+	log.Println("    GET    /api/v1/ai/chat/{sessionId}/ws - AI推理/内容流式WebSocket")
 	log.Println("    POST   /api/v1/workspaces/{id}/exec - 执行命令")
 	log.Println("  Git操作:")
 	log.Println("    POST   /api/v1/workspaces/{id}/git - Git操作")
@@ -136,6 +137,7 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	// 终端
 	api.HandleFunc("/workspaces/{id}/terminal", oem.handleCreateTerminal).Methods("POST")
 	api.HandleFunc("/workspaces/{id}/terminal/{sessionId}/ws", oem.handleTerminalWebSocket).Methods("GET")
+	api.HandleFunc("/ai/chat/{sessionId}/ws", oem.handleAIChatWebSocket).Methods("GET")
 
 	// 命令执行
 	api.HandleFunc("/workspaces/{id}/exec", oem.handleExecuteCommand).Methods("POST")

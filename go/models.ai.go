@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -47,6 +48,8 @@ type AICodeGenerationResponse struct {
 	Status string `json:"status"` // "finish", "retry"
 	// 新增：对话会话ID
 	SessionID string `json:"session_id,omitempty"`
+	// 新增：推理模型的思维链内容（不回灌到提示词，仅用于展示）
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type ThinkingProcess struct {
@@ -99,6 +102,7 @@ type AIModel struct {
 	Temperature float64 `json:"temperature"`
 	IsDefault   bool    `json:"is_default"`
 	IsEnabled   bool    `json:"is_enabled"`
+	IsReasoner  bool    `json:"is_reasoner"`
 }
 
 // 新增：AI模型请求
@@ -210,6 +214,44 @@ func (acm *AIConversationManager) AddAssistantMessage(sessionID, content string,
 	conversation.UpdatedAt = time.Now()
 
 	// 将工具调用添加到工具历史中
+	for _, tool := range tools {
+		if tool.ExecutionId != "" {
+			historyEntry := &ToolCallHistory{
+				ExecutionID:  tool.ExecutionId,
+				ToolCall:     &tool,
+				Rollback:     tool.Rollback,
+				IsRolledBack: false,
+			}
+			conversation.ToolHistory[tool.ExecutionId] = historyEntry
+		}
+	}
+
+	return nil
+}
+
+// 新增：带推理内容的助手消息写入，不会在后续提示词中回灌 reasoning_content
+func (acm *AIConversationManager) AddAssistantMessageWithReasoning(sessionID, content string, tools []ToolCall, thinking *ThinkingProcess, reasoning string) error {
+	acm.mutex.Lock()
+	defer acm.mutex.Unlock()
+
+	conversation, exists := acm.conversations[sessionID]
+	if !exists {
+		return fmt.Errorf("对话会话不存在: %s", sessionID)
+	}
+
+	message := AIConversationMessage{
+		ID:               fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+		Type:             "assistant",
+		Content:          content,
+		Timestamp:        time.Now(),
+		Tools:            tools,
+		Thinking:         thinking,
+		ReasoningContent: reasoning,
+	}
+
+	conversation.Messages = append(conversation.Messages, message)
+	conversation.UpdatedAt = time.Now()
+
 	for _, tool := range tools {
 		if tool.ExecutionId != "" {
 			historyEntry := &ToolCallHistory{
@@ -533,12 +575,19 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 	}
 
 	// 处理FilePaths字段（可能包含文件或文件夹路径）
+	// 按用户要求：如果是文件夹，直接传递路径，不展开、不读取内容（仅文件会被读取）
 	if len(req.FilePaths) > 0 {
-		for _, filePath := range expandPaths(req.FilePaths) {
-			content, err := oem.ReadFile(req.Workspace, filePath)
-			if err == nil && int64(len(content)) <= maxFileSize {
-				fileContents[filePath] = content
+		for _, p := range req.FilePaths {
+			clean := strings.TrimPrefix(p, "./")
+			clean = strings.TrimPrefix(clean, "/")
+			if _, ok := fileSet[clean]; ok {
+				// 是具体文件，按大小限制读取
+				content, err := oem.ReadFile(req.Workspace, clean)
+				if err == nil && int64(len(content)) <= maxFileSize {
+					fileContents[clean] = content
+				}
 			}
+			// 如果不是具体文件（可能是目录前缀），不读取内容，仅作为路径参考传入提示词（提示词里已说明处理方式）
 		}
 	}
 
@@ -600,7 +649,18 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 		})
 
 		// 解析AI响应
-		codeChanges, tools, thinking, err := oem.parseAIResponse(response, req.Workspace)
+		parseInput := response
+		if model.IsReasoner {
+			// 推理模型：从包装中取出 content 再进入业务解析
+			var wrapper struct {
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+			}
+			if err := json.Unmarshal([]byte(response), &wrapper); err == nil && wrapper.Content != "" {
+				parseInput = wrapper.Content
+			}
+		}
+		codeChanges, tools, thinking, err := oem.parseAIResponse(parseInput, req.Workspace)
 		historyEntry.Response = response
 
 		if err != nil {
@@ -815,7 +875,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 			"session_id":   conversation.SessionID,
 		})
 
-		return &AICodeGenerationResponse{
+		resp := &AICodeGenerationResponse{
 			Success:     true,
 			Message:     "",
 			Tools:       tools,
@@ -823,7 +883,21 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 			FileChanges: codeChanges,
 			Status:      "finish",
 			SessionID:   conversation.SessionID,
-		}, nil
+		}
+		// 如果是推理模型，从 response 包装中分离 reasoning_content
+		if model.IsReasoner {
+			var wrapper struct {
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+			}
+			if err := json.Unmarshal([]byte(response), &wrapper); err == nil {
+				resp.ReasoningContent = wrapper.ReasoningContent
+				// 注意：不将 ReasoningContent 回灌到提示词，仅在对话中记录与前端展示
+				// 将带 reasoning 的消息写入对话历史（空 content 用工具展示）
+				_ = oem.aiConversationManager.AddAssistantMessageWithReasoning(conversation.SessionID, "", tools, thinking, wrapper.ReasoningContent)
+			}
+		}
+		return resp, nil
 	}
 
 	// 这里不应该到达，但为了安全起见
@@ -836,6 +910,7 @@ func (oem *OnlineEditorManager) GenerateCodeWithAI(req AICodeGenerationRequest) 
 }
 
 // 调用AI API（支持多模型）
+// 调用AI API（支持多模型/推理模型）。对于推理模型，返回 content 与 reasoningContent 的拼接JSON字符串，供上层解析；普通模型仅返回 content。
 func (oem *OnlineEditorManager) callAIWithModel(prompt string, model *AIModel, history []AIConversationMessage) (string, error) {
 	// 构建工具定义
 	var functions []map[string]interface{}
@@ -868,6 +943,8 @@ func (oem *OnlineEditorManager) callAIWithModel(prompt string, model *AIModel, h
 		"max_tokens":  model.MaxTokens,
 		"temperature": model.Temperature,
 	}
+	// 仅当我们要求模型输出结构化工具规划时才强制 json_object。
+	// 推理模型的 message.content 通常不是严格 JSON，这里保持默认，以便同时取 reasoning_content 与 content。
 
 	if len(functions) > 0 {
 		requestBody["functions"] = functions
@@ -908,18 +985,127 @@ func (oem *OnlineEditorManager) callAIWithModel(prompt string, model *AIModel, h
 		return "", fmt.Errorf("解析响应失败: %v", err)
 	}
 
-	// 提取生成的代码
 	if choices, ok := response["choices"].([]interface{}); ok && len(choices) > 0 {
 		if choice, ok := choices[0].(map[string]interface{}); ok {
 			if message, ok := choice["message"].(map[string]interface{}); ok {
-				if content, ok := message["content"].(string); ok {
-					return strings.TrimSpace(content), nil
+				content, _ := message["content"].(string)
+				reasoning, _ := message["reasoning_content"].(string)
+				// 如果是推理模型，我们同时带回 reasoning 与 content，合并为一个 JSON 包装字符串
+				if model.IsReasoner {
+					wrapper := map[string]string{
+						"content":           strings.TrimSpace(content),
+						"reasoning_content": strings.TrimSpace(reasoning),
+					}
+					data, _ := json.Marshal(wrapper)
+					return string(data), nil
 				}
+				return strings.TrimSpace(content), nil
 			}
 		}
 	}
 
-	return "", fmt.Errorf("无法从响应中提取代码")
+	return "", fmt.Errorf("无法从响应中提取消息内容")
+}
+
+// 流式调用AI（SSE/增量），将推理与内容分片回调给上层
+// onReasoning: 收到 reasoning_content 片段时回调
+// onContent: 收到 content 片段时回调
+func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIModel, history []AIConversationMessage, onReasoning func(string), onContent func(string)) error {
+	// 构建对话消息
+	var messages []map[string]string
+	messages = append(messages, map[string]string{
+		"role":    "system",
+		"content": "你是一个专业的代码助手，可以分析代码并提供改进建议。",
+	})
+	for _, m := range history {
+		role := "assistant"
+		if strings.ToLower(m.Type) == "user" {
+			role = "user"
+		}
+		messages = append(messages, map[string]string{"role": role, "content": m.Content})
+	}
+	messages = append(messages, map[string]string{"role": "user", "content": prompt})
+
+	body := map[string]interface{}{
+		"model":       model.Name,
+		"messages":    messages,
+		"max_tokens":  model.MaxTokens,
+		"temperature": model.Temperature,
+		"stream":      true,
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("序列化请求失败: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", model.Endpoint, bytes.NewBuffer(data))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+model.APIKey)
+
+	client := &http.Client{Timeout: 0}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API流式请求失败 %d: %s", resp.StatusCode, string(b))
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("读取流失败: %v", err)
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "[DONE]" {
+				break
+			}
+			// 解析增量
+			var chunk map[string]interface{}
+			if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+				continue
+			}
+			choices, _ := chunk["choices"].([]interface{})
+			if len(choices) == 0 {
+				continue
+			}
+			choice, _ := choices[0].(map[string]interface{})
+			delta, _ := choice["delta"].(map[string]interface{})
+			if delta == nil {
+				// DeepSeek风格可能直接在 message 上分段
+				if msg, ok := choice["message"].(map[string]interface{}); ok {
+					if s, ok := msg["reasoning_content"].(string); ok && s != "" {
+						onReasoning(s)
+					}
+					if s, ok := msg["content"].(string); ok && s != "" {
+						onContent(s)
+					}
+				}
+				continue
+			}
+			if s, ok := delta["reasoning_content"].(string); ok && s != "" {
+				onReasoning(s)
+			}
+			if s, ok := delta["content"].(string); ok && s != "" {
+				onContent(s)
+			}
+		}
+	}
+	return nil
 }
 
 // 解析AI响应，处理新的JSON格式（包含状态验证和自动工具执行）
@@ -1001,8 +1187,12 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 				// 读取原始文件内容用于代码对比和回退
 				originalContent, _ := oem.ReadFile(workspaceID, tool.Path)
 
-				// 执行文件内容替换
-				err := oem.ReplaceFileContent(workspaceID, tool.Path, tool.Code.NewCode)
+				// 若提供了行号，则做区间替换；否则做全量替换
+				if tool.Code.LineStart > 0 && tool.Code.LineEnd >= tool.Code.LineStart {
+					err = oem.ReplaceFileRegion(workspaceID, tool.Path, tool.Code.LineStart, tool.Code.LineEnd, tool.Code.NewCode)
+				} else {
+					err = oem.ReplaceFileContent(workspaceID, tool.Path, tool.Code.NewCode)
+				}
 				if err != nil {
 					toolCall.Status = "error"
 					toolCall.Error = err.Error()
@@ -1358,6 +1548,27 @@ type AIToolCall struct {
 type CodeDiff struct {
 	OriginalCode string `json:"originalCode"`
 	NewCode      string `json:"newCode"`
+	LineStart    int    `json:"lineStart,omitempty"` // 1-based inclusive
+	LineEnd      int    `json:"lineEnd,omitempty"`   // 1-based inclusive
+}
+
+// ReplaceFileRegion 按行号替换文件内容（1-based，包含两端）
+func (oem *OnlineEditorManager) ReplaceFileRegion(workspaceID, path string, lineStart, lineEnd int, newCode string) error {
+	content, err := oem.ReadFile(workspaceID, path)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(content, "\n")
+	if lineStart < 1 || lineEnd < lineStart || lineEnd > len(lines) {
+		return fmt.Errorf("无效的行区间: %d-%d", lineStart, lineEnd)
+	}
+	// Go slice index: start-1 .. end-1 inclusive
+	before := lines[:lineStart-1]
+	after := lines[lineEnd:]
+	newLines := strings.Split(newCode, "\n")
+	merged := append(append(before, newLines...), after...)
+	final := strings.Join(merged, "\n")
+	return oem.ReplaceFileContent(workspaceID, path, final)
 }
 
 // 新增：AI响应结构体，按照xxx.md的格式
@@ -1431,4 +1642,6 @@ type AIConversationMessage struct {
 	Timestamp time.Time        `json:"timestamp"`
 	Tools     []ToolCall       `json:"tools,omitempty"`
 	Thinking  *ThinkingProcess `json:"thinking,omitempty"`
+	// 新增：推理模型的思维链内容，供前端展示
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }

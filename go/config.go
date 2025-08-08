@@ -27,15 +27,14 @@ const (
 	GPT4_MAX_TOKENS  = 4000
 	GPT4_TEMPERATURE = 1
 
-	// DeepSeek Chat
-	DEEPSEEK_CHAT_ID          = "deepseek-chat"
-	DEEPSEEK_CHAT_NAME        = "deepseek-chat"
-	DEEPSEEK_CHAT_PROVIDER    = "deepseek"
-	DEEPSEEK_CHAT_DESCRIPTION = "DeepSeek Chat模型"
-	DEEPSEEK_CHAT_ENDPOINT    = "https://api.deepseek.com/v1/chat/completions"
-	DEEPSEEK_CHAT_API_KEY     = "sk-e21c117b31cb4ce6b8f4a5dbce791d68"
-	DEEPSEEK_CHAT_MAX_TOKENS  = 8192
-	DEEPSEEK_CHAT_TEMPERATURE = 1
+	DEEPSEEK_REASONER_ID          = "deepseek-reasoner"
+	DEEPSEEK_REASONER_NAME        = "deepseek-reasoner"
+	DEEPSEEK_REASONER_PROVIDER    = "deepseek"
+	DEEPSEEK_REASONER_DESCRIPTION = "DeepSeek Reasoner模型"
+	DEEPSEEK_REASONER_ENDPOINT    = "https://api.deepseek.com/v1/chat/completions"
+	DEEPSEEK_REASONER_API_KEY     = "sk-e21c117b31cb4ce6b8f4a5dbce791d68"
+	DEEPSEEK_REASONER_MAX_TOKENS  = 64000
+	DEEPSEEK_REASONER_TEMPERATURE = 0.0
 
 	// 默认配置
 	DEFAULT_MODEL    = "deepseek-chat"
@@ -63,6 +62,7 @@ func GetAIConfig() *AIConfigData {
 			Temperature: GPT35_TURBO_TEMPERATURE,
 			IsDefault:   false,
 			IsEnabled:   true,
+			IsReasoner:  false,
 		},
 		GPT4_ID: {
 			ID:          GPT4_ID,
@@ -75,18 +75,20 @@ func GetAIConfig() *AIConfigData {
 			Temperature: GPT4_TEMPERATURE,
 			IsDefault:   false,
 			IsEnabled:   true,
+			IsReasoner:  false,
 		},
-		DEEPSEEK_CHAT_ID: {
-			ID:          DEEPSEEK_CHAT_ID,
-			Name:        DEEPSEEK_CHAT_NAME,
-			Provider:    DEEPSEEK_CHAT_PROVIDER,
-			Description: DEEPSEEK_CHAT_DESCRIPTION,
-			Endpoint:    DEEPSEEK_CHAT_ENDPOINT,
-			APIKey:      DEEPSEEK_CHAT_API_KEY,
-			MaxTokens:   DEEPSEEK_CHAT_MAX_TOKENS,
-			Temperature: DEEPSEEK_CHAT_TEMPERATURE,
+		DEEPSEEK_REASONER_ID: {
+			ID:          DEEPSEEK_REASONER_ID,
+			Name:        DEEPSEEK_REASONER_NAME,
+			Provider:    DEEPSEEK_REASONER_PROVIDER,
+			Description: DEEPSEEK_REASONER_DESCRIPTION,
+			Endpoint:    DEEPSEEK_REASONER_ENDPOINT,
+			APIKey:      DEEPSEEK_REASONER_API_KEY,
+			MaxTokens:   DEEPSEEK_REASONER_MAX_TOKENS,
+			Temperature: DEEPSEEK_REASONER_TEMPERATURE,
 			IsDefault:   true,
 			IsEnabled:   true,
+			IsReasoner:  true,
 		},
 	}
 
@@ -153,10 +155,10 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("【字段含义说明】\n")
-	prompt.WriteString("1. **context**: 用户主动选择或提供的核心文件内容，如果存在，就是你需要修改的内容！！里面所有的文件以及其内容都是完整的\n")
-	prompt.WriteString("   - 格式：{\"文件路径\": \"文件完整内容\"}\n")
+	prompt.WriteString("1. **context**: 用户主动选择或提供的核心文件内容或路径（可包含文件夹）。\n")
+	prompt.WriteString("   - 格式：{\"文件路径\": \"文件完整内容\"} 或仅提供路径\n")
 	prompt.WriteString("   - 用途：了解现有代码结构、依赖关系、编码风格等\n")
-	prompt.WriteString("   - 注意：这些文件的内容是完整且准确的，可以直接基于此进行分析和修改！！\n\n")
+	prompt.WriteString("   - 注意：若为文件夹路径，仅作为上下文参考，不展开读取其内部文件\n\n")
 
 	prompt.WriteString("2. **file_tree**: 项目的完整文件目录结构\n")
 	prompt.WriteString("   - 格式：[\"相对路径1\", \"相对路径2\", ...]\n")
@@ -192,13 +194,15 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("【工具调用格式】\n")
 	prompt.WriteString("tools数组中的每个工具调用必须按照以下格式：\n\n")
 
-	prompt.WriteString("1. **file_write** - 写入文件\n")
+	prompt.WriteString("1. **file_write** - 代码替换（按行号精准替换，避免同名片段误匹配；可回退）\n")
 	prompt.WriteString("{\n")
 	prompt.WriteString("  \"type\": \"file_write\",\n")
 	prompt.WriteString("  \"path\": \"文件路径\",\n")
 	prompt.WriteString("  \"code\": {\n")
-	prompt.WriteString("    \"originalCode\": \"原始代码\",\n")
-	prompt.WriteString("    \"newCode\": \"新代码\"\n")
+	prompt.WriteString("    \"originalCode\": \"被替换的代码片段\",\n")
+	prompt.WriteString("    \"newCode\": \"替换后的代码片段\",\n")
+	prompt.WriteString("    \"lineStart\": 精确起始行(1-based),\n")
+	prompt.WriteString("    \"lineEnd\": 精确结束行(1-based)\n")
 	prompt.WriteString("  },\n")
 	prompt.WriteString("  \"summary\": \"描述修改内容\"\n")
 	prompt.WriteString("}\n\n")
@@ -207,8 +211,8 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, context string, fileCo
 	prompt.WriteString("{\n")
 	prompt.WriteString("  \"type\": \"file_create\",\n")
 	prompt.WriteString("  \"path\": \"文件路径\",\n")
-	prompt.WriteString("  \"content\": \"完整文件内容\",\n")
-	prompt.WriteString("  \"summary\": \"描述创建的文件\"\n")
+	prompt.WriteString("  \"content\": \"写入文件内容\",\n")
+	prompt.WriteString("  \"summary\": \"描述创建原因\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("3. **file_delete** - 删除文件\n")
@@ -826,11 +830,11 @@ func (oem *OnlineEditorManager) buildAIPromptWithHistory(userPrompt, context str
 	prompt.WriteString("【严格要求】\n")
 	prompt.WriteString("1. 必须返回纯JSON格式，不要包含```json等markdown标记\n")
 	prompt.WriteString("2. status字段必须是\"finish\"或\"retry\"\n")
-	prompt.WriteString("3. 每次响应必须至少包含一个工具调用\n")
+	prompt.WriteString("3. 每次响应必须至少包含一个工具调用, 并且所有的thinking都是string\n")
 	prompt.WriteString("4. 如果信息不足，使用file_read工具获取信息，状态设为\"retry\"\n")
 	prompt.WriteString("5. 如果完成所有修改，状态设为\"finish\"\n")
 	prompt.WriteString("6. 【新增】如果用户输入过于模糊（如：\"你好\"、\"测试\"、\"看看\"等），直接返回finish状态，message说明需要更具体的需求\n\n")
 	prompt.WriteString("请根据以上要求，输出完整的JSON格式响应。\n")
-
+	fmt.Println(prompt.String())
 	return prompt.String()
 }

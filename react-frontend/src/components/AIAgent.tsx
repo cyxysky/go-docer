@@ -27,6 +27,7 @@ interface AIMessage {
   model?: string;
   status?: 'pending' | 'completed' | 'error';
   thinking?: ThinkingProcess;
+  reasoning?: string;
 }
 
 interface ThinkingProcess {
@@ -65,6 +66,7 @@ interface AIModel {
   max_tokens: number;
   temperature: number;
   is_default: boolean;
+  is_reasoner?: boolean;
 }
 
 interface AICodeGenerationResponse {
@@ -148,6 +150,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const resizeRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { isDragging } = useDrag();
+  const aiWSRef = useRef<WebSocket | null>(null);
 
   // 滚动到底部
   const scrollToBottom = () => {
@@ -388,21 +391,123 @@ const AIAgent: React.FC<AIAgentProps> = ({
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      // 使用aiAPI调用后端
-      let data: AICodeGenerationResponse;
-      try {
-        data = await aiAPI.generateCode({
-          prompt: prompt,
-          context: '', // 提供默认值
-          workspace: currentWorkspace,
-          language: 'javascript', // 提供默认值
-          session_id: currentSessionId,
-          files: selectedFiles,
-        });
-      } catch (error) {
-        console.error('AI代码生成失败:', error);
-        throw error;
+      const selectedModelObj = models.find(m => m.id === selectedModel || m.name === selectedModel);
+      const modelIsReasoner = selectedModelObj?.is_reasoner === true || (selectedModel && selectedModel.toLowerCase().includes('reasoner'));
+
+      if (modelIsReasoner) {
+        // 推理模型：使用WebSocket流式传输
+        let sessionId = currentSessionId;
+        if (!sessionId) {
+          const newConv = await aiAPI.createConversation(currentWorkspace);
+          setConversations(prev => [...(prev || []), newConv]);
+          setCurrentSessionId(newConv.session_id);
+          sessionId = newConv.session_id;
+        }
+
+        const assistantId = (Date.now() + 1).toString();
+        setMessages(prev => [...prev, {
+          id: assistantId,
+          type: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          tools: [],
+          model: selectedModel,
+          status: 'pending',
+          thinking: undefined,
+          reasoning: ''
+        }]);
+
+        const wsUrl = aiAPI.getAIWebSocketUrl(sessionId);
+        console.log('Connecting to AI WebSocket:', wsUrl);
+        const ws = new WebSocket(wsUrl);
+        aiWSRef.current = ws;
+
+        ws.onopen = () => {
+          console.log('AI WebSocket connected, sending request');
+          const request = {
+            workspace_id: currentWorkspace,
+            model_id: selectedModelObj?.id || selectedModel,
+            prompt: prompt
+          };
+          ws.send(JSON.stringify(request));
+        };
+
+        ws.onmessage = (evt) => {
+          try {
+            const msg = JSON.parse(evt.data);
+            console.log('AI WebSocket message:', msg);
+            
+            if (msg.type === 'reasoning') {
+              setMessages(prev => prev.map(m => 
+                m.id === assistantId ? { ...m, reasoning: (m.reasoning || '') + msg.data } : m
+              ));
+            } else if (msg.type === 'tools') {
+              setMessages(prev => prev.map(m => 
+                m.id === assistantId ? { ...m, tools: msg.data } : m
+              ));
+            } else if (msg.type === 'file_changes') {
+              window.dispatchEvent(new CustomEvent('file-system-refresh'));
+            } else if (msg.type === 'content') {
+              if (msg.session_id && msg.session_id !== currentSessionId) {
+                setCurrentSessionId(msg.session_id);
+              }
+              setMessages(prev => prev.map(m => 
+                m.id === assistantId ? { 
+                  ...m, 
+                  content: (m.content || '') + msg.data,
+                  status: msg.status === 'finish' ? 'completed' : 'pending' 
+                } : m
+              ));
+              loadConversations();
+            } else if (msg.type === 'error') {
+              setMessages(prev => [...prev, { 
+                id: (Date.now()+2).toString(), 
+                type: 'system', 
+                content: `Error: ${msg.message}`, 
+                timestamp: new Date(), 
+                status: 'error' 
+              }]);
+              setIsLoading(false);
+            } else if (msg.type === 'done') {
+              console.log('AI WebSocket done');
+              ws.close();
+            }
+          } catch (e) {
+            console.error('WebSocket parse error:', e);
+          }
+        };
+
+        ws.onerror = (e) => {
+          console.error('AI WebSocket error:', e);
+          setMessages(prev => [...prev, { 
+            id: (Date.now()+3).toString(), 
+            type: 'system', 
+            content: 'WebSocket连接错误', 
+            timestamp: new Date(), 
+            status: 'error' 
+          }]);
+          setIsLoading(false);
+        };
+
+        ws.onclose = () => {
+          console.log('AI WebSocket closed');
+          aiWSRef.current = null;
+          setIsLoading(false);
+        };
+
+        return;
       }
+
+      // 非推理模型：沿用HTTP方式
+      let data: AICodeGenerationResponse;
+      data = await aiAPI.generateCode({
+        prompt: prompt,
+        context: '',
+        workspace: currentWorkspace,
+        language: 'javascript',
+        session_id: currentSessionId,
+        files: selectedFiles,
+      });
 
       if (typeof data === 'string') {
         data = JSON.parse(data);

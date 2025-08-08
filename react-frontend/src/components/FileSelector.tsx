@@ -144,31 +144,8 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
       // 选择
       newSelected.add(itemPath);
       
-      // 如果是文件夹，自动选择其所有子项
-      if (isDir) {
-        const addChildrenRecursively = (items: FileItem[], basePath: string) => {
-          items.forEach(child => {
-            const childPath = basePath ? `${basePath}/${child.name}` : child.name;
-            newSelected.add(childPath);
-            if (child.children) {
-              addChildrenRecursively(child.children, childPath);
-            }
-          });
-        };
-        
-        // 查找该文件夹并添加其子项
-        const findAndAddChildren = (items: FileItem[]) => {
-          items.forEach(item => {
-            if (item.path === itemPath && item.children) {
-              addChildrenRecursively(item.children, itemPath);
-            } else if (item.children) {
-              findAndAddChildren(item.children);
-            }
-          });
-        };
-        
-        findAndAddChildren(fileTree);
-      }
+      // 如果是文件夹，不自动选择其所有子项，只选择文件夹本身
+      // 这样可以让后端知道用户选择了文件夹路径作为上下文
       
       // 向上递归检查父级文件夹状态
       updateParentSelection(newSelected, itemPath);
@@ -360,7 +337,7 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onSelectionChange, selected
               }}
             />
             
-            <i className={`fs-file-icon ${item.is_dir ? 'fas fa-folder' : getFileIcon(item.name)}`}></i>
+            <i className={`fs-file-icon ${item.is_dir ? 'fas fa-folder' : getFileIcon(item.name)} ${isSelected ? 'selected' : ''}`}></i>
             
             <span className="fs-file-name">{item.name}</span>
             

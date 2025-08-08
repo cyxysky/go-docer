@@ -205,6 +205,12 @@ export const aiAPI = {
       throw error;
     }
   },
+
+  // 获取AI推理/内容流式WebSocket URL
+  getAIWebSocketUrl: (sessionId: string) => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}${API_BASE_URL}/ai/chat/${sessionId}/ws`;
+  },
 };
 
 // 通用请求方法

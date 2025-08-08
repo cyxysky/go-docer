@@ -517,6 +517,85 @@ func (oem *OnlineEditorManager) handleTerminalWebSocket(w http.ResponseWriter, r
 	oem.mutex.Unlock()
 }
 
+// AI推理/内容流式WebSocket：/api/v1/ai/chat/{sessionId}/ws
+// 发送的消息为 JSON：
+// {"type":"reasoning","data":"..."}
+// {"type":"content","data":"..."}
+// {"type":"done"}
+func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["sessionId"]
+
+	conn, err := oem.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("[AI WS] 升级失败: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// 简化：仅接收一条用户消息后触发一次调用；可扩展为持续会话
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		log.Printf("[AI WS] 读取消息失败: %v", err)
+		return
+	}
+
+	var payload struct {
+		WorkspaceID string `json:"workspace_id"`
+		ModelID     string `json:"model_id"`
+		Prompt      string `json:"prompt"`
+	}
+	_ = json.Unmarshal(msg, &payload)
+
+	// 构造最小请求
+	req := AICodeGenerationRequest{
+		Prompt:    payload.Prompt,
+		Workspace: payload.WorkspaceID,
+		Model:     payload.ModelID,
+		SessionID: sessionID,
+	}
+
+	// 流式推理分支：若模型是推理模型则SSE转发
+	model := oem.aiModelManager.GetModel(payload.ModelID)
+	if model != nil && model.IsReasoner {
+		go func() {
+			// 先发送推理内容
+			err := oem.callAIStreamWithModel(payload.Prompt, model, oem.aiConversationManager.GetConversationHistory(sessionID),
+				func(reason string) {
+					_ = conn.WriteJSON(map[string]string{"type": "reasoning", "data": reason})
+				},
+				func(content string) {
+					_ = conn.WriteJSON(map[string]string{"type": "content", "data": content})
+				},
+			)
+			if err != nil {
+				_ = conn.WriteJSON(map[string]string{"type": "error", "message": err.Error()})
+			}
+			// 流式完成后，发送工具和文件变更信息（如果有的话）
+			_ = conn.WriteJSON(map[string]string{"type": "done"})
+		}()
+		return
+	}
+
+	// 非推理模型：一次性调用
+	resp, err := oem.GenerateCodeWithAI(req)
+	if err != nil {
+		_ = conn.WriteJSON(map[string]string{"type": "error", "message": err.Error()})
+		return
+	}
+	if resp.ReasoningContent != "" {
+		_ = conn.WriteJSON(map[string]string{"type": "reasoning", "data": resp.ReasoningContent})
+	}
+	if len(resp.Tools) > 0 {
+		_ = conn.WriteJSON(map[string]interface{}{"type": "tools", "data": resp.Tools})
+	}
+	if len(resp.FileChanges) > 0 {
+		_ = conn.WriteJSON(map[string]interface{}{"type": "file_changes", "data": resp.FileChanges})
+	}
+	_ = conn.WriteJSON(map[string]interface{}{"type": "content", "data": resp.Message, "status": resp.Status, "session_id": resp.SessionID})
+	_ = conn.WriteJSON(map[string]string{"type": "done"})
+}
+
 func (oem *OnlineEditorManager) handleExecuteCommand(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	workspaceID := vars["id"]

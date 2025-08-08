@@ -215,6 +215,14 @@
   filter: drop-shadow(0 1px 2px rgba(251, 191, 36, 0.3));
 }
 
+.fs-file-icon.selected {
+  color: #007bff;
+}
+
+.fs-file-icon.fas.fa-folder.selected {
+  color: #28a745;
+}
+
 .fs-file-item-row.selected .fs-file-icon {
   color: var(--primary-color);
   transform: scale(1.1);
@@ -233,8 +241,8 @@
 }
 
 .fs-file-item-row.selected .fs-file-name {
-  color: var(--primary-color);
-  font-weight: 600;
+  color: #007bff;
+  font-weight: 500;
 }
 
 .fs-file-size {
