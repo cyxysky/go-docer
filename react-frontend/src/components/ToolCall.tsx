@@ -3,6 +3,7 @@ import './ToolCall.css';
 
 interface ToolCallProps {
   name: string;
+  type?: string; // 新增：支持工具类型
   parameters: any;
   result?: any;
   status: 'pending' | 'success' | 'error';
@@ -23,6 +24,8 @@ interface ToolCallProps {
   isRolledBack?: boolean;
   currentWorkspace?: string;
   isAutoMode?: boolean;
+  // 新增：支持结束工具
+  isSummaryTool?: boolean;
 }
 
 const ToolCall: React.FC<ToolCallProps> = ({
@@ -45,34 +48,25 @@ const ToolCall: React.FC<ToolCallProps> = ({
 
   const getToolDisplayName = () => {
     switch (name) {
-      case 'execute_shell':
-        return 'Shell';
       case 'file_read':
-        return 'Read';
+        return '📖 读取文件';
       case 'file_write':
-        return 'Write';
+        return '✏️ 编辑文件';
       case 'file_create':
-        return 'Create';
+        return '📄 创建文件';
       case 'file_delete':
-        return 'Delete';
-      case 'code_analysis':
-        return 'Analyze';
+        return '🗑️ 删除文件';
+      case 'file_create_folder':
+        return '📁 创建文件夹';
+      case 'file_delete_folder':
+        return '🗑️ 删除文件夹';
+      case 'dir_read':
+        return '📂 读取目录';
+      case 'shell_exec':
+        return '💻 执行命令';
       default:
         return name;
     }
-  };
-
-  const getMainParameter = () => {
-    if (name === 'execute_shell' && parameters?.command) {
-      return parameters.command;
-    }
-    if (parameters && typeof parameters === 'object') {
-      const keys = Object.keys(parameters);
-      if (keys.length > 0) {
-        return parameters[keys[0]];
-      }
-    }
-    return null;
   };
 
   const hasDetails = () => {

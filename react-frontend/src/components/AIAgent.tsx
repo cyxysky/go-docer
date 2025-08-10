@@ -4,8 +4,13 @@ import './AIAgent.css';
 import { useDrag } from '../contexts/DragContext';
 import { aiAPI } from '../services/api';
 import { useAICodeChanges } from '../contexts/AICodeChangesContext';
+// 仅保留WS模式后暂时不需要将后端 file_changes 映射到编辑器
 
-
+// 新增：选中的文件接口，用于区分文件和文件夹
+interface SelectedFile {
+  path: string;
+  type: 'file' | 'folder';
+}
 
 // 移除CodeChange接口，现在使用tools中的工具调用
 
@@ -23,24 +28,24 @@ interface AIMessage {
   type: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  tools?: ToolCall[];
   model?: string;
   status?: 'pending' | 'completed' | 'error';
-  thinking?: ThinkingProcess;
-  reasoning?: string;
+  data?: Array<{
+    tools?: ToolCall[];
+    thinking?: ThinkingProcess;
+    reasoning?: string;
+    toolsRunning?: boolean;
+  }>
+
 }
 
 interface ThinkingProcess {
-  analysis?: string;
-  planning?: string;
-  considerations?: string;
-  decisions?: string;
-  missing_info?: string;
-  next_steps?: string;
+  content?: string; // 思维链内容
 }
 
 interface ToolCall {
   name: string;
+  type?: string; // 新增：支持工具类型
   parameters: any;
   result?: any;
   status: 'pending' | 'success' | 'error';
@@ -56,6 +61,8 @@ interface ToolCall {
     is_visible: boolean;
   };
   isRolledBack?: boolean;
+  // 新增：支持结束工具
+  isSummaryTool?: boolean;
 }
 
 interface AIModel {
@@ -68,30 +75,6 @@ interface AIModel {
   is_default: boolean;
   is_reasoner?: boolean;
 }
-
-interface AICodeGenerationResponse {
-  success: boolean;
-  code?: string;
-  message?: string;
-  tools?: Array<{
-    name: string;
-    parameters: any;
-    result?: any;
-    status: string;
-  }>;
-  thinking?: ThinkingProcess;
-  fileChanges?: CodeChange[];
-  status?: string; // "finish", "retry"
-  session_id?: string; // 新增：对话会话ID
-}
-
-interface CodeChange {
-  file_path: string;
-  original_code: string;
-  new_code: string;
-}
-
-
 
 // 对话会话接口
 interface AIConversation {
@@ -111,9 +94,8 @@ interface AIConversationMessage {
   timestamp: string;
   tools?: ToolCall[];
   thinking?: ThinkingProcess;
+  reasoning?: string;
 }
-
-
 
 const AIAgent: React.FC<AIAgentProps> = ({
   onClose,
@@ -126,7 +108,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [models, setModels] = useState<AIModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   // 预留的自动模式与策略，目前未启用
   const [autoMode] = useState(false);
   // const [processedTools, setProcessedTools] = useState<Set<string>>(new Set());
@@ -139,10 +121,35 @@ const AIAgent: React.FC<AIAgentProps> = ({
   // 对话会话相关状态
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
+  // 推理过程展开状态管理 - 默认展开，完成后收起
+  const [collapsedReasonings, setCollapsedReasonings] = useState<Set<string>>(new Set());
 
-  const { addPendingChanges } = useAICodeChanges();
+  const { } = useAICodeChanges();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 自动收起已完成的推理过程
+  // useEffect(() => {
+  //   const completedMessages = messages.filter(
+  //     msg => msg.type === 'assistant' &&
+  //       msg.status === 'completed' &&
+  //       msg.reasoning &&
+  //       !collapsedReasonings.has(msg.id)
+  //   );
+
+  //   if (completedMessages.length > 0) {
+  //     const timer = setTimeout(() => {
+  //       setCollapsedReasonings(prev => {
+  //         const newSet = new Set(prev);
+  //         completedMessages.forEach(msg => newSet.add(msg.id));
+  //         return newSet;
+  //       });
+  //     }, 2000); // 2秒后自动收起
+
+  //     return () => clearTimeout(timer);
+  //   }
+  // }, [messages, collapsedReasonings]);
+
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const strategyDropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -177,6 +184,21 @@ const AIAgent: React.FC<AIAgentProps> = ({
     }
   }, [conversations, currentSessionId]);
 
+  // 当AI助手打开时，确保有选中的会话
+  useEffect(() => {
+    if (isVisible && currentWorkspace) {
+      if (!conversations || conversations.length === 0) {
+        // 没有会话时，自动创建新会话
+        console.log('AI助手打开且无会话，自动创建新会话');
+        createNewConversation();
+      } else if (!currentSessionId) {
+        // 有会话但没有选中时，选择第一个会话
+        console.log('AI助手打开，自动选择第一个会话');
+        setCurrentSessionId(conversations[0].session_id);
+      }
+    }
+  }, [isVisible, currentWorkspace, conversations, currentSessionId]);
+
   // 切换会话时，加载该会话的消息到本地 messages 状态
   useEffect(() => {
     if (!currentSessionId) {
@@ -210,9 +232,12 @@ const AIAgent: React.FC<AIAgentProps> = ({
       type: m.type === 'user' ? 'user' : 'assistant',
       content: m.content,
       timestamp: new Date(m.timestamp as any),
-      tools: (m.tools || []).map(mapTool),
-      thinking: m.thinking,
       status: 'completed',
+      data: [{
+        thinking: m.thinking,
+        reasoning: m.reasoning || '',
+        tools: (m.tools || []).map(mapTool)
+      }]
     }));
     setMessages(transformed);
   }, [currentSessionId, conversations]);
@@ -300,8 +325,11 @@ const AIAgent: React.FC<AIAgentProps> = ({
     setIsDragOver(false);
 
     const filePath = e.dataTransfer.getData('text/plain');
-    if (filePath && !selectedFiles.includes(filePath)) {
-      setSelectedFiles(prev => [...prev, filePath]);
+    const isDirectory = e.dataTransfer.getData('application/x-directory') === 'true';
+
+    if (filePath && !selectedFiles.some(f => f.path === filePath)) {
+      const fileType: 'file' | 'folder' = isDirectory ? 'folder' : 'file';
+      setSelectedFiles(prev => [...prev, { path: filePath, type: fileType }]);
     }
   }, [isDragging, selectedFiles]);
 
@@ -392,177 +420,198 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
     try {
       const selectedModelObj = models.find(m => m.id === selectedModel || m.name === selectedModel);
-      const modelIsReasoner = selectedModelObj?.is_reasoner === true || (selectedModel && selectedModel.toLowerCase().includes('reasoner'));
-
-      if (modelIsReasoner) {
-        // 推理模型：使用WebSocket流式传输
-        let sessionId = currentSessionId;
-        if (!sessionId) {
-          const newConv = await aiAPI.createConversation(currentWorkspace);
-          setConversations(prev => [...(prev || []), newConv]);
-          setCurrentSessionId(newConv.session_id);
-          sessionId = newConv.session_id;
-        }
-
-        const assistantId = (Date.now() + 1).toString();
-        setMessages(prev => [...prev, {
-          id: assistantId,
-          type: 'assistant',
-          content: '',
-          timestamp: new Date(),
-          tools: [],
-          model: selectedModel,
-          status: 'pending',
-          thinking: undefined,
-          reasoning: ''
-        }]);
-
-        const wsUrl = aiAPI.getAIWebSocketUrl(sessionId);
-        console.log('Connecting to AI WebSocket:', wsUrl);
-        const ws = new WebSocket(wsUrl);
-        aiWSRef.current = ws;
-
-        ws.onopen = () => {
-          console.log('AI WebSocket connected, sending request');
-          const request = {
-            workspace_id: currentWorkspace,
-            model_id: selectedModelObj?.id || selectedModel,
-            prompt: prompt
-          };
-          ws.send(JSON.stringify(request));
-        };
-
-        ws.onmessage = (evt) => {
-          try {
-            const msg = JSON.parse(evt.data);
-            console.log('AI WebSocket message:', msg);
-            
-            if (msg.type === 'reasoning') {
-              setMessages(prev => prev.map(m => 
-                m.id === assistantId ? { ...m, reasoning: (m.reasoning || '') + msg.data } : m
-              ));
-            } else if (msg.type === 'tools') {
-              setMessages(prev => prev.map(m => 
-                m.id === assistantId ? { ...m, tools: msg.data } : m
-              ));
-            } else if (msg.type === 'file_changes') {
-              window.dispatchEvent(new CustomEvent('file-system-refresh'));
-            } else if (msg.type === 'content') {
-              if (msg.session_id && msg.session_id !== currentSessionId) {
-                setCurrentSessionId(msg.session_id);
-              }
-              setMessages(prev => prev.map(m => 
-                m.id === assistantId ? { 
-                  ...m, 
-                  content: (m.content || '') + msg.data,
-                  status: msg.status === 'finish' ? 'completed' : 'pending' 
-                } : m
-              ));
-              loadConversations();
-            } else if (msg.type === 'error') {
-              setMessages(prev => [...prev, { 
-                id: (Date.now()+2).toString(), 
-                type: 'system', 
-                content: `Error: ${msg.message}`, 
-                timestamp: new Date(), 
-                status: 'error' 
-              }]);
-              setIsLoading(false);
-            } else if (msg.type === 'done') {
-              console.log('AI WebSocket done');
-              ws.close();
-            }
-          } catch (e) {
-            console.error('WebSocket parse error:', e);
-          }
-        };
-
-        ws.onerror = (e) => {
-          console.error('AI WebSocket error:', e);
-          setMessages(prev => [...prev, { 
-            id: (Date.now()+3).toString(), 
-            type: 'system', 
-            content: 'WebSocket连接错误', 
-            timestamp: new Date(), 
-            status: 'error' 
-          }]);
-          setIsLoading(false);
-        };
-
-        ws.onclose = () => {
-          console.log('AI WebSocket closed');
-          aiWSRef.current = null;
-          setIsLoading(false);
-        };
-
-        return;
+      // 推理模型：使用WebSocket流式传输
+      let sessionId = currentSessionId;
+      if (!sessionId) {
+        const newConv = await aiAPI.createConversation(currentWorkspace);
+        setConversations(prev => [...(prev || []), newConv]);
+        setCurrentSessionId(newConv.session_id);
+        sessionId = newConv.session_id;
       }
 
-      // 非推理模型：沿用HTTP方式
-      let data: AICodeGenerationResponse;
-      data = await aiAPI.generateCode({
-        prompt: prompt,
-        context: '',
-        workspace: currentWorkspace,
-        language: 'javascript',
-        session_id: currentSessionId,
-        files: selectedFiles,
-      });
-
-      if (typeof data === 'string') {
-        data = JSON.parse(data);
-      }
-
-      // 更新会话ID（如果返回了新的会话ID）
-      if (data.session_id && data.session_id !== currentSessionId) {
-        setCurrentSessionId(data.session_id);
-      }
-
-      // 构建消息内容 - 只显示简要信息，详细内容通过工具调用展示
-      let messageContent = '';
-
-      const assistantMessage: AIMessage = {
-        id: (Date.now() + 1).toString(),
+      const assistantId = (Date.now() + 1).toString();
+      setMessages(prev => [...prev, {
+        id: assistantId,
         type: 'assistant',
-        content: messageContent,
+        content: '',
         timestamp: new Date(),
-        tools: (data.tools || []).map(tool => ({
-          ...tool,
-          actionTaken: null,
-          status: tool.status as 'pending' | 'success' | 'error'
-        })),
         model: selectedModel,
-        status: data.status === 'finish' ? 'completed' : data.status === 'retry' ? 'pending' : 'error',
-        thinking: data.thinking
+        status: 'pending',
+        data: [{
+          thinking: { content: '' },
+          reasoning: '',
+          tools: [],
+          toolsRunning: false,
+        }]
+      }]);
+
+      const wsUrl = aiAPI.getAIWebSocketUrl(sessionId);
+      console.log('Connecting to AI WebSocket:', wsUrl);
+      const ws = new WebSocket(wsUrl);
+      aiWSRef.current = ws;
+
+      // 连接成功
+      ws.onopen = () => {
+        const request = {
+          workspace_id: currentWorkspace,
+          model_id: selectedModelObj?.id || selectedModel,
+          prompt: prompt,
+          files: selectedFiles.map(f => f.path),
+          file_paths: selectedFiles.map(f => f.path)
+        };
+        ws.send(JSON.stringify(request));
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
-
-      // 处理文件变更，在编辑器中打开差异视图
-      if (data.fileChanges && data.fileChanges.length > 0) {
-        // 遍历所有文件变更
-        data.fileChanges.forEach(async (fileChange) => {
-          try {
-            // 触发文件打开事件，确保文件在编辑器中打开
-            addPendingChanges([{
-              filePath: fileChange.file_path,
-              newCode: fileChange.new_code,
-              originalCode: fileChange.original_code
-            }]);
-            window.dispatchEvent(new CustomEvent('file-click', {
-              detail: { filePath: fileChange.file_path }
+      // 收到消息
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          // 思维链
+          if (msg.type === 'reasoning') {
+            setMessages(prev => prev.map(m => {
+              if (m.id === assistantId) {
+                return {
+                  ...m, data: m.data?.map((d, index) =>
+                    index === (m.data?.length || 0) - 1 ? { ...d, reasoning: (d.reasoning || '') + msg.data } : d
+                  ) || []
+                }
+              }
+              return m;
             }));
-          } catch (error) {
-            console.error('处理文件变更失败:', error);
           }
-        });
+          else if (msg.type === 'thinking') {
+            // 处理思考过程
+            setMessages(prev => prev.map(m => {
+              if (m.id === assistantId) {
+                return {
+                  ...m, data: m.data?.map((d, index) =>
+                    index === (m.data?.length || 0) - 1 ? { ...d, thinking: { content: msg.data } } : d
+                  ) || []
+                }
+              }
+              return m;
+            }));
+          }
+          else if (msg.type === 'retry') {
+            // 处理重试状态，创建新的消息
+            setMessages(prev =>
+              prev.map(m => {
+                if (m.id === assistantId) {
+                  return {
+                    ...m,
+                    data: [
+                      ...(m.data || []),
+                      {
+                        thinking: { content: '' },
+                        reasoning: '',
+                        tools: [],
+                        toolsRunning: false,
+                      }
+                    ]
+                  }
+                }
+                return m;
+              })
+            );
+          }
+          else if (msg.type === 'status') {
+            // 工具执行中/结束 的loading状态
+            const running = !!(msg.data && msg.data.tools_running);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantId ? {
+                ...(m as any), data: m.data?.map((d, index) =>
+                  index === (m.data?.length || 0) - 1 ? { ...d, toolsRunning: running } : d
+                ) || []
+              } : m
+            ));
+          }
+          else if (msg.type === 'tools') {
+            // 修复：根据当前尝试次数，将工具添加到对应的尝试中
+            setMessages(prev => prev.map(m => {
+              if (m.id === assistantId) {
+                const tools = Array.isArray(msg.data) ? msg.data : [];
 
-        // 后端已执行文件创建/删除/写入，主动刷新文件树
-        window.dispatchEvent(new CustomEvent('file-system-refresh'));
-      }
+                // 检查是否有结束工具
+                const hasSummaryTool = tools.some((tool: any) =>
+                  tool.name === 'conversation_summary' || (tool as any).type === 'conversation_summary'
+                );
 
-      // 同步刷新会话数据，确保本地对话面板与后端保持一致
-      loadConversations();
+                if (hasSummaryTool) {
+                  // 如果有结束工具，将状态设为completed
+                  return {
+                    ...m,
+                    tools: tools,
+                    status: 'completed' as const
+                  };
+                }
+
+                return { ...m, tools: tools };
+              }
+              return m;
+            }));
+
+            // 根据工具类型判断是否需要刷新文件树
+            try {
+              const tools = Array.isArray(msg.data) ? msg.data : [];
+              const needRefresh = tools.some((t: any) =>
+                [
+                  'file_create',
+                  'file_write',
+                  'file_delete',
+                  'file_create_folder',
+                  'file_delete_folder'
+                ].includes(t?.name || t?.type)
+              );
+              if (needRefresh) {
+                window.dispatchEvent(new CustomEvent('file-system-refresh'));
+              }
+            } catch (_e) { }
+          }
+          // 错误
+          else if (msg.type === 'error') {
+            setMessages(prev => [...prev, {
+              id: (Date.now() + 2).toString(),
+              type: 'system',
+              content: `Error: ${msg.message}`,
+              timestamp: new Date(),
+              status: 'error'
+            }]);
+            setIsLoading(false);
+          }
+          // 完成
+          else if (msg.type === 'done') {
+            console.log('AI WebSocket done');
+            // 对话完成后刷新会话列表，保证历史对话可见
+            // loadConversations();
+            // ws.close();
+          }
+        } catch (e) {
+          console.error('WebSocket parse error:', e);
+        }
+      };
+
+      ws.onerror = (e) => {
+        console.error('AI WebSocket error:', e);
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 3).toString(),
+          type: 'system',
+          content: 'WebSocket连接错误',
+          timestamp: new Date(),
+          status: 'error'
+        }]);
+        setIsLoading(false);
+      };
+
+      ws.onclose = () => {
+        console.log('AI WebSocket closed');
+        aiWSRef.current = null;
+        setIsLoading(false);
+        setTimeout(() => {
+          console.log(messages);
+        }, 2000)
+      };
+
+      return;
 
     } catch (error) {
       console.error('Error generating code:', error);
@@ -603,10 +652,14 @@ const AIAgent: React.FC<AIAgentProps> = ({
       if (operation === 'edit' && !originalContent) {
         try {
           console.log('读取原始文件内容:', filePath);
-          const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/files/read?path=${encodeURIComponent(filePath)}`);
+          const response = await fetch(`/api/v1/workspaces/${currentWorkspace}/files/read`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: filePath })
+          });
           if (response.ok) {
-            const fileData = await response.json();
-            finalOriginalContent = fileData.content || '';
+            const text = await response.text();
+            finalOriginalContent = text || '';
             console.log('读取到原始内容长度:', finalOriginalContent.length);
           }
         } catch (error) {
@@ -713,77 +766,31 @@ const AIAgent: React.FC<AIAgentProps> = ({
    */
   const handleToolActionTaken = (messageId: string, toolIndex: number, action: 'accept' | 'reject') => {
     setMessages(prev => prev.map(msg => {
-      if (msg.id === messageId && msg.tools) {
-        const updatedTools = [...msg.tools];
-        if (updatedTools[toolIndex]) {
-          // 如果是自动模式且是拒绝操作，标记为已回退
-          if (autoMode && action === 'reject') {
-            updatedTools[toolIndex] = {
-              ...updatedTools[toolIndex],
-              actionTaken: action,
-              isRolledBack: true
-            };
-          } else {
-            updatedTools[toolIndex] = { ...updatedTools[toolIndex], actionTaken: action };
+      if (msg.id === messageId && msg.data) {
+        const updatedData = [...msg.data];
+        if (updatedData[toolIndex] && updatedData[toolIndex].tools) {
+          const updatedTools = [...updatedData[toolIndex].tools!];
+          if (updatedTools[toolIndex]) {
+            // 如果是自动模式且是拒绝操作，标记为已回退
+            if (autoMode && action === 'reject') {
+              updatedTools[toolIndex] = {
+                ...updatedTools[toolIndex],
+                actionTaken: action,
+                isRolledBack: true
+              };
+            } else {
+              updatedTools[toolIndex] = { ...updatedTools[toolIndex], actionTaken: action };
+            }
           }
+          updatedData[toolIndex] = { ...updatedData[toolIndex], tools: updatedTools };
         }
-        return { ...msg, tools: updatedTools };
+        return { ...msg, data: updatedData };
       }
       return msg;
     }));
   };
 
-  /**
-   * 处理回退操作
-   * @param executionId 执行ID
-   */
-  const handleRollback = async (executionId: string) => {
-    if (!currentWorkspace) {
-      console.error('No workspace selected');
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/v1/ai/rollback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          workspace_id: currentWorkspace,
-          execution_id: executionId
-        })
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        console.log('回退成功:', result.message);
-
-        // 更新消息中的工具调用状态
-        setMessages(prev => prev.map(msg => ({
-          ...msg,
-          tools: msg.tools?.map(tool =>
-            tool.executionId === executionId
-              ? { ...tool, isRolledBack: true, actionTaken: 'reject' }
-              : tool
-          )
-        })));
-
-        // 显示成功消息
-        alert(`回退成功: ${result.message}`);
-
-        // 刷新文件系统
-        window.dispatchEvent(new CustomEvent('file-system-refresh'));
-      } else {
-        console.error('回退失败:', result.error);
-        alert(`回退失败: ${result.error}`);
-      }
-    } catch (error) {
-      console.error('回退操作请求失败:', error);
-      alert(`回退操作失败: ${error}`);
-    }
-  };
+  // 回退按钮由自动模式在后端执行，手动模式下不再在这里提供直接回退函数
 
   /**
    * 处理提交
@@ -804,7 +811,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
    * @param filePath 文件路径
    */
   const removeSelectedFile = (filePath: string) => {
-    setSelectedFiles(prev => prev.filter(f => f !== filePath));
+    setSelectedFiles(prev => prev.filter(f => f.path !== filePath));
   };
 
   /**
@@ -833,22 +840,168 @@ const AIAgent: React.FC<AIAgentProps> = ({
    * @param message 消息
    */
   const renderThinkingProcess = (message: AIMessage) => {
-    if (!message.thinking || message.type !== 'assistant') return null;
+    if (!message.data || message.type !== 'assistant') return null;
 
-    const thinking = message.thinking;
-    const hasContent = thinking.analysis || thinking.planning || thinking.considerations ||
-      thinking.decisions || thinking.missing_info || thinking.next_steps;
+    // 查找包含 thinking 的 data 项
+    const thinkingData = message.data.find(d => d.thinking);
+    if (!thinkingData?.thinking?.content) return null;
 
-    if (!hasContent) return null;
+    const thinking = thinkingData.thinking;
+    const isCollapsed = collapsedReasonings.has(`thinking-${message.id}`);
+    const toggleCollapsed = () => {
+      setCollapsedReasonings(prev => {
+        const newSet = new Set(prev);
+        if (isCollapsed) {
+          newSet.delete(`thinking-${message.id}`);
+        } else {
+          newSet.add(`thinking-${message.id}`);
+        }
+        return newSet;
+      });
+    };
 
     return (
-      <div>
-        <p className='ai-agent-thinking-title'>{thinking.analysis}</p>
-        <p className='ai-agent-thinking-title'>{thinking.planning}</p>
-        <p className='ai-agent-thinking-title'>{thinking.considerations}</p>
-        <p className='ai-agent-thinking-title'>{thinking.decisions}</p>
-        <p className='ai-agent-thinking-title'>{thinking.missing_info}</p>
-        <p className='ai-agent-thinking-title'>{thinking.next_steps}</p>
+      <div className="ai-agent-thinking" style={{ marginTop: '8px' }}>
+        <div
+          className="ai-agent-thinking-header"
+          onClick={toggleCollapsed}
+          style={{
+            cursor: 'pointer',
+            padding: '8px 12px',
+            backgroundColor: 'rgba(0,0,0,0.05)',
+            border: '1px solid rgba(0,0,0,0.1)',
+            borderRadius: '4px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '13px',
+            fontWeight: '500'
+          }}
+        >
+          <span className="ai-agent-thinking-title">🧠 思维链</span>
+          <span style={{ fontSize: '12px', color: 'rgba(0,0,0,0.6)' }}>
+            {isCollapsed ? '展开' : '收起'}
+          </span>
+        </div>
+        {!isCollapsed && (
+          <div className="ai-agent-thinking-content" style={{ marginTop: '4px' }}>
+            <div style={{ padding: '8px', backgroundColor: 'rgba(0,0,0,0.03)', borderRadius: '4px' }}>
+              {thinking.content}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /**
+   * 将消息分组为对话
+   */
+  const groupMessagesIntoConversations = (messages: AIMessage[]) => {
+    const conversations: Array<{
+      userMessage: AIMessage;
+      assistantMessage: AIMessage | null;
+    }> = [];
+
+    let currentUserMessage: AIMessage | null = null;
+    let currentAssistantMessage: AIMessage | null = null;
+
+    for (const message of messages) {
+      if (message.type === 'user') {
+        // 保存之前的对话
+        if (currentUserMessage) {
+          conversations.push({
+            userMessage: currentUserMessage,
+            assistantMessage: currentAssistantMessage
+          });
+        }
+        // 开始新的对话
+        currentUserMessage = message;
+        currentAssistantMessage = null;
+      } else if (message.type === 'assistant' && currentUserMessage) {
+        // 直接替换AI消息
+        currentAssistantMessage = message;
+      }
+    }
+
+    // 保存最后一个对话
+    if (currentUserMessage) {
+      conversations.push({
+        userMessage: currentUserMessage,
+        assistantMessage: currentAssistantMessage
+      });
+    }
+
+    return conversations;
+  };
+
+  /**
+   * 渲染推理过程（实时思维链）
+   * @param message 消息
+   */
+  const renderReasoning = (message: AIMessage) => {
+    if (!message.data || message.type !== 'assistant') return null;
+
+    // 查找包含 reasoning 的 data 项
+    const reasoningData = message.data.find(d => d.reasoning);
+    if (!reasoningData?.reasoning) return null;
+
+    const isCollapsed = collapsedReasonings.has(message.id);
+    // const isCompleted = message.status === 'completed';
+
+    const toggleCollapsed = () => {
+      setCollapsedReasonings(prev => {
+        const newSet = new Set(prev);
+        if (isCollapsed) {
+          newSet.delete(message.id);
+        } else {
+          newSet.add(message.id);
+        }
+        return newSet;
+      });
+    };
+
+    return (
+      <div className="ai-agent-reasoning" style={{ marginTop: '8px' }}>
+        <div
+          className="ai-agent-reasoning-header"
+          onClick={toggleCollapsed}
+          style={{
+            cursor: 'pointer',
+            padding: '8px 12px',
+            backgroundColor: 'rgba(0,0,0,0.05)',
+            border: '1px solid rgba(0,0,0,0.1)',
+            borderRadius: '4px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '13px',
+            fontWeight: '500'
+          }}
+        >
+          <span className="ai-agent-reasoning-title">🤔 推理过程</span>
+          <span style={{ fontSize: '12px', color: 'rgba(0,0,0,0.6)' }}>
+            {isCollapsed ? '展开' : '收起'}
+          </span>
+        </div>
+        {!isCollapsed && (
+          <div className="ai-agent-reasoning-content" style={{ marginTop: '4px' }}>
+            <pre style={{
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'inherit',
+              margin: 0,
+              padding: '8px',
+              backgroundColor: 'rgba(0,0,0,0.03)',
+              borderRadius: '4px',
+              fontSize: '13px',
+              lineHeight: '1.4',
+              border: '1px solid rgba(0,0,0,0.05)'
+            }}>
+              {reasoningData.reasoning}
+            </pre>
+          </div>
+        )}
       </div>
     );
   };
@@ -858,16 +1011,20 @@ const AIAgent: React.FC<AIAgentProps> = ({
    * @param message 消息
    */
   const renderToolCalls = (message: AIMessage) => {
-    if (!message.tools || message.tools.length === 0) return null;
+    if (!message.data || message.data.length === 0) return null;
 
-    // 修改：显示所有工具调用，不过滤已处理的
-    const visibleTools = message.tools;
-
-    if (visibleTools.length === 0) return null;
+    // 查找包含工具的 data 项
+    const toolsData = message.data.find(d => d.tools && d.tools.length > 0);
+    if (!toolsData?.tools) return null;
 
     return (
       <div style={{ marginTop: '8px' }} className="tool-call-enter">
-        {visibleTools.map((tool, index) => {
+        {toolsData.tools.map((tool, index) => {
+          // 检查是否是结束工具
+          const isSummaryTool = tool.name === 'conversation_summary' ||
+            tool.type === 'conversation_summary' ||
+            tool.isSummaryTool;
+
           return (
             <ToolCall
               key={`${message.id}-${index}`}
@@ -877,14 +1034,10 @@ const AIAgent: React.FC<AIAgentProps> = ({
               status={tool.status}
               output={tool.output}
               executionId={tool.executionId}
-              rollback={tool.rollback}
               onFileOperation={handleFileOperation}
               onActionTaken={(action) => handleToolActionTaken(message.id, index, action)}
-              onRollback={handleRollback}
               actionTaken={tool.actionTaken}
-              isRolledBack={tool.isRolledBack}
-              currentWorkspace={currentWorkspace}
-              isAutoMode={autoMode}
+              isSummaryTool={isSummaryTool}
             />
           );
         })}
@@ -914,16 +1067,6 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
   const selectedModelData = models.find(m => m.id === selectedModel);
 
-  // 获取策略显示名称
-  // 预留：策略显示名称（暂未使用）
-  // const getStrategyDisplayName = (strategyKey: string) => {
-  //   const strategyMap = {
-  //     'auto': '自动',
-  //     'manual': '手动'
-  //   };
-  //   return strategyMap[strategyKey as keyof typeof strategyMap] || strategyKey;
-  // };
-
   return (
     <div style={{ position: 'relative', height: '100%' }}>
       {/* 拖拽调整大小的分隔条 */}
@@ -941,7 +1084,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
           {/* 对话会话列表 */}
           <div className="ai-agent-conversations-panel">
-            <div 
+            <div
               className="ai-agent-conversations-tabs"
               role="tablist"
               aria-label="AI对话列表"
@@ -1028,22 +1171,79 @@ const AIAgent: React.FC<AIAgentProps> = ({
 
         {/* 消息列表 */}
         <div className="ai-agent-messages">
-          {messages.map((message) => (
-            <div key={message.id} className={`ai-agent-message ${message.type}`}>
-              <div className="ai-agent-message-header">
-                <span className="ai-agent-message-sender">
-                  {message.type === 'user' ? 'You' : 'AI'}
-                </span>
-                <span className="ai-agent-message-time">
-                  {message.timestamp.toLocaleTimeString()}
-                </span>
+          {groupMessagesIntoConversations(messages).map((conversation) => (
+            <div key={conversation.userMessage.id} className="ai-agent-conversation-card" style={{
+              margin: '16px 0',
+              border: '1px solid rgba(0,0,0,0.1)',
+              borderRadius: '8px',
+              backgroundColor: '#fff',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+              {/* 用户消息 */}
+              <div className="ai-agent-user-message" style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid rgba(0,0,0,0.05)',
+                backgroundColor: 'rgba(0,0,0,0.02)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontWeight: '500', color: '#333' }}>You</span>
+                  <span style={{ fontSize: '12px', color: 'rgba(0,0,0,0.6)' }}>
+                    {conversation.userMessage.timestamp.toLocaleTimeString()}
+                  </span>
+                </div>
+                <div style={{ color: '#333', lineHeight: '1.5' }}>
+                  {conversation.userMessage.content}
+                </div>
               </div>
-              <div className="ai-agent-message-content">
-                {message.content}
+
+              {/* AI回复 */}
+              <div className="ai-agent-assistant-replies" style={{ padding: '16px' }}>
+                {conversation.assistantMessage ? (
+                  <div className="ai-agent-assistant-message" style={{
+                    padding: '12px',
+                    backgroundColor: 'rgba(0,0,0,0.02)',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(0,0,0,0.05)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={{ fontWeight: '500', color: '#333' }}>AI</span>
+                      <span style={{ fontSize: '12px', color: 'rgba(0,0,0,0.6)' }}>
+                        {conversation.assistantMessage.timestamp.toLocaleTimeString()}
+                      </span>
+                    </div>
+
+                    {/* AI内容 */}
+                    {conversation.assistantMessage.content && (
+                      <div style={{ color: '#333', lineHeight: '1.5', marginBottom: '12px' }}>
+                        {conversation.assistantMessage.content}
+                      </div>
+                    )}
+
+                    {/* 推理过程 */}
+                    {renderReasoning(conversation.assistantMessage)}
+
+                    {/* 思考过程 */}
+                    {renderThinkingProcess(conversation.assistantMessage)}
+
+                    {/* 工具调用 */}
+                    {renderToolCalls(conversation.assistantMessage)}
+
+                    {/* 代码对比 */}
+                    {renderCodeComparison(conversation.assistantMessage)}
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '12px',
+                    backgroundColor: 'rgba(0,0,0,0.02)',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(0,0,0,0.05)',
+                    color: 'rgba(0,0,0,0.6)',
+                    fontStyle: 'italic'
+                  }}>
+                    AI 正在思考中...
+                  </div>
+                )}
               </div>
-              {renderThinkingProcess(message)}
-              {renderToolCalls(message)}
-              {renderCodeComparison(message)}
             </div>
           ))}
 
@@ -1094,13 +1294,13 @@ const AIAgent: React.FC<AIAgentProps> = ({
               </div> */}
               <div className="ai-agent-files-container">
                 {selectedFiles.map(file => (
-                  <div key={file} className="ai-agent-file-item" title={file}>
+                  <div key={file.path} className="ai-agent-file-item" title={file.path}>
                     <span className="ai-agent-file-name" style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      📄 {file.split('/').pop()}
+                      {file.type === 'folder' ? '📁' : '📄'} {file.path.split('/').pop()}
                     </span>
                     <button
                       className="ai-agent-file-remove"
-                      onClick={() => removeSelectedFile(file)}
+                      onClick={() => removeSelectedFile(file.path)}
                     >
                       ✕
                     </button>

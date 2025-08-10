@@ -168,7 +168,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   }, [filePath, saveFile, updateTabContent]);
 
   // 编辑器挂载完成
-  const handleEditorDidMount: OnMount = useCallback((editor, monaco) => {
+  const handleEditorDidMount: OnMount = useCallback((editor: any, monaco: any) => {
     editorRef.current = editor;
 
     // 配置TypeScript
@@ -187,7 +187,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   }, [saveFile]);
 
   // 差异编辑器挂载完成
-  const handleDiffEditorDidMount: DiffOnMount = useCallback((editor, monaco) => {
+  const handleDiffEditorDidMount: DiffOnMount = useCallback((editor: any, monaco: any) => {
     diffEditorRef.current = editor;
 
     // 配置TypeScript

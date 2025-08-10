@@ -10,6 +10,7 @@ export const aiAPI = {
     workspace: string;
     language: string;
     files?: string[];
+    file_paths?: string[]; // 新增：文件或文件夹原始路径（文件夹不展开，仅做提示）
     tools?: string[];
     session_id?: string; // 新增：对话会话ID
   }): Promise<{ 

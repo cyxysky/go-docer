@@ -533,6 +533,70 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 	}
 	defer conn.Close()
 
+	// 第一轮
+	// 思维链
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "reasoning",
+		"data": "AI助手已启动",
+	})
+	// 工具调用
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "status",
+		"data": map[string]bool{"tools_running": true},
+	})
+	// 思考结果
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "thinking",
+		"data": "这是第一轮思考结果",
+	})
+
+	// 工具调用结束
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "status",
+		"data": map[string]bool{"tools_running": false},
+	})
+
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "retry",
+		"data": "retry",
+	})
+
+	// 第二轮
+	// 思维链
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "reasoning",
+		"data": "这是第二轮思考结果",
+	})
+	// 工具调用
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "status",
+		"data": map[string]bool{"tools_running": true},
+	})
+	// 思考结果
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "thinking",
+		"data": "这是第二轮思考结果",
+	})
+
+	// 工具调用结束
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "tools",
+		"data": map[string]interface{}{
+			"name":       "conversation_summary",
+			"parameters": map[string]interface{}{"summary": "AI助手已启动"},
+		},
+		"session_id": sessionID,
+	})
+
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type":       "done",
+		"data":       "AI助手已启动",
+		"status":     "finish",
+		"session_id": sessionID,
+	})
+
+	return
+
 	// 简化：仅接收一条用户消息后触发一次调用；可扩展为持续会话
 	_, msg, err := conn.ReadMessage()
 	if err != nil {
@@ -541,9 +605,11 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 	}
 
 	var payload struct {
-		WorkspaceID string `json:"workspace_id"`
-		ModelID     string `json:"model_id"`
-		Prompt      string `json:"prompt"`
+		WorkspaceID string   `json:"workspace_id"`
+		ModelID     string   `json:"model_id"`
+		Prompt      string   `json:"prompt"`
+		Files       []string `json:"files"`
+		FilePaths   []string `json:"file_paths"`
 	}
 	_ = json.Unmarshal(msg, &payload)
 
@@ -553,47 +619,206 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 		Workspace: payload.WorkspaceID,
 		Model:     payload.ModelID,
 		SessionID: sessionID,
+		Files:     payload.Files,
+		FilePaths: payload.FilePaths,
 	}
 
-	// 流式推理分支：若模型是推理模型则SSE转发
+	// 统一使用流式传输（所有模型）——前端模型来源于后端配置，无需额外判断，仅按ID获取
 	model := oem.aiModelManager.GetModel(payload.ModelID)
-	if model != nil && model.IsReasoner {
-		go func() {
-			// 先发送推理内容
-			err := oem.callAIStreamWithModel(payload.Prompt, model, oem.aiConversationManager.GetConversationHistory(sessionID),
+	if model != nil {
+		{
+			// 确保会话存在并记录用户消息
+			conv := oem.aiConversationManager.GetConversation(sessionID)
+			if conv == nil {
+				conv = oem.aiConversationManager.CreateConversationWithID(sessionID, payload.WorkspaceID)
+			}
+
+			// 构建文件上下文（仅精确文件读取；目录仅作为上下文路径，不展开不读取）
+			fileContents := make(map[string]string)
+			maxFileSize := int64(1024 * 1024 * 10)
+			fileTree, errTree := oem.GetWorkspaceFileTree(payload.WorkspaceID)
+			if errTree != nil {
+				fileTree = []string{}
+			}
+			fileSet := make(map[string]struct{}, len(fileTree))
+			for _, f := range fileTree {
+				fileSet[f] = struct{}{}
+			}
+			// 仅当是精确文件时读取内容
+			if len(req.Files) > 0 {
+				for _, p := range req.Files {
+					if p == "" {
+						continue
+					}
+					clean := strings.TrimPrefix(p, "./")
+					clean = strings.TrimPrefix(clean, "/")
+					if _, ok := fileSet[clean]; ok {
+						if content, err := oem.ReadFile(req.Workspace, clean); err == nil && int64(len(content)) <= maxFileSize {
+							fileContents[clean] = content
+						}
+					}
+				}
+			}
+			if len(req.FilePaths) > 0 {
+				for _, p := range req.FilePaths {
+					clean := strings.TrimPrefix(p, "./")
+					clean = strings.TrimPrefix(clean, "/")
+					if _, ok := fileSet[clean]; ok {
+						if content, err := oem.ReadFile(req.Workspace, clean); err == nil && int64(len(content)) <= maxFileSize {
+							fileContents[clean] = content
+						}
+					}
+				}
+			}
+
+			// 记录用户消息
+			_ = oem.aiConversationManager.AddUserMessage(sessionID, payload.Prompt)
+			history := oem.aiConversationManager.GetConversationHistory(sessionID)
+
+			// 创建助手消息（用于保存AI输出）
+			_ = oem.aiConversationManager.AddAssistantMessage(sessionID, "", []ToolCall{}, nil)
+
+			// 构建提示词（初始没有工具调用历史）
+			prompt := oem.buildAIPrompt(payload.Prompt, payload.WorkspaceID, fileContents, nil)
+
+			var reasoningBuf, contentBuf strings.Builder
+
+			// 流式调用
+			oem.logInfo("调用AI模型(流式)", map[string]interface{}{"model": model.Name, "is_reasoner": model.IsReasoner, "workspace": payload.WorkspaceID})
+
+			err := oem.callAIStreamWithModel(prompt, model, history,
 				func(reason string) {
-					_ = conn.WriteJSON(map[string]string{"type": "reasoning", "data": reason})
+					reasoningBuf.WriteString(reason)
+					// 实时更新最后一条助手消息的推理内容
+					_ = oem.aiConversationManager.UpdateLastAssistantMessageReasoning(sessionID, reasoningBuf.String())
+					// 立即发送推理内容到前端
+					if err := conn.WriteJSON(map[string]interface{}{"type": "reasoning", "data": reason, "session_id": sessionID}); err != nil {
+						log.Printf("[AI WS] 发送推理内容失败: %v", err)
+						return
+					}
 				},
 				func(content string) {
-					_ = conn.WriteJSON(map[string]string{"type": "content", "data": content})
+					// 仅累积最终内容，不在流式阶段发送content
+					contentBuf.WriteString(content)
 				},
 			)
 			if err != nil {
-				_ = conn.WriteJSON(map[string]string{"type": "error", "message": err.Error()})
+				log.Printf("[AI WS] 流式调用失败: %v", err)
+				if err := conn.WriteJSON(map[string]string{"type": "error", "message": err.Error()}); err != nil {
+					log.Printf("[AI WS] 发送错误消息失败: %v", err)
+				}
+				return
 			}
-			// 流式完成后，发送工具和文件变更信息（如果有的话）
-			_ = conn.WriteJSON(map[string]string{"type": "done"})
-		}()
-		return
-	}
 
-	// 非推理模型：一次性调用
-	resp, err := oem.GenerateCodeWithAI(req)
-	if err != nil {
-		_ = conn.WriteJSON(map[string]string{"type": "error", "message": err.Error()})
-		return
+			// 流式结束后：解析最终content并执行工具，前端展示
+			finalContent := strings.TrimSpace(contentBuf.String())
+			log.Printf("[AI WS] 流式结束，最终内容长度: %d", len(finalContent))
+
+			if finalContent != "" {
+				// 自动循环：最多20次
+				maxLoops := 20
+				currentPrompt := prompt
+				for i := 0; i < maxLoops; i++ {
+					// 工具阶段开始（loading提示）
+					_ = conn.WriteJSON(map[string]interface{}{"type": "status", "data": map[string]bool{"tools_running": true}})
+
+					tools, thinking, status, perr := oem.parseAIResponse(finalContent, payload.WorkspaceID)
+					if perr != nil {
+						// perr 存在意味着可能需要重试（AutoRetryError）或致命错误
+						if _, ok := perr.(*AutoRetryError); !ok {
+							log.Printf("[AI WS] 解析AI响应失败: %v", perr)
+							_ = conn.WriteJSON(map[string]string{"type": "error", "message": perr.Error()})
+							// 结束loading
+							_ = conn.WriteJSON(map[string]interface{}{"type": "status", "data": map[string]bool{"tools_running": false}})
+							break
+						}
+					}
+
+					// 写入对话（每轮都记录thinking与工具，保存推理内容）
+					_ = oem.aiConversationManager.AddAssistantMessageWithReasoning(sessionID, "", tools, thinking, reasoningBuf.String())
+
+					// 将工具结果发送给前端
+					if len(tools) > 0 {
+						_ = conn.WriteJSON(map[string]interface{}{"type": "tools", "data": tools, "session_id": sessionID})
+					}
+
+					// 结束
+					if status == "finish" {
+						// 结束loading
+						_ = conn.WriteJSON(map[string]interface{}{"type": "status", "data": map[string]bool{"tools_running": false}})
+						// 最终输出：使用thinking作为结果文本，并保存到对话历史
+						finalDisplay := "操作完成"
+						// 保存最终内容到对话历史
+						_ = oem.aiConversationManager.AddAssistantMessage(sessionID, finalDisplay, tools, thinking)
+						_ = conn.WriteJSON(map[string]interface{}{"type": "content", "data": finalDisplay, "status": "finish", "session_id": sessionID})
+						break
+					}
+
+					// status == retry：自动继续提问
+					history := oem.aiConversationManager.GetConversationHistory(sessionID)
+					// 构建当前对话过程中的工具调用历史
+					var retryToolHistory []ToolExecutionRecord
+					for _, tool := range tools {
+						retryToolHistory = append(retryToolHistory, ToolExecutionRecord{
+							Tool:      tool.Name,
+							Path:      "",
+							Content:   "",
+							Status:    tool.Status,
+							Result:    tool.Result,
+							Timestamp: time.Now(),
+						})
+						// 从参数中提取路径和内容
+						if tool.Parameters != nil {
+							if params, ok := tool.Parameters.(map[string]interface{}); ok {
+								if path, ok := params["path"].(string); ok {
+									retryToolHistory[len(retryToolHistory)-1].Path = path
+								}
+								if content, ok := params["content"].(string); ok {
+									retryToolHistory[len(retryToolHistory)-1].Content = content
+								}
+								if command, ok := params["command"].(string); ok {
+									retryToolHistory[len(retryToolHistory)-1].Content = command
+								}
+							}
+						}
+					}
+					currentPrompt = oem.buildAIPrompt(payload.Prompt, payload.WorkspaceID, fileContents, retryToolHistory)
+					// 重置ai输出内容
+					finalContent = ""
+					// 重置思维链内容
+					reasoningBuf.Reset()
+					// 重试
+					_ = conn.WriteJSON(map[string]interface{}{"type": "retry", "data": "retry", "session_id": sessionID})
+					// 新一轮：仅流式推理内容（不推送content增量）
+					err := oem.callAIStreamWithModel(currentPrompt, model, history,
+						func(reason string) {
+							reasoningBuf.WriteString(reason)
+							_ = conn.WriteJSON(map[string]interface{}{"type": "reasoning", "data": reason, "session_id": sessionID})
+						},
+						func(content string) {
+							finalContent += content
+						},
+					)
+					// 本轮结束，结束loading（下一轮开始前会再次置true）
+					_ = conn.WriteJSON(map[string]interface{}{"type": "status", "data": map[string]bool{"tools_running": false}})
+
+					if err != nil {
+						log.Printf("[AI WS] 第二阶段流式调用失败: %v", err)
+						_ = conn.WriteJSON(map[string]string{"type": "error", "message": err.Error()})
+						break
+					}
+				}
+			}
+
+			// 收尾，通知前端完成（最终content已在finish时发送）
+			log.Printf("[AI WS] 发送完成信号")
+			if err := conn.WriteJSON(map[string]string{"type": "done"}); err != nil {
+				log.Printf("[AI WS] 发送done信号失败: %v", err)
+			}
+		}
 	}
-	if resp.ReasoningContent != "" {
-		_ = conn.WriteJSON(map[string]string{"type": "reasoning", "data": resp.ReasoningContent})
-	}
-	if len(resp.Tools) > 0 {
-		_ = conn.WriteJSON(map[string]interface{}{"type": "tools", "data": resp.Tools})
-	}
-	if len(resp.FileChanges) > 0 {
-		_ = conn.WriteJSON(map[string]interface{}{"type": "file_changes", "data": resp.FileChanges})
-	}
-	_ = conn.WriteJSON(map[string]interface{}{"type": "content", "data": resp.Message, "status": resp.Status, "session_id": resp.SessionID})
-	_ = conn.WriteJSON(map[string]string{"type": "done"})
+	// 不存在模型，返回明确错误
+	_ = conn.WriteJSON(map[string]string{"type": "error", "message": "无效的模型ID"})
 }
 
 func (oem *OnlineEditorManager) handleExecuteCommand(w http.ResponseWriter, r *http.Request) {
@@ -1460,144 +1685,6 @@ func (oem *OnlineEditorManager) handleSetDefaultAIModel(w http.ResponseWriter, r
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "默认AI模型设置成功"})
-}
-
-// AI代码生成
-func (oem *OnlineEditorManager) handleAIGenerateCode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req AICodeGenerationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		oem.logError("请求体解析失败", err)
-		http.Error(w, "请求体解析失败", http.StatusBadRequest)
-		return
-	}
-
-	// 验证请求
-	if req.Prompt == "" {
-		http.Error(w, "提示词不能为空", http.StatusBadRequest)
-		return
-	}
-
-	if req.Workspace == "" {
-		http.Error(w, "工作空间不能为空", http.StatusBadRequest)
-		return
-	}
-
-	// 记录请求信息
-	oem.logInfo("AI代码生成请求", map[string]interface{}{
-		"workspace": req.Workspace,
-		"prompt":    req.Prompt[:min(len(req.Prompt), 100)] + "...", // 只记录前100个字符
-		"model":     req.Model,
-		"strategy":  req.Strategy,
-		"files":     len(req.FilePaths),
-	})
-
-	// 生成代码
-	response, err := oem.GenerateCodeWithAI(req)
-	if err != nil {
-		oem.logError("AI代码生成", err)
-		http.Error(w, fmt.Sprintf("AI代码生成失败: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// 记录响应信息
-	oem.logInfo("AI代码生成响应", map[string]interface{}{
-		"success": response.Success,
-		"tools":   len(response.Tools),
-	})
-
-	// 返回响应
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		oem.logError("响应编码失败", err)
-		http.Error(w, "响应编码失败", http.StatusInternalServerError)
-		return
-	}
-}
-
-// 执行回退操作
-func (oem *OnlineEditorManager) handleRollback(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req RollbackRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		oem.logError("回退请求体解析失败", err)
-		http.Error(w, "请求体解析失败", http.StatusBadRequest)
-		return
-	}
-
-	// 验证请求
-	if req.WorkspaceID == "" {
-		http.Error(w, "工作空间ID不能为空", http.StatusBadRequest)
-		return
-	}
-
-	if req.ExecutionID == "" {
-		http.Error(w, "执行ID不能为空", http.StatusBadRequest)
-		return
-	}
-
-	// 记录请求信息
-	oem.logInfo("回退操作请求", map[string]interface{}{
-		"workspace_id": req.WorkspaceID,
-		"execution_id": req.ExecutionID,
-	})
-
-	// 执行回退操作
-	response, err := oem.ExecuteRollback(req.WorkspaceID, req.ExecutionID)
-	if err != nil {
-		oem.logError("回退操作执行", err)
-		http.Error(w, fmt.Sprintf("回退操作失败: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// 记录响应信息
-	oem.logInfo("回退操作响应", map[string]interface{}{
-		"success": response.Success,
-		"message": response.Message,
-	})
-
-	// 返回响应
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		oem.logError("回退响应编码失败", err)
-		http.Error(w, "响应编码失败", http.StatusInternalServerError)
-		return
-	}
-}
-
-// 获取工具调用状态
-func (oem *OnlineEditorManager) handleGetToolCallStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
-	vars := mux.Vars(r)
-	workspaceID := vars["id"]
-
-	if workspaceID == "" {
-		http.Error(w, "工作空间ID不能为空", http.StatusBadRequest)
-		return
-	}
-
-	// 获取工具调用状态
-	response := oem.GetToolCallStatus(workspaceID)
-
-	// 返回响应
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		oem.logError("工具调用状态响应编码失败", err)
-		http.Error(w, "响应编码失败", http.StatusInternalServerError)
-		return
-	}
 }
 
 // 执行拒绝操作

@@ -185,11 +185,8 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	api.HandleFunc("/downloads/{downloadId}/status", oem.handleGetDownloadStatus).Methods("GET")
 	api.HandleFunc("/downloads/{downloadId}/file", oem.handleDownload).Methods("GET")
 
-	// 新增：AI代码生成功能
-	api.HandleFunc("/ai/generate-code", oem.handleAIGenerateCode).Methods("POST")
-	api.HandleFunc("/ai/rollback", oem.handleRollback).Methods("POST")
+	// 新增：AI拒绝操作
 	api.HandleFunc("/ai/reject", oem.handleRejectOperation).Methods("POST")
-	api.HandleFunc("/workspaces/{id}/tool-calls/status", oem.handleGetToolCallStatus).Methods("GET")
 
 	// 对话管理路由
 	api.HandleFunc("/ai/conversations", oem.handleCreateConversation).Methods("POST")

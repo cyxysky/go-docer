@@ -175,11 +175,13 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({
     setIsDragging(() => true); // 设置全局拖拽状态
     setDraggedFiles([file.path]); // 设置拖拽的文件
     e.dataTransfer.setData('text/plain', file.path);
+    // 添加文件类型信息，用于区分文件和文件夹
+    e.dataTransfer.setData('application/x-directory', file.is_dir?.toString() ?? 'false');
     e.dataTransfer.effectAllowed = 'move';
     
     // 触发自定义事件，通知编辑器拖拽开始
     const dragEvent = new CustomEvent('file-drag-start', {
-      detail: { filePath: file.path }
+      detail: { filePath: file.path, isDirectory: file.is_dir }
     });
     window.dispatchEvent(dragEvent);
   };
