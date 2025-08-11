@@ -261,7 +261,7 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, workspaceID string, fi
 	prompt.WriteString("8. **conversation_summary** - 总结当前对话并结束会话\n")
 	prompt.WriteString("{\n")
 	prompt.WriteString("  \"type\": \"conversation_summary\",\n")
-	prompt.WriteString("  \"summary\": \"总结当前对话并结束会话\"\n")
+	prompt.WriteString("  \"summary\": \"总结当前对话并结束会话,需要生动，并且分点输出\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("【输出格式】\n")

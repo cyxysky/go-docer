@@ -286,7 +286,7 @@ func (oem *OnlineEditorManager) GetContainerStats(containerID string) (map[strin
 	}
 	defer stats.Body.Close()
 
-	var containerStats container.Stats
+	var containerStats container.StatsResponse
 	if err := json.NewDecoder(stats.Body).Decode(&containerStats); err != nil {
 		return nil, fmt.Errorf("解析容器统计信息失败: %v", err)
 	}
@@ -325,7 +325,7 @@ func (oem *OnlineEditorManager) HealthCheck() error {
 	ctx := context.Background()
 	_, err := oem.dockerClient.Ping(ctx)
 	if err != nil {
-		return fmt.Errorf("Docker 连接失败: %v", err)
+		return fmt.Errorf("docker 连接失败: %v", err)
 	}
 	return nil
 }

@@ -527,11 +527,30 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 	sessionID := vars["sessionId"]
 
 	conn, err := oem.upgrader.Upgrade(w, r, nil)
+
 	if err != nil {
 		log.Printf("[AI WS] 升级失败: %v", err)
 		return
 	}
 	defer conn.Close()
+
+	var payloads struct {
+		WorkspaceID string   `json:"workspace_id"`
+		ModelID     string   `json:"model_id"`
+		Prompt      string   `json:"prompt"`
+		Files       []string `json:"files"`
+		FilePaths   []string `json:"file_paths"`
+		MessageID   string   `json:"message_id"`
+	}
+
+	_, msgs, err := conn.ReadMessage()
+	_ = json.Unmarshal(msgs, &payloads)
+	conv := oem.aiConversationManager.GetConversation(sessionID)
+	if conv == nil {
+		conv = oem.aiConversationManager.CreateConversationWithID(sessionID, payloads.WorkspaceID)
+	}
+	_ = oem.aiConversationManager.AddUserMessage(sessionID, payloads.MessageID, payloads.Prompt)
+	_ = oem.aiConversationManager.AddAssistantMessage(sessionID, payloads.MessageID)
 
 	// 第一轮
 	// 思维链
@@ -550,16 +569,47 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 		"data": "这是第一轮思考结果",
 	})
 
+	time.Sleep(1 * time.Second)
+
+	time1 := time.Now()
+
+	tools1 := []ToolCall{
+		{
+			Name:        "file_read",
+			Parameters:  map[string]any{"path": "README.md"},
+			Status:      "success",
+			Result:      "文件内容",
+			Output:      "文件内容",
+			Error:       "",
+			ExecutionId: "123",
+			StartTime:   &time1,
+			EndTime:     &time1,
+			Rollback:    nil,
+		},
+	}
+
+	// 工具调用结结果
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type":       "tools",
+		"data":       tools1,
+		"session_id": sessionID,
+	})
+
 	// 工具调用结束
 	_ = conn.WriteJSON(map[string]interface{}{
 		"type": "status",
 		"data": map[string]bool{"tools_running": false},
 	})
 
+	// 重试
 	_ = conn.WriteJSON(map[string]interface{}{
 		"type": "retry",
 		"data": "retry",
 	})
+
+	_ = oem.aiConversationManager.updateAssistantMessageWithReasoning(sessionID, tools1, &ThinkingProcess{
+		Content: "这是第一轮思考结果",
+	}, "这是第一轮思考结果", payloads.MessageID)
 
 	// 第二轮
 	// 思维链
@@ -567,25 +617,78 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 		"type": "reasoning",
 		"data": "这是第二轮思考结果",
 	})
+
 	// 工具调用
 	_ = conn.WriteJSON(map[string]interface{}{
 		"type": "status",
 		"data": map[string]bool{"tools_running": true},
 	})
+
 	// 思考结果
 	_ = conn.WriteJSON(map[string]interface{}{
 		"type": "thinking",
 		"data": "这是第二轮思考结果",
 	})
 
-	// 工具调用结束
-	_ = conn.WriteJSON(map[string]interface{}{
-		"type": "tools",
-		"data": map[string]interface{}{
-			"name":       "conversation_summary",
-			"parameters": map[string]interface{}{"summary": "AI助手已启动"},
+	time.Sleep(2 * time.Second)
+
+	time2 := time.Now()
+	tools2 := []ToolCall{
+		{
+			Name:        "file_write",
+			Parameters:  map[string]any{"path": "README.md", "content": "文件内容"},
+			Status:      "success",
+			Result:      "文件内容",
+			Output:      "文件内容",
+			Error:       "",
+			ExecutionId: "123",
+			StartTime:   &time2,
+			EndTime:     &time2,
+			Rollback:    nil,
 		},
+		{
+			Name:        "shell_exec",
+			Parameters:  map[string]any{"command": "ls -l"},
+			Status:      "success",
+			Result:      "文件内容",
+			Output:      "文件内容",
+			Error:       "",
+			ExecutionId: "123",
+			StartTime:   &time2,
+			EndTime:     &time2,
+			Rollback:    nil,
+		},
+		{
+			Name:        "conversation_summary",
+			Parameters:  map[string]any{"summary": "AI助手已启动，并完成了文件读写和shell命令执行"},
+			Status:      "success",
+			Result:      "AI助手已启动，并完成了文件读写和shell命令执行",
+			Output:      "AI助手已启动，并完成了文件读写和shell命令执行",
+			Error:       "",
+			ExecutionId: "123",
+			StartTime:   &time2,
+			EndTime:     &time2,
+			Rollback:    nil,
+		},
+	}
+
+	// 工具调用结结果
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type":       "tools",
+		"data":       tools2,
 		"session_id": sessionID,
+	})
+
+	_ = oem.aiConversationManager.updateAssistantMessageWithReasoning(sessionID, tools2, &ThinkingProcess{
+		Content: "这是第二轮思考结果",
+	}, "这是第二轮思考结果", payloads.MessageID)
+
+	time.Sleep(1 * time.Second)
+
+	// 工具调用
+	_ = conn.WriteJSON(map[string]interface{}{
+		"type": "status",
+		"data": map[string]bool{"tools_running": false},
 	})
 
 	_ = conn.WriteJSON(map[string]interface{}{
@@ -610,6 +713,7 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 		Prompt      string   `json:"prompt"`
 		Files       []string `json:"files"`
 		FilePaths   []string `json:"file_paths"`
+		MessageID   string   `json:"message_id"`
 	}
 	_ = json.Unmarshal(msg, &payload)
 
@@ -670,17 +774,19 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 					}
 				}
 			}
-
-			// 记录用户消息
-			_ = oem.aiConversationManager.AddUserMessage(sessionID, payload.Prompt)
+			// 获取对话历史
 			history := oem.aiConversationManager.GetConversationHistory(sessionID)
 
+			// 创建用户消息
+			_ = oem.aiConversationManager.AddUserMessage(sessionID, payload.MessageID, payload.Prompt)
+
 			// 创建助手消息（用于保存AI输出）
-			_ = oem.aiConversationManager.AddAssistantMessage(sessionID, "", []ToolCall{}, nil)
+			_ = oem.aiConversationManager.AddAssistantMessage(sessionID, payload.MessageID)
 
 			// 构建提示词（初始没有工具调用历史）
 			prompt := oem.buildAIPrompt(payload.Prompt, payload.WorkspaceID, fileContents, nil)
 
+			// 创建思维链和内容缓冲区
 			var reasoningBuf, contentBuf strings.Builder
 
 			// 流式调用
@@ -689,8 +795,6 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 			err := oem.callAIStreamWithModel(prompt, model, history,
 				func(reason string) {
 					reasoningBuf.WriteString(reason)
-					// 实时更新最后一条助手消息的推理内容
-					_ = oem.aiConversationManager.UpdateLastAssistantMessageReasoning(sessionID, reasoningBuf.String())
 					// 立即发送推理内容到前端
 					if err := conn.WriteJSON(map[string]interface{}{"type": "reasoning", "data": reason, "session_id": sessionID}); err != nil {
 						log.Printf("[AI WS] 发送推理内容失败: %v", err)
@@ -735,7 +839,7 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 					}
 
 					// 写入对话（每轮都记录thinking与工具，保存推理内容）
-					_ = oem.aiConversationManager.AddAssistantMessageWithReasoning(sessionID, "", tools, thinking, reasoningBuf.String())
+					_ = oem.aiConversationManager.updateAssistantMessageWithReasoning(sessionID, tools, thinking, reasoningBuf.String(), payloads.MessageID)
 
 					// 将工具结果发送给前端
 					if len(tools) > 0 {
@@ -749,7 +853,6 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 						// 最终输出：使用thinking作为结果文本，并保存到对话历史
 						finalDisplay := "操作完成"
 						// 保存最终内容到对话历史
-						_ = oem.aiConversationManager.AddAssistantMessage(sessionID, finalDisplay, tools, thinking)
 						_ = conn.WriteJSON(map[string]interface{}{"type": "content", "data": finalDisplay, "status": "finish", "session_id": sessionID})
 						break
 					}

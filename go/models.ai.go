@@ -91,24 +91,28 @@ type ToolCallHistory struct {
 
 // AI对话会话
 type AIConversation struct {
-	SessionID   string                      `json:"session_id"`
-	WorkspaceID string                      `json:"workspace_id"`
-	CreatedAt   time.Time                   `json:"created_at"`
-	UpdatedAt   time.Time                   `json:"updated_at"`
-	Messages    []AIConversationMessage     `json:"messages"`
-	ToolHistory map[string]*ToolCallHistory `json:"tool_history"` // 按执行ID索引
+	SessionID   string                  `json:"session_id"`
+	WorkspaceID string                  `json:"workspace_id"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
+	Messages    []AIConversationMessage `json:"messages"`
 }
 
 // AI对话消息
 type AIConversationMessage struct {
-	ID        string           `json:"id"`
-	Type      string           `json:"type"` // "user", "assistant"
-	Content   string           `json:"content"`
-	Timestamp time.Time        `json:"timestamp"`
-	Tools     []ToolCall       `json:"tools,omitempty"`
-	Thinking  *ThinkingProcess `json:"thinking,omitempty"`
+	ID        string                      `json:"id"`
+	Type      string                      `json:"type"` // "user", "assistant"
+	Content   string                      `json:"content"`
+	Timestamp time.Time                   `json:"timestamp"`
+	Model     string                      `json:"model,omitempty"`
+	Data      []AIConversationMessageData `json:"data,omitempty"`
+}
+
+type AIConversationMessageData struct {
+	Tools    []ToolCall       `json:"tools,omitempty"`
+	Thinking *ThinkingProcess `json:"thinking,omitempty"`
 	// 新增：推理模型的思维链内容，供前端展示
-	ReasoningContent string `json:"reasoning_content,omitempty"`
+	ReasoningContent string `json:"reasoning,omitempty"`
 }
 
 // AIConfigData 定义AI配置数据
@@ -234,8 +238,7 @@ func (acm *AIConversationManager) CreateConversation(workspaceID string) *AIConv
 		WorkspaceID: workspaceID,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
-		Messages:    make([]AIConversationMessage, 0),
-		ToolHistory: make(map[string]*ToolCallHistory),
+		Messages:    make([]AIConversationMessage, 0, 1000),
 	}
 
 	acm.conversations[sessionID] = conversation
@@ -261,8 +264,7 @@ func (acm *AIConversationManager) CreateConversationWithID(sessionID, workspaceI
 		WorkspaceID: workspaceID,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
-		Messages:    make([]AIConversationMessage, 0),
-		ToolHistory: make(map[string]*ToolCallHistory),
+		Messages:    make([]AIConversationMessage, 0, 1000),
 	}
 
 	acm.conversations[sessionID] = conversation
@@ -291,7 +293,7 @@ func (acm *AIConversationManager) GetConversationsByWorkspace(workspaceID string
 }
 
 // 添加用户消息
-func (acm *AIConversationManager) AddUserMessage(sessionID, content string) error {
+func (acm *AIConversationManager) AddUserMessage(sessionID, messageID, content string) error {
 	acm.mutex.Lock()
 	defer acm.mutex.Unlock()
 
@@ -301,19 +303,20 @@ func (acm *AIConversationManager) AddUserMessage(sessionID, content string) erro
 	}
 
 	message := AIConversationMessage{
-		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+		ID:        messageID,
 		Type:      "user",
 		Content:   content,
 		Timestamp: time.Now(),
 	}
 
+	// 向消息新增用户内容
 	conversation.Messages = append(conversation.Messages, message)
 	conversation.UpdatedAt = time.Now()
 	return nil
 }
 
 // 添加AI助手消息
-func (acm *AIConversationManager) AddAssistantMessage(sessionID, content string, tools []ToolCall, thinking *ThinkingProcess) error {
+func (acm *AIConversationManager) AddAssistantMessage(sessionID, messageID string) error {
 	acm.mutex.Lock()
 	defer acm.mutex.Unlock()
 
@@ -323,35 +326,21 @@ func (acm *AIConversationManager) AddAssistantMessage(sessionID, content string,
 	}
 
 	message := AIConversationMessage{
-		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+		ID:        messageID,
 		Type:      "assistant",
-		Content:   content,
+		Content:   "",
 		Timestamp: time.Now(),
-		Tools:     tools,
-		Thinking:  thinking,
+		Data:      make([]AIConversationMessageData, 0, 1000),
 	}
 
 	conversation.Messages = append(conversation.Messages, message)
 	conversation.UpdatedAt = time.Now()
-
-	// 将工具调用添加到工具历史中
-	for _, tool := range tools {
-		if tool.ExecutionId != "" {
-			historyEntry := &ToolCallHistory{
-				ExecutionID:  tool.ExecutionId,
-				ToolCall:     &tool,
-				Rollback:     tool.Rollback,
-				IsRolledBack: false,
-			}
-			conversation.ToolHistory[tool.ExecutionId] = historyEntry
-		}
-	}
-
 	return nil
 }
 
 // 新增：带推理内容的助手消息写入，不会在后续提示词中回灌 reasoning_content
-func (acm *AIConversationManager) AddAssistantMessageWithReasoning(sessionID, content string, tools []ToolCall, thinking *ThinkingProcess, reasoning string) error {
+func (acm *AIConversationManager) updateAssistantMessageWithReasoning(sessionID string, tools []ToolCall, thinking *ThinkingProcess, reasoning string, messageID string) error {
+
 	acm.mutex.Lock()
 	defer acm.mutex.Unlock()
 
@@ -360,30 +349,26 @@ func (acm *AIConversationManager) AddAssistantMessageWithReasoning(sessionID, co
 		return fmt.Errorf("对话会话不存在: %s", sessionID)
 	}
 
-	message := AIConversationMessage{
-		ID:               fmt.Sprintf("msg_%d", time.Now().UnixNano()),
-		Type:             "assistant",
-		Content:          content,
-		Timestamp:        time.Now(),
-		Tools:            tools,
-		Thinking:         thinking,
-		ReasoningContent: reasoning,
+	if len(conversation.Messages) == 0 {
+		return fmt.Errorf("对话中没有消息")
+	}
+	if conversation.Messages[len(conversation.Messages)-1].Type != "assistant" || conversation.Messages[len(conversation.Messages)-1].Data == nil {
+		return fmt.Errorf("最后一条消息不是助手消息")
 	}
 
-	conversation.Messages = append(conversation.Messages, message)
-	conversation.UpdatedAt = time.Now()
+	message := &conversation.Messages[len(conversation.Messages)-1]
 
-	for _, tool := range tools {
-		if tool.ExecutionId != "" {
-			historyEntry := &ToolCallHistory{
-				ExecutionID:  tool.ExecutionId,
-				ToolCall:     &tool,
-				Rollback:     tool.Rollback,
-				IsRolledBack: false,
-			}
-			conversation.ToolHistory[tool.ExecutionId] = historyEntry
-		}
+	if message.ID != messageID {
+		return fmt.Errorf("消息ID不匹配: %s", messageID)
 	}
+
+	message.Data = append(message.Data,
+		AIConversationMessageData{
+			Tools:            tools,
+			Thinking:         thinking,
+			ReasoningContent: reasoning,
+		},
+	)
 
 	return nil
 }
@@ -412,32 +397,6 @@ func (acm *AIConversationManager) DeleteConversation(sessionID string) error {
 
 	delete(acm.conversations, sessionID)
 	return nil
-}
-
-// 更新最后一条助手消息的推理内容
-func (acm *AIConversationManager) UpdateLastAssistantMessageReasoning(sessionID, reasoning string) error {
-	acm.mutex.Lock()
-	defer acm.mutex.Unlock()
-
-	conversation, exists := acm.conversations[sessionID]
-	if !exists {
-		return fmt.Errorf("对话会话不存在: %s", sessionID)
-	}
-
-	if len(conversation.Messages) == 0 {
-		return fmt.Errorf("对话中没有消息")
-	}
-
-	// 找到最后一条助手消息
-	for i := len(conversation.Messages) - 1; i >= 0; i-- {
-		if conversation.Messages[i].Type == "assistant" {
-			conversation.Messages[i].ReasoningContent = reasoning
-			conversation.UpdatedAt = time.Now()
-			return nil
-		}
-	}
-
-	return fmt.Errorf("没有找到助手消息")
 }
 
 // AI模型管理方法
@@ -579,6 +538,7 @@ func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIMo
 		"role":    "system",
 		"content": "你是一个专业的代码助手，可以分析代码并提供改进建议。",
 	})
+	// 历史数据
 	for _, m := range history {
 		role := "assistant"
 		if strings.ToLower(m.Type) == "user" {
@@ -586,6 +546,7 @@ func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIMo
 		}
 		messages = append(messages, map[string]string{"role": role, "content": m.Content})
 	}
+	// 当前用户提问
 	messages = append(messages, map[string]string{"role": "user", "content": prompt})
 
 	body := map[string]interface{}{
@@ -654,19 +615,6 @@ func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIMo
 			choice, _ := choices[0].(map[string]interface{})
 			delta, _ := choice["delta"].(map[string]interface{})
 
-			if delta == nil {
-				// DeepSeek风格可能直接在 message 上分段
-				if msg, ok := choice["message"].(map[string]interface{}); ok {
-					if s, ok := msg["reasoning_content"].(string); ok && s != "" {
-						onReasoning(s)
-					}
-					if s, ok := msg["content"].(string); ok && s != "" {
-						onContent(s)
-					}
-				}
-				continue
-			}
-
 			// 标准OpenAI格式
 			if s, ok := delta["reasoning_content"].(string); ok && s != "" {
 				onReasoning(s)
@@ -726,6 +674,9 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 		}
 		if tool.Code != nil {
 			parameters["code"] = tool.Code
+		}
+		if tool.Summary != "" {
+			parameters["summary"] = tool.Summary
 		}
 
 		toolCall := ToolCall{

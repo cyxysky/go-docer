@@ -38,7 +38,7 @@ const StatsPanel: React.FC = () => {
   const [stats, setStats] = useState<ContainerStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
-  const [refreshInterval, setRefreshInterval] = useState(5000);
+  const [refreshInterval, setRefreshInterval] = useState(30000);
 
   const workspace = workspaces.find(w => w.id === currentWorkspace);
 
@@ -56,13 +56,6 @@ const StatsPanel: React.FC = () => {
       if (statsResponse.ok) {
         const statsData = await statsResponse.json();
         setStats(statsData);
-      }
-
-      // 获取网络信息
-      const networkResponse = await fetch(`/api/v1/workspaces/${currentWorkspace}/ports/status`);
-      if (networkResponse.ok) {
-        const networkData = await networkResponse.json();
-        setNetworkInfo(networkData);
       }
     } catch (error) {
       console.error('获取统计信息失败:', error);

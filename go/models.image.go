@@ -168,7 +168,7 @@ func (oem *OnlineEditorManager) GetAvailableImages() ([]*ImageConfig, error) {
 
 	for _, dockerImage := range dockerImages {
 		// 获取镜像详细信息（暂时不使用，但保留用于未来扩展）
-		_, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, dockerImage.ID)
+		_, err := oem.dockerClient.ImageInspect(ctx, dockerImage.ID)
 		if err != nil {
 			continue
 		}

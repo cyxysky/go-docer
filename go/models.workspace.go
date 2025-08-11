@@ -1071,7 +1071,7 @@ func (oem *OnlineEditorManager) initializeContainer(workspace *Workspace, images
 	oem.updateWorkspaceStatus(workspaceID, "pulling")
 
 	// 拉取镜像（如果本地没有）
-	_, _, err := oem.dockerClient.ImageInspectWithRaw(ctx, images)
+	_, err := oem.dockerClient.ImageInspect(ctx, images)
 	if err != nil {
 		log.Printf("[%s] 拉取镜像: %s", workspaceID, images)
 
@@ -1419,7 +1419,7 @@ func (oem *OnlineEditorManager) installDevelopmentTools(workspaceID string, envs
 
 	// 检查并安装用户选择的工具
 	var requiredTools []string
-	if workspace.Tools != nil && len(workspace.Tools) > 0 {
+	if len(workspace.Tools) > 0 {
 		requiredTools = workspace.Tools
 	} else {
 		// 默认工具列表

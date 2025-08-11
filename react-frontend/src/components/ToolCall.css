@@ -1,14 +1,13 @@
 /* ToolCall 组件样式 */
 .tool-call-container {
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 
 .tool-call-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
+  padding: 4px 8px;
   background-color: var(--darker-bg);
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -26,50 +25,6 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
-.tool-call-main.no-details {
-  cursor: default;
-}
-
-.tool-call-main.no-details:hover {
-  background-color: var(--darker-bg);
-  border-color: #464647;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  transform: none;
-}
-
-.tool-call-status {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.status-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid #f59e0b;
-  border-top: 2px solid transparent;
-  border-radius: 50%;
-  animation: tool-call-spin 1s linear infinite;
-}
-
-.status-icon {
-  font-size: 12px;
-  line-height: 1;
-  font-weight: bold;
-}
-
-.status-success {
-  color: #22c55e;
-}
-
-.status-error {
-  color: #ef4444;
-}
-
-.status-default {
-  color: #858585;
-}
-
 .tool-call-name {
   font-weight: 600;
   color: #007acc;
@@ -77,42 +32,23 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  background-color: rgba(0, 122, 204, 0.1);
   padding: 2px 6px;
-  border-radius: 3px;
-}
-
-.tool-call-param {
-  color: var(--text-primary);
-  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
-  font-size: 10px;
-  flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  background-color: var(--darker-bg);
-  padding: 2px 6px;
-  border-radius: 3px;
-  border: 1px solid #3e3e3e;
+  height: 18px;
+  text-overflow: ellipsis;
 }
 
-.tool-call-expand {
-  color: #858585;
-  font-size: 8px;
-  transform: rotate(0deg);
-  transition: transform 0.2s ease;
-  flex-shrink: 0;
-}
-
-.tool-call-expand.expanded {
-  transform: rotate(180deg);
+.tool-call-name-icon {
+  padding-right: 4px;
 }
 
 .tool-call-id {
-  color: #6b6b6b;
-  font-size: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
   font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
   flex-shrink: 0;
+  padding-left: 4px;
 }
 
 .tool-call-actions {
@@ -165,36 +101,6 @@
   flex-shrink: 0;
 }
 
-.tool-call-action-status-accept {
-  color: #22c55e;
-  font-size: 10px;
-  font-weight: 500;
-  background-color: rgba(34, 197, 94, 0.1);
-  padding: 2px 6px;
-  border-radius: 3px;
-  border: 1px solid rgba(34, 197, 94, 0.3);
-}
-
-.tool-call-action-status-reject {
-  color: #ef4444;
-  font-size: 10px;
-  font-weight: 500;
-  background-color: rgba(239, 68, 68, 0.1);
-  padding: 2px 6px;
-  border-radius: 3px;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.tool-call-action-status-rolledback {
-  color: #f59e0b;
-  font-size: 10px;
-  font-weight: 500;
-  background-color: rgba(245, 158, 11, 0.1);
-  padding: 2px 6px;
-  border-radius: 3px;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
-
 .tool-call-details {
   margin-top: 8px;
   padding: 12px;
@@ -231,13 +137,10 @@
 }
 
 .tool-call-section-content {
-  background-color: var(--darker-bg);
-  padding: 8px 10px;
-  border-radius: 4px;
+  padding: 4px 8px;
   font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
   color: var(--text-primary);
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 12px;
 }
 
 .tool-call-output {

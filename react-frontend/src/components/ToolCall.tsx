@@ -24,8 +24,6 @@ interface ToolCallProps {
   isRolledBack?: boolean;
   currentWorkspace?: string;
   isAutoMode?: boolean;
-  // 新增：支持结束工具
-  isSummaryTool?: boolean;
 }
 
 const ToolCall: React.FC<ToolCallProps> = ({
@@ -180,7 +178,17 @@ const ToolCall: React.FC<ToolCallProps> = ({
       >
         {/* 工具名称 */}
         <span className="tool-call-name">
-          {getToolDisplayName()}
+          <span className="tool-call-name-icon">
+            {getToolDisplayName()}
+          </span>
+          {name === 'shell_exec' && `(${parameters.command})`}
+          {name === 'file_read' && `(${parameters.path})`}
+          {name === 'file_write' && `(${parameters.path})`}
+          {name === 'file_create' && `(${parameters.path})`}
+          {name === 'file_delete' && `(${parameters.path})`}
+          {name === 'file_create_folder' && `(${parameters.path})`}
+          {name === 'file_delete_folder' && `(${parameters.path})`}
+          {name === 'dir_read' && `(${parameters.path})`}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {/* 文件操作按钮 */}
@@ -225,35 +233,53 @@ const ToolCall: React.FC<ToolCallProps> = ({
       {/* 展开的详细信息 可以使用差异编辑器展示*/}
       {isExpanded && hasDetails() && (
         <div className="tool-call-details">
-          {/* 完整参数 */}
-          {parameters && Object.keys(parameters).length > 1 && (
+          {/* 文件路径 */}
+          {parameters && parameters.path &&  (
             <div className="tool-call-section">
-              <div className="tool-call-section-title">参数</div>
+              <div className="tool-call-section-title">文件路径</div>
               <div className="tool-call-section-content">
-                <pre style={{ overflow: 'auto' }}>
-                  { JSON.stringify(parameters, null, 2) }
-                </pre>
+                { parameters.path }
               </div>
             </div>
           )}
 
-          {/* 结果 */}
-          {result && (
+          {/* 文件内容 */}
+          {parameters && parameters.content && (
             <div className="tool-call-section">
-              <div className="tool-call-section-title">结果</div>
+              <div className="tool-call-section-title">文件内容</div>
               <div className="tool-call-section-content">
-                {typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)}
+                { parameters.content }
               </div>
             </div>
           )}
 
-          {/* 输出 */}
-          {output && (
+          {/* 执行命令 */}
+          {parameters && parameters.command && (
+            <div className="tool-call-section">
+              <div className="tool-call-section-title">执行命令</div>
+              <div className="tool-call-section-content">
+                { parameters.command }
+              </div>
+            </div>
+          )}
+
+          {/* shell_exec 输出 */}
+          {name === 'shell_exec' && output && (
             <div className="tool-call-section">
               <div className="tool-call-section-title">输出</div>
               <div className="tool-call-section-content tool-call-output">
                 {output}
               </div>
+            </div>
+          )}
+
+          {/* 代码差异 */}
+          {parameters && parameters.code && (
+            <div className="tool-call-section">
+              <div className="tool-call-section-title">代码差异</div>
+              <pre className="tool-call-section-content">
+                { JSON.stringify(parameters.code, null, 2) }
+              </pre>
             </div>
           )}
         </div>
