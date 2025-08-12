@@ -576,7 +576,6 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 	tools1 := []ToolCall{
 		{
 			Name:        "file_read",
-			Parameters:  map[string]any{"path": "README.md"},
 			Status:      "success",
 			Result:      "文件内容",
 			Output:      "文件内容",
@@ -585,6 +584,11 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 			StartTime:   &time1,
 			EndTime:     &time1,
 			Rollback:    nil,
+			Path:        "README.md",
+			Content:     "文件内容",
+			Command:     "",
+			Summary:     "",
+			Code:        nil,
 		},
 	}
 
@@ -609,7 +613,7 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 
 	_ = oem.aiConversationManager.updateAssistantMessageWithReasoning(sessionID, tools1, &ThinkingProcess{
 		Content: "这是第一轮思考结果",
-	}, "这是第一轮思考结果", payloads.MessageID)
+	}, "这是第一轮思考结果", payloads.MessageID, payloads.Prompt)
 
 	// 第二轮
 	// 思维链
@@ -636,7 +640,6 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 	tools2 := []ToolCall{
 		{
 			Name:        "file_write",
-			Parameters:  map[string]any{"path": "README.md", "content": "文件内容"},
 			Status:      "success",
 			Result:      "文件内容",
 			Output:      "文件内容",
@@ -645,10 +648,14 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 			StartTime:   &time2,
 			EndTime:     &time2,
 			Rollback:    nil,
+			Path:        "README.md",
+			Content:     "文件内容",
+			Command:     "",
+			Summary:     "",
+			Code:        nil,
 		},
 		{
 			Name:        "shell_exec",
-			Parameters:  map[string]any{"command": "ls -l"},
 			Status:      "success",
 			Result:      "文件内容",
 			Output:      "文件内容",
@@ -657,10 +664,14 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 			StartTime:   &time2,
 			EndTime:     &time2,
 			Rollback:    nil,
+			Path:        "",
+			Content:     "",
+			Command:     "ls -l",
+			Summary:     "",
+			Code:        nil,
 		},
 		{
 			Name:        "conversation_summary",
-			Parameters:  map[string]any{"summary": "AI助手已启动，并完成了文件读写和shell命令执行"},
 			Status:      "success",
 			Result:      "AI助手已启动，并完成了文件读写和shell命令执行",
 			Output:      "AI助手已启动，并完成了文件读写和shell命令执行",
@@ -669,6 +680,11 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 			StartTime:   &time2,
 			EndTime:     &time2,
 			Rollback:    nil,
+			Path:        "",
+			Content:     "",
+			Command:     "",
+			Summary:     "AI助手已启动，并完成了文件读写和shell命令执行",
+			Code:        nil,
 		},
 	}
 
@@ -681,7 +697,7 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 
 	_ = oem.aiConversationManager.updateAssistantMessageWithReasoning(sessionID, tools2, &ThinkingProcess{
 		Content: "这是第二轮思考结果",
-	}, "这是第二轮思考结果", payloads.MessageID)
+	}, "这是第二轮思考结果", payloads.MessageID, payloads.Prompt)
 
 	time.Sleep(1 * time.Second)
 
@@ -784,7 +800,7 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 			_ = oem.aiConversationManager.AddAssistantMessage(sessionID, payload.MessageID)
 
 			// 构建提示词（初始没有工具调用历史）
-			prompt := oem.buildAIPrompt(payload.Prompt, payload.WorkspaceID, fileContents, nil)
+			prompt := oem.buildAIPrompt(payload.Prompt, payload.WorkspaceID, fileContents, true)
 
 			// 创建思维链和内容缓冲区
 			var reasoningBuf, contentBuf strings.Builder
@@ -839,7 +855,7 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 					}
 
 					// 写入对话（每轮都记录thinking与工具，保存推理内容）
-					_ = oem.aiConversationManager.updateAssistantMessageWithReasoning(sessionID, tools, thinking, reasoningBuf.String(), payloads.MessageID)
+					_ = oem.aiConversationManager.updateAssistantMessageWithReasoning(sessionID, tools, thinking, reasoningBuf.String(), payloads.MessageID, payloads.Prompt)
 
 					// 将工具结果发送给前端
 					if len(tools) > 0 {
@@ -860,32 +876,7 @@ func (oem *OnlineEditorManager) handleAIChatWebSocket(w http.ResponseWriter, r *
 					// status == retry：自动继续提问
 					history := oem.aiConversationManager.GetConversationHistory(sessionID)
 					// 构建当前对话过程中的工具调用历史
-					var retryToolHistory []ToolExecutionRecord
-					for _, tool := range tools {
-						retryToolHistory = append(retryToolHistory, ToolExecutionRecord{
-							Tool:      tool.Name,
-							Path:      "",
-							Content:   "",
-							Status:    tool.Status,
-							Result:    tool.Result,
-							Timestamp: time.Now(),
-						})
-						// 从参数中提取路径和内容
-						if tool.Parameters != nil {
-							if params, ok := tool.Parameters.(map[string]interface{}); ok {
-								if path, ok := params["path"].(string); ok {
-									retryToolHistory[len(retryToolHistory)-1].Path = path
-								}
-								if content, ok := params["content"].(string); ok {
-									retryToolHistory[len(retryToolHistory)-1].Content = content
-								}
-								if command, ok := params["command"].(string); ok {
-									retryToolHistory[len(retryToolHistory)-1].Content = command
-								}
-							}
-						}
-					}
-					currentPrompt = oem.buildAIPrompt(payload.Prompt, payload.WorkspaceID, fileContents, retryToolHistory)
+					currentPrompt = oem.buildAIPrompt(payload.Prompt, payload.WorkspaceID, fileContents, false)
 					// 重置ai输出内容
 					finalContent = ""
 					// 重置思维链内容

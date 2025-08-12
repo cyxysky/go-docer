@@ -2,7 +2,7 @@
 
 /* 工具栏样式 */
 .image-toolbar {
-  padding: 12px;
+  padding: 8px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   gap: 12px;
@@ -38,7 +38,7 @@
 
 /* 镜像管理样式 */
 .images-section {
-  padding: 10px;
+  padding: 8px 0 8px 8px;
   background: var(--secondary-color);
   display: flex;
   flex-direction: column;
@@ -742,7 +742,6 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
   .image-toolbar {
-    padding: 12px;
     gap: 10px;
   }
 

@@ -19,18 +19,6 @@ type AIConfig struct {
 	Strategy     string              `json:"strategy"` // "preview", "auto", "manual"
 }
 
-// 单个工具执行记录
-type ToolExecutionRecord struct {
-	Tool      string      `json:"tool"`
-	Path      string      `json:"path"`
-	Content   string      `json:"content,omitempty"`
-	Reason    string      `json:"reason,omitempty"`
-	Status    string      `json:"status"`
-	Error     string      `json:"error,omitempty"`
-	Result    interface{} `json:"result,omitempty"`
-	Timestamp time.Time   `json:"timestamp"`
-}
-
 // 自定义错误类型，用于标识需要自动重试的情况
 type AutoRetryError struct {
 	Message         string
@@ -135,8 +123,6 @@ type AICodeGenerationRequest struct {
 	Tools       []string `json:"tools,omitempty"`
 	AutoApply   bool     `json:"auto_apply,omitempty"`    // 新增：自动应用模式
 	MaxFileSize int64    `json:"max_file_size,omitempty"` // 新增：最大文件大小限制
-	// 新增：工具调用历史记录
-	ToolHistory []ToolExecutionRecord `json:"tool_history,omitempty"`
 	// 新增：对话会话ID
 	SessionID string `json:"session_id,omitempty"`
 }
@@ -167,7 +153,6 @@ type CodeChange struct {
 
 type ToolCall struct {
 	Name        string          `json:"name"`
-	Parameters  interface{}     `json:"parameters"`
 	Result      interface{}     `json:"result,omitempty"`
 	Status      string          `json:"status"` // "pending", "success", "error"
 	Error       string          `json:"error,omitempty"`
@@ -176,6 +161,11 @@ type ToolCall struct {
 	EndTime     *time.Time      `json:"end_time,omitempty"`
 	Output      string          `json:"output,omitempty"`   // 用于存储shell命令输出
 	Rollback    *RollbackAction `json:"rollback,omitempty"` // 回退操作
+	Path        string          `json:"path,omitempty"`
+	Content     string          `json:"content,omitempty"`
+	Command     string          `json:"command,omitempty"`
+	Summary     string          `json:"summary,omitempty"`
+	Code        *CodeDiff       `json:"code,omitempty"`
 }
 
 // 回退操作结构体
@@ -339,7 +329,7 @@ func (acm *AIConversationManager) AddAssistantMessage(sessionID, messageID strin
 }
 
 // 新增：带推理内容的助手消息写入，不会在后续提示词中回灌 reasoning_content
-func (acm *AIConversationManager) updateAssistantMessageWithReasoning(sessionID string, tools []ToolCall, thinking *ThinkingProcess, reasoning string, messageID string) error {
+func (acm *AIConversationManager) updateAssistantMessageWithReasoning(sessionID string, tools []ToolCall, thinking *ThinkingProcess, reasoning string, messageID string, userPrompt string) error {
 
 	acm.mutex.Lock()
 	defer acm.mutex.Unlock()
@@ -369,6 +359,77 @@ func (acm *AIConversationManager) updateAssistantMessageWithReasoning(sessionID 
 			ReasoningContent: reasoning,
 		},
 	)
+	var prompt strings.Builder
+
+	prompt.WriteString("用户需求\n")
+	prompt.WriteString(fmt.Sprintf("- 用户需求: %s\n", userPrompt))
+	prompt.WriteString("\n")
+
+	prompt.WriteString("上一轮对话你的思考\n")
+	prompt.WriteString(fmt.Sprintf("- 思考: %s\n", thinking.Content))
+	prompt.WriteString("\n")
+
+	if len(tools) > 0 {
+		prompt.WriteString("工具调用情况\n")
+		prompt.WriteString("以下是之前执行过的工具调用及其结果：\n\n")
+
+		for i, record := range tools {
+			prompt.WriteString(fmt.Sprintf("工具调用 #%d:\n", i+1))
+			prompt.WriteString(fmt.Sprintf("- 工具类型: %s\n", record.Name))
+			prompt.WriteString(fmt.Sprintf("- 文件路径: %s\n", record.Path))
+			prompt.WriteString(fmt.Sprintf("- 执行状态: %s\n", record.Status))
+			// 详细信息：命令/内容/输出
+			if record.Name == "shell_exec" {
+				if record.Command != "" {
+					prompt.WriteString(fmt.Sprintf("- 命令: %s\n", record.Command))
+				}
+				if record.Result != nil {
+					prompt.WriteString(fmt.Sprintf("- 输出: %v\n", record.Result))
+				}
+			} else if record.Name == "file_create" || record.Name == "file_write" {
+				if record.Code != nil {
+					prompt.WriteString("- 写入内容:\n")
+					prompt.WriteString(record.Code.NewCode)
+					prompt.WriteString("\n")
+				}
+				if record.Result != nil {
+					prompt.WriteString(fmt.Sprintf("- 执行结果: %v\n", record.Result))
+				}
+			} else if record.Name == "file_delete" {
+				if record.Result != nil {
+					prompt.WriteString(fmt.Sprintf("- 执行结果: %v\n", record.Result))
+				}
+			} else if record.Name == "file_read" {
+				if record.Result != nil {
+					resultStr := fmt.Sprintf("%v", record.Result)
+					if resultStr == "" || resultStr == "<nil>" || resultStr == "null" {
+						prompt.WriteString("- 读取内容: 【文件存在但内容为空】\n")
+					} else {
+						prompt.WriteString("- 读取内容:\n")
+						prompt.WriteString(resultStr)
+						prompt.WriteString("\n")
+					}
+				}
+			} else if record.Result != nil {
+				prompt.WriteString(fmt.Sprintf("- 执行结果: %v\n", record.Result))
+			}
+			if record.Error != "" {
+				prompt.WriteString(fmt.Sprintf("- 错误信息: %s\n", record.Error))
+			}
+			prompt.WriteString("\n")
+		}
+
+		prompt.WriteString("【重要说明】\n")
+		prompt.WriteString("1. 如果file_read工具的执行状态为\"success\"但结果显示【文件存在但内容为空】，说明该文件确实存在但没有内容\n")
+		prompt.WriteString("2. 如果file_read工具的执行状态为\"failed\"或有错误信息，说明该文件不存在或无法访问\n")
+		prompt.WriteString("3. 对于存在但为空的文件，可以直接使用file_write工具写入内容\n")
+		prompt.WriteString("4. 对于不存在的文件，使用file_create工具创建新文件并写入内容\n")
+		prompt.WriteString("5. 避免重复读取同一个文件，除非确实需要获取最新的文件内容\n\n")
+
+		prompt.WriteString("请基于以上工具调用历史记录，了解已经执行的操作和获取的信息，然后继续执行下一步操作。\n\n")
+	}
+
+	message.Content = prompt.String()
 
 	return nil
 }
@@ -661,27 +722,13 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 	for _, tool := range aiResponse.Tools {
 		startTime := time.Now()
 
-		// 构建参数映射
-		parameters := make(map[string]interface{})
-		if tool.Path != "" {
-			parameters["path"] = tool.Path
-		}
-		if tool.Content != "" {
-			parameters["content"] = tool.Content
-		}
-		if tool.Command != "" {
-			parameters["command"] = tool.Command
-		}
-		if tool.Code != nil {
-			parameters["code"] = tool.Code
-		}
-		if tool.Summary != "" {
-			parameters["summary"] = tool.Summary
-		}
-
 		toolCall := ToolCall{
 			Name:        tool.Type,
-			Parameters:  parameters,
+			Path:        tool.Path,
+			Content:     tool.Content,
+			Command:     tool.Command,
+			Summary:     tool.Summary,
+			Code:        tool.Code,
 			Status:      "pending",
 			ExecutionId: fmt.Sprintf("tool_%d", time.Now().UnixNano()),
 			StartTime:   &startTime,
@@ -858,28 +905,6 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 
 	// 构建思考过程
 	thinking := aiResponse.Thinking
-
-	// 如果状态是retry，返回特殊标识
-	if aiResponse.Status == "retry" {
-		// 收集新获取的文件内容
-		additionalFiles := make(map[string]string)
-		for _, toolCall := range toolCalls {
-			if toolCall.Name == "file_read" && toolCall.Status == "success" {
-				if content, ok := toolCall.Result.(string); ok {
-					// 安全地获取路径参数
-					if params, ok := toolCall.Parameters.(map[string]interface{}); ok {
-						if pathVal, exists := params["path"]; exists {
-							if pathStr, ok := pathVal.(string); ok {
-								additionalFiles[pathStr] = content
-							}
-						}
-					}
-				}
-			}
-		}
-
-		return toolCalls, thinking, aiResponse.Status, nil
-	}
 
 	return toolCalls, thinking, aiResponse.Status, nil
 }

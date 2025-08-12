@@ -2,7 +2,7 @@
 
 /* 文件面板工具栏 */
 .file-toolbar {
-  padding: 12px;
+  padding: 8px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
@@ -338,7 +338,6 @@
 @media (max-width: 768px) {
   .file-toolbar {
     gap: 12px;
-    padding: 12px;
   }
 
 

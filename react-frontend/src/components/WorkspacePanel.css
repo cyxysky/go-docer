@@ -2,7 +2,7 @@
 
 /* 工具栏样式 */
 .workspace-toolbar {
-  padding: 12px;
+  padding: 8px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;

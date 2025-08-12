@@ -800,7 +800,13 @@ const AIAgent: React.FC<AIAgentProps> = ({
         {data.tools.map((tool: any, index: number) => {
           // 检查是否是结束工具
           const isSummaryTool = tool.name === 'conversation_summary';
-
+          const parameters = {
+            path: tool.path,
+            content: tool.content,
+            command: tool.command,
+            summary: tool.summary,
+            code: tool.code,
+          }
           return (
             isSummaryTool ? <div className="ai-agent-summary-content">
               {tool.result}
@@ -808,7 +814,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
               <ToolCall
                 key={`${data.id}-${index}`}
                 name={tool.name}
-                parameters={tool.parameters}
+                parameters={parameters}
                 result={tool.result}
                 status={tool.status}
                 output={tool.output}
