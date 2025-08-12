@@ -804,13 +804,14 @@ const AIAgent: React.FC<AIAgentProps> = ({
             path: tool.path,
             content: tool.content,
             command: tool.command,
-            summary: tool.summary,
             code: tool.code,
           }
           return (
-            isSummaryTool ? <div className="ai-agent-summary-content">
-              {tool.result}
-            </div> :
+            isSummaryTool ?
+              <div className="ai-agent-summary-content">
+                {tool.result}
+              </div>
+              :
               <ToolCall
                 key={`${data.id}-${index}`}
                 name={tool.name}

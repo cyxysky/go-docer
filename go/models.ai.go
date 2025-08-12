@@ -166,6 +166,7 @@ type ToolCall struct {
 	Command     string          `json:"command,omitempty"`
 	Summary     string          `json:"summary,omitempty"`
 	Code        *CodeDiff       `json:"code,omitempty"`
+	Thinking    string          `json:"thinking,omitempty"`
 }
 
 // 回退操作结构体
@@ -727,7 +728,6 @@ func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([
 			Path:        tool.Path,
 			Content:     tool.Content,
 			Command:     tool.Command,
-			Summary:     tool.Summary,
 			Code:        tool.Code,
 			Status:      "pending",
 			ExecutionId: fmt.Sprintf("tool_%d", time.Now().UnixNano()),

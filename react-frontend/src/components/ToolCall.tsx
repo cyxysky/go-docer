@@ -147,21 +147,21 @@ const ToolCall: React.FC<ToolCallProps> = ({
           },
           body: JSON.stringify(rejectRequest),
         })
-        .then(response => response.json())
-        .then(result => {
-          if (result.success) {
-            console.log('拒绝操作成功:', result.message);
-            // 刷新文件系统
-            window.dispatchEvent(new CustomEvent('file-system-refresh'));
-          } else {
-            console.error('拒绝操作失败:', result.error);
-            alert(`拒绝操作失败: ${result.error}`);
-          }
-        })
-        .catch(error => {
-          console.error('拒绝操作请求失败:', error);
-          alert(`拒绝操作失败: ${error}`);
-        });
+          .then(response => response.json())
+          .then(result => {
+            if (result.success) {
+              console.log('拒绝操作成功:', result.message);
+              // 刷新文件系统
+              window.dispatchEvent(new CustomEvent('file-system-refresh'));
+            } else {
+              console.error('拒绝操作失败:', result.error);
+              alert(`拒绝操作失败: ${result.error}`);
+            }
+          })
+          .catch(error => {
+            console.error('拒绝操作请求失败:', error);
+            alert(`拒绝操作失败: ${error}`);
+          });
       }
     }
 
@@ -234,11 +234,11 @@ const ToolCall: React.FC<ToolCallProps> = ({
       {isExpanded && hasDetails() && (
         <div className="tool-call-details">
           {/* 文件路径 */}
-          {parameters && parameters.path &&  (
+          {parameters && parameters.path && (
             <div className="tool-call-section">
               <div className="tool-call-section-title">文件路径</div>
               <div className="tool-call-section-content">
-                { parameters.path }
+                {parameters.path}
               </div>
             </div>
           )}
@@ -248,7 +248,7 @@ const ToolCall: React.FC<ToolCallProps> = ({
             <div className="tool-call-section">
               <div className="tool-call-section-title">文件内容</div>
               <div className="tool-call-section-content">
-                { parameters.content }
+                {parameters.content}
               </div>
             </div>
           )}
@@ -258,7 +258,7 @@ const ToolCall: React.FC<ToolCallProps> = ({
             <div className="tool-call-section">
               <div className="tool-call-section-title">执行命令</div>
               <div className="tool-call-section-content">
-                { parameters.command }
+                {parameters.command}
               </div>
             </div>
           )}
@@ -278,7 +278,7 @@ const ToolCall: React.FC<ToolCallProps> = ({
             <div className="tool-call-section">
               <div className="tool-call-section-title">代码差异</div>
               <pre className="tool-call-section-content">
-                { JSON.stringify(parameters.code, null, 2) }
+                {JSON.stringify(parameters.code, null, 2)}
               </pre>
             </div>
           )}

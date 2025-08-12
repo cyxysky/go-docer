@@ -191,7 +191,6 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, workspaceID string, fi
 	prompt.WriteString("    \"lineStart\": 精确起始行(1-based),\n")
 	prompt.WriteString("    \"lineEnd\": 精确结束行(1-based)\n")
 	prompt.WriteString("  },\n")
-	prompt.WriteString("  \"summary\": \"描述修改内容\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("2. **file_create** - 创建文件\n")
@@ -199,35 +198,30 @@ func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, workspaceID string, fi
 	prompt.WriteString("  \"type\": \"file_create\",\n")
 	prompt.WriteString("  \"path\": \"文件路径\",\n")
 	prompt.WriteString("  \"content\": \"写入文件内容\",\n")
-	prompt.WriteString("  \"summary\": \"描述创建原因\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("3. **file_delete** - 删除文件\n")
 	prompt.WriteString("{\n")
 	prompt.WriteString("  \"type\": \"file_delete\",\n")
 	prompt.WriteString("  \"path\": \"文件路径\",\n")
-	prompt.WriteString("  \"summary\": \"描述删除原因\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("4. **file_create_folder** - 创建文件夹\n")
 	prompt.WriteString("{\n")
 	prompt.WriteString("  \"type\": \"file_create_folder\",\n")
 	prompt.WriteString("  \"path\": \"文件夹路径\",\n")
-	prompt.WriteString("  \"summary\": \"描述创建原因\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("6. **shell_exec** - 执行shell命令\n")
 	prompt.WriteString("{\n")
 	prompt.WriteString("  \"type\": \"shell_exec\",\n")
 	prompt.WriteString("  \"command\": \"要执行的命令\",\n")
-	prompt.WriteString("  \"summary\": \"描述命令目的\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("7. **file_read** - 读取文件\n")
 	prompt.WriteString("{\n")
 	prompt.WriteString("  \"type\": \"file_read\",\n")
 	prompt.WriteString("  \"path\": \"文件路径\",\n")
-	prompt.WriteString("  \"summary\": \"描述为什么需要读取这个文件\"\n")
 	prompt.WriteString("}\n\n")
 
 	prompt.WriteString("8. **conversation_summary** - 总结当前对话并结束会话\n")
