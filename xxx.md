@@ -1,4 +1,19 @@
-1. 将工具的调用作为用户的消息填充到对话的构建中，这样可以优化对话构建，而不是每一次都将初始化提示词都发送给模型，减少token消耗，例如
+- **Requirement:** Emphasize output format at the start of user content.
+
+# Optimizing Content Output Prompt Construction
+
+- **Goal:** Enable streaming output for content data alongside reasoning.
+- **Current Solution:** Output NDJSON (one JSON object per line, `\n` at line end).
+- Binary/multi-line text uses Base64.
+- Use a state machine to process streaming data.
+- **Example Output Format:**
+```json
+{"type":"thinking","id":"w1","data_b64":"b3"}
+{"type":"bs64_start","bs64_id":"b3"}
+{"type":"bs64_chunk","bs64_id":"b3","seq":0,"data_b64":"<<=4KB base64>"}
+{"type":"bs64_end","bs64_id":"b3","hash":"sha256:<hash>"}
+{"type":"tool","id":"w1","tool":"file_write","data":{"path_b64":"src/a.ts","originalCode_b64":"b2","new_bs64":"b1"}}
+{"type":"done"}1. 将工具的调用作为用户的消息填充到对话的构建中，这样可以优化对话构建，而不是每一次都将初始化提示词都发送给模型，减少token消耗，例如
 user： 修改xxx文件，修改之前先阅读xxx文件。
 ai：我将调用阅读xxx的工具（输出工具调用）
 user： 工具调用成功，输出xxx
@@ -19,10 +34,6 @@ ok
 修改要求模型输出的提示词调用形式，要求输出格式如下：
 
 - {"type":"thinking","id":"w1","data_b64":"b3"}
-
-- {"type":"bs64_start","bs64_id":"b3"}
-- {"type":"bs64_chunk","bs64_id":"b3","seq":0,"data_b64":"<<=4KB base64>"}
-- {"type":"bs64_end","bs64_id":"b3","hash":"sha256:<对完整拼接字符串计算>"}
 
 - {"type":"bs64_start","bs64_id":"b3"}
 - {"type":"bs64_chunk","bs64_id":"b3","seq":0,"data_b64":"<<=4KB base64>"}
@@ -102,6 +113,8 @@ conversation_summary
 你直接再handler.go的第820行进行content流的解析，包括状态机处理，工具调用，数据ws发送等。工具分批次执行，分批次展示。
 823之后的函数内关于工具调用的函数
 将模型再每次工具thinking都保存在ToolCall里面的Thinking里面，再将内容保存下来
+修改config.go的buildAIPrompt函数，修改构建的提示词
+还有models.ai.go的callAIStreamWithModel和parseAIResponse函数
 
 3. 文件读取工具的优化。不需要读取全部文件内容，可以要求ai进行200行200行的分批读取，一旦ai确认读取完毕，停止读取调用。
 4. 提供新功能：在ai读取文件的时候，可以使用搜索功能，即本地代码库进行全局搜索，找出特征函数出现的位置，包括文件地址，出现行号

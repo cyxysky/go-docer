@@ -1,0 +1,23 @@
+{
+  "name": "ai-sdk",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx index.ts"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "tsx": "^4.20.4",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@ai-sdk/deepseek": "^1.0.7",
+    "ai": "^5.0.0-beta.34",
+    "dotenv": "^17.2.1",
+    "zod": "^3.25.76"
+  }
+}

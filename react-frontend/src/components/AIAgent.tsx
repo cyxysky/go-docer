@@ -413,6 +413,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
+          console.log('收到WebSocket消息:', msg);
+          
           // 思维链
           if (msg.type === 'reasoning') {
             setMessages(prev => prev.map(m => {
@@ -425,8 +427,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
               return m;
             }));
           }
+          // 思考过程
           else if (msg.type === 'thinking') {
-            // 处理思考过程
             setMessages(prev => prev.map(m => {
               if (m.id === assistantId) {
                 return {
@@ -437,8 +439,93 @@ const AIAgent: React.FC<AIAgentProps> = ({
               return m;
             }));
           }
+          // 工具调用开始
+          else if (msg.type === 'tool_call') {
+            const toolData = msg.data;
+            setMessages(prev => prev.map(m => {
+              if (m.id === assistantId) {
+                return {
+                  ...m,
+                  data: m.data?.map((d, index) => index === (m.data?.length || 0) - 1 ? { 
+                    ...d, 
+                    tools: [...(d.tools || []), {
+                      name: toolData.tool,
+                      type: toolData.tool,
+                      parameters: {},
+                      result: null,
+                      status: 'pending',
+                      executionId: toolData.id
+                    }]
+                  } : d) || []
+                }
+              }
+              return m;
+            }));
+          }
+          // 工具执行结果
+          else if (msg.type === 'tool_result') {
+            const toolResult = msg.data;
+            setMessages(prev => prev.map(m => {
+              if (m.id === assistantId) {
+                return {
+                  ...m,
+                  data: m.data?.map((d, index) => index === (m.data?.length || 0) - 1 ? {
+                    ...d,
+                    tools: d.tools?.map(tool => 
+                      tool.executionId === toolResult.id ? {
+                        ...tool,
+                        status: toolResult.result.status || 'success',
+                        result: toolResult.result,
+                        output: toolResult.result.output,
+                        actionTaken: 'accept' // 自动接受执行结果
+                      } : tool
+                    ) || []
+                  } : d) || []
+                }
+              }
+              return m;
+            }));
+
+            // 根据工具类型判断是否需要刷新文件树
+            try {
+              const tool = toolResult.result;
+              const needRefresh = [
+                'file_create',
+                'file_write',
+                'file_delete',
+                'file_create_folder',
+                'file_delete_folder'
+              ].includes(tool?.name || tool?.type);
+              
+              if (needRefresh) {
+                window.dispatchEvent(new CustomEvent('file-system-refresh'));
+              }
+            } catch (_e) { }
+          }
+          // 工具错误
+          else if (msg.type === 'tool_error') {
+            const errorData = msg.data;
+            setMessages(prev => prev.map(m => {
+              if (m.id === assistantId) {
+                return {
+                  ...m,
+                  data: m.data?.map((d, index) => index === (m.data?.length || 0) - 1 ? {
+                    ...d,
+                    tools: d.tools?.map(tool => 
+                      tool.executionId === errorData.id ? {
+                        ...tool,
+                        status: 'error',
+                        result: { error: errorData.error }
+                      } : tool
+                    ) || []
+                  } : d) || []
+                }
+              }
+              return m;
+            }));
+          }
+          // 重试状态
           else if (msg.type === 'retry') {
-            // 处理重试状态，创建新的消息
             setMessages(prev =>
               prev.map(m => {
                 if (m.id === assistantId) {
@@ -460,8 +547,9 @@ const AIAgent: React.FC<AIAgentProps> = ({
               })
             );
           }
+
+          // 状态更新
           else if (msg.type === 'status') {
-            // 工具执行中/结束 的loading状态
             const running = !!(msg.data && msg.data.tools_running);
             setMessages(prev => prev.map(m =>
               m.id === assistantId ? {
@@ -470,31 +558,12 @@ const AIAgent: React.FC<AIAgentProps> = ({
               } : m
             ));
           }
-          else if (msg.type === 'tools') {
-            // 修复：根据当前尝试次数，将工具添加到对应的尝试中
-            setMessages(prev => prev.map(m =>
-              m.id === assistantId ? {
-                ...(m as any),
-                data: m.data?.map((d, index) => index === (m.data?.length || 0) - 1 ? { ...d, tools: msg.data } : d) || []
-              } : m
-            ));
-
-            // 根据工具类型判断是否需要刷新文件树
-            try {
-              const tools = Array.isArray(msg.data) ? msg.data : [];
-              const needRefresh = tools.some((t: any) =>
-                [
-                  'file_create',
-                  'file_write',
-                  'file_delete',
-                  'file_create_folder',
-                  'file_delete_folder'
-                ].includes(t?.name || t?.type)
-              );
-              if (needRefresh) {
-                window.dispatchEvent(new CustomEvent('file-system-refresh'));
-              }
-            } catch (_e) { }
+          // 内容完成
+          else if (msg.type === 'content') {
+            if (msg.status === 'finish') {
+              console.log('AI操作完成');
+              ws.close();
+            }
           }
           // 错误
           else if (msg.type === 'error') {
@@ -509,7 +578,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
           }
           // 完成
           else if (msg.type === 'done') {
-            // 对话完成后刷新会话列表，保证历史对话可见
+            console.log('WebSocket连接完成');
             ws.close();
           }
         } catch (e) {

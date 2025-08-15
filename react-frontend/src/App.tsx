@@ -18,6 +18,7 @@ import SplitEditor from './components/SplitEditor';
 import ToastComponent from './components/Toast';
 import ThemeToggle from './components/ThemeToggle';
 import './App.css';
+import StreamingExample from './components/StreamingExample';
 
 // 主应用组件
 const AppContent: React.FC = () => {
@@ -125,6 +126,13 @@ const AppContent: React.FC = () => {
               >
                 <i className="fas fa-layer-group"></i>
               </div>
+              <div
+                className={`sidebar-tab ${activeSidebarTab === 'streaming' ? 'active' : ''}`}
+                onClick={() => setActiveSidebarTab('streaming')}
+                title="流式渲染"
+              >
+                <i className="fas fa-stream"></i>
+              </div>
             </div>
 
             {/* 侧边栏内容 */}
@@ -147,6 +155,13 @@ const AppContent: React.FC = () => {
               {activeSidebarTab === 'images' && (
                 <div className="sidebar-tab-content active">
                   <ImagePanel />
+                </div>
+              )}
+
+              {/* 流式渲染标签页 */}
+              {activeSidebarTab === 'streaming' && (
+                <div className="sidebar-tab-content active">
+                  <StreamingExample />
                 </div>
               )}
             </div>

@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +13,41 @@ import (
 	"sync"
 	"time"
 )
+
+// 新增：NDJSON格式的流式输出结构体
+type NDJSONMessage struct {
+	Type    string                 `json:"type"`
+	ID      string                 `json:"id,omitempty"`
+	Tool    string                 `json:"tool,omitempty"`
+	Data    map[string]interface{} `json:"data,omitempty"`
+	DataB64 string                 `json:"data_b64,omitempty"`
+	Bs64ID  string                 `json:"bs64_id,omitempty"`
+	Seq     int                    `json:"seq,omitempty"`
+	Hash    string                 `json:"hash,omitempty"`
+}
+
+// 新增：Base64数据块管理
+type Base64Chunk struct {
+	ID       string
+	Data     []byte
+	Seq      int
+	Complete bool
+	Hash     string
+}
+
+// 新增：工具调用状态管理
+type ToolCallState struct {
+	ID       string
+	Tool     string
+	Data     map[string]interface{}
+	Thinking string
+	Status   string // "pending", "ready", "executed"
+}
+
+type ThinkingState struct {
+	ID       string
+	Base64ID string
+}
 
 // 新增：AI配置
 type AIConfig struct {
@@ -590,10 +627,12 @@ func (amm *AIModelManager) GetDefaultModel() *AIModel {
 	return nil
 }
 
-// 流式调用AI（SSE/增量），将推理与内容分片回调给上层
-// onReasoning: 收到 reasoning_content 片段时回调
+// 流式调用AI（NDJSON格式），将推理与内容分片回调给上层
+// onReasoning: 收到 thinking 片段时回调
 // onContent: 收到 content 片段时回调
-func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIModel, history []AIConversationMessage, onReasoning func(string), onContent func(string)) error {
+// onToolCall: 收到工具调用时回调
+// onBase64Chunk: 收到base64数据块时回调
+func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIModel, history []AIConversationMessage, onReasoning func(string), onThinking func(*ThinkingState), onToolCall func(*ToolCallState), onBase64Chunk func(*Base64Chunk)) error {
 	// 构建对话消息
 	var messages []map[string]string
 	messages = append(messages, map[string]string{
@@ -641,6 +680,11 @@ func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIMo
 		return fmt.Errorf("API流式请求失败 %d: %s", resp.StatusCode, string(b))
 	}
 
+	// NDJSON状态机处理
+	var buffer strings.Builder
+	base64Chunks := make(map[string]*Base64Chunk)
+	toolCalls := make(map[string]*ToolCallState)
+
 	reader := bufio.NewReader(resp.Body)
 	for {
 		line, err := reader.ReadString('\n')
@@ -654,6 +698,7 @@ func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIMo
 		if line == "" {
 			continue
 		}
+
 		// 调试输出
 		if strings.HasPrefix(line, "data:") {
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
@@ -682,231 +727,416 @@ func (oem *OnlineEditorManager) callAIStreamWithModel(prompt string, model *AIMo
 				onReasoning(s)
 			}
 			if s, ok := delta["content"].(string); ok && s != "" {
-				onContent(s)
+				// 累积到缓冲区
+				buffer.WriteString(s)
+
+				// 尝试解析NDJSON
+				oem.processNDJSONBuffer(buffer.String(), base64Chunks, toolCalls, onThinking, onToolCall, onBase64Chunk)
 			}
 		}
 	}
 	return nil
 }
 
-// 解析AI响应，处理新的JSON格式（包含状态验证和自动工具执行）
+// 处理NDJSON缓冲区，解析完整的JSON行
+func (oem *OnlineEditorManager) processNDJSONBuffer(buffer string, base64Chunks map[string]*Base64Chunk, toolCalls map[string]*ToolCallState, onThinking func(*ThinkingState), onToolCall func(*ToolCallState), onBase64Chunk func(*Base64Chunk)) {
+	lines := strings.Split(buffer, "\n")
+
+	// 处理完整的行（除了最后一行可能不完整）
+	for i := 0; i < len(lines)-1; i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+
+		var msg NDJSONMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			fmt.Printf("[NDJSON] 解析失败: %v, line: %s\n", err, line)
+			continue
+		}
+
+		oem.processNDJSONMessage(msg, base64Chunks, toolCalls, onThinking, onToolCall, onBase64Chunk)
+	}
+}
+
+// 处理单个NDJSON消息
+func (oem *OnlineEditorManager) processNDJSONMessage(msg NDJSONMessage, base64Chunks map[string]*Base64Chunk, toolCalls map[string]*ToolCallState, onThinking func(*ThinkingState), onToolCall func(*ToolCallState), onBase64Chunk func(*Base64Chunk)) {
+	switch msg.Type {
+	case "thinking":
+		// 处理thinking消息
+		if msg.DataB64 != "" {
+			// 创建或更新base64块
+			if _, exists := base64Chunks[msg.DataB64]; !exists {
+				base64Chunks[msg.DataB64] = &Base64Chunk{
+					ID:       msg.DataB64,
+					Data:     []byte{},
+					Seq:      0,
+					Complete: false,
+				}
+			}
+			onThinking(&ThinkingState{
+				ID:       msg.ID,
+				Base64ID: msg.DataB64,
+			})
+		}
+
+	case "bs64_start":
+		// 开始新的base64块
+		if _, exists := base64Chunks[msg.Bs64ID]; !exists {
+			base64Chunks[msg.Bs64ID] = &Base64Chunk{
+				ID:       msg.Bs64ID,
+				Data:     []byte{},
+				Seq:      0,
+				Complete: false,
+			}
+		}
+
+	case "bs64_chunk":
+		// 处理base64数据块
+		if chunk, exists := base64Chunks[msg.Bs64ID]; exists {
+			if msg.Seq == chunk.Seq {
+				// 解码base64数据
+				if data, err := base64.StdEncoding.DecodeString(msg.DataB64); err == nil {
+					chunk.Data = append(chunk.Data, data...)
+					chunk.Seq++
+
+					// 通知上层有新数据块
+					if onBase64Chunk != nil {
+						onBase64Chunk(chunk)
+					}
+				}
+			}
+		}
+
+	case "bs64_end":
+		// 完成base64块
+		if chunk, exists := base64Chunks[msg.Bs64ID]; exists {
+			chunk.Complete = true
+			chunk.Hash = msg.Hash
+
+			// 验证hash
+			if oem.verifyBase64Hash(chunk.Data, msg.Hash) {
+				// 通知上层块完成
+				if onBase64Chunk != nil {
+					onBase64Chunk(chunk)
+				}
+			} else {
+				fmt.Printf("[NDJSON] Base64块hash验证失败: %s\n", msg.Bs64ID)
+			}
+		}
+
+	case "tool":
+		// 处理工具调用
+		if msg.ID != "" {
+			toolCall := &ToolCallState{
+				ID:     msg.ID,
+				Tool:   msg.Tool,
+				Data:   msg.Data,
+				Status: "pending",
+			}
+
+			// 查找对应的thinking
+			if msg.Data != nil {
+				if dataB64, ok := msg.Data["data_b64"].(string); ok {
+					if chunk, exists := base64Chunks[dataB64]; exists && chunk.Complete {
+						toolCall.Thinking = string(chunk.Data)
+					}
+				}
+			}
+
+			toolCalls[msg.ID] = toolCall
+
+			// 通知上层有新的工具调用
+			if onToolCall != nil {
+				onToolCall(toolCall)
+			}
+		}
+	case "done":
+		// 处理完成信号 - 该工具输出完毕，立即执行
+		fmt.Printf("[NDJSON] 收到工具完成信号，工具ID: %s\n", msg.ID)
+
+		// 查找对应的工具调用
+		if toolCall, exists := toolCalls[msg.ID]; exists {
+			// 标记工具为完成状态
+			toolCall.Status = "completed"
+
+			// 通知上层工具已完成，可以执行
+			if onToolCall != nil {
+				onToolCall(toolCall)
+			}
+		}
+	}
+}
+
+// 验证base64块的hash
+func (oem *OnlineEditorManager) verifyBase64Hash(data []byte, expectedHash string) bool {
+	if !strings.HasPrefix(expectedHash, "sha256:") {
+		return false
+	}
+
+	hash := sha256.Sum256(data)
+	actualHash := fmt.Sprintf("sha256:%x", hash)
+	return actualHash == expectedHash
+}
+
+// 检查工具是否准备好执行
+func (oem *OnlineEditorManager) isToolReady(toolCall *ToolCallState) bool {
+	if toolCall.Data == nil {
+		return false
+	}
+
+	switch toolCall.Tool {
+	case "file_write":
+		// 需要路径、原始代码和新代码
+		// 路径直接从base64字段检查
+		_, hasPathB64 := toolCall.Data["path_b64"]
+		_, hasOriginalCode := toolCall.Data["originalCode"]
+		_, hasNewCode := toolCall.Data["newCode"]
+		return hasPathB64 && hasOriginalCode && hasNewCode
+
+	case "file_create":
+		// 需要路径和内容
+		// 路径直接从base64字段检查
+		_, hasPathB64 := toolCall.Data["path_b64"]
+		_, hasContent := toolCall.Data["content"]
+		return hasPathB64 && hasContent
+
+	case "file_delete":
+		// 只需要路径
+		// 路径直接从base64字段检查
+		_, hasPathB64 := toolCall.Data["path_b64"]
+		return hasPathB64
+
+	case "file_create_folder":
+		// 只需要路径
+		// 路径直接从base64字段检查
+		_, hasPathB64 := toolCall.Data["path_b64"]
+		return hasPathB64
+
+	case "shell_exec":
+		// 需要命令
+		_, hasCommand := toolCall.Data["command"]
+		return hasCommand
+
+	case "file_read":
+		// 只需要路径
+		// 路径直接从base64字段检查
+		_, hasPathB64 := toolCall.Data["path_b64"]
+		return hasPathB64
+
+	case "conversation_summary":
+		// 需要总结内容
+		_, hasSummary := toolCall.Data["summary"]
+		return hasSummary
+
+	default:
+		return false
+	}
+}
+
+// 解析AI响应，处理新的NDJSON格式（包含状态验证和自动工具执行）
 // 返回 status: "finish" 或 "retry"
-func (oem *OnlineEditorManager) parseAIResponse(response, workspaceID string) ([]ToolCall, *ThinkingProcess, string, error) {
-	fmt.Println(response)
-	var aiResponse AIResponse
-
-	// 清理响应字符串，移除可能的markdown标记
-	cleanResponse := strings.TrimSpace(response)
-	cleanResponse = strings.TrimPrefix(cleanResponse, "```json")
-	cleanResponse = strings.TrimPrefix(cleanResponse, "```")
-	cleanResponse = strings.TrimSuffix(cleanResponse, "```")
-	cleanResponse = strings.TrimSpace(cleanResponse)
-
-	err := json.Unmarshal([]byte(cleanResponse), &aiResponse)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("JSON解析失败: %v, 响应内容: %s", err, cleanResponse)
-	}
-
-	// 验证状态字段
-	if aiResponse.Status != "finish" && aiResponse.Status != "retry" {
-		return nil, nil, "", fmt.Errorf("无效的状态字段: %s，必须是 'finish' 或 'retry'", aiResponse.Status)
-	}
-
-	// 验证工具调用
-	if len(aiResponse.Tools) == 0 {
-		return nil, nil, aiResponse.Status, fmt.Errorf("AI响应必须包含至少一个工具调用")
-	}
-
+func (oem *OnlineEditorManager) parseAIResponseFromToolStates(toolStates map[string]*ToolCallState, base64Chunks map[string]*Base64Chunk, workspaceID string) ([]ToolCall, *ThinkingProcess, string, error) {
 	var toolCalls []ToolCall
+	var thinkingContent strings.Builder
+	status := "retry"
 
-	// 处理工具调用
-	for _, tool := range aiResponse.Tools {
+	// 处理所有工具调用
+	for _, toolState := range toolStates {
+		if toolState.Status != "ready" {
+			continue
+		}
+
 		startTime := time.Now()
-
 		toolCall := ToolCall{
-			Name:        tool.Type,
-			Path:        tool.Path,
-			Content:     tool.Content,
-			Command:     tool.Command,
-			Code:        tool.Code,
+			Name:        toolState.Tool,
+			Path:        "",
+			Content:     "",
+			Command:     "",
 			Status:      "pending",
 			ExecutionId: fmt.Sprintf("tool_%d", time.Now().UnixNano()),
 			StartTime:   &startTime,
+			Thinking:    toolState.Thinking,
 		}
 
-		switch tool.Type {
-		case "file_read":
-			// 执行文件读取
-			content, err := oem.ReadFile(workspaceID, tool.Path)
-			if err != nil {
-				toolCall.Status = "error"
-				toolCall.Error = err.Error()
-			} else {
-				toolCall.Status = "success"
-				toolCall.Result = content
-				toolCall.Output = fmt.Sprintf("读取文件 %s 成功，长度: %d", tool.Path, len(content))
-				// 文件读取操作不生成回退操作
+		// 根据工具类型处理数据
+		switch toolState.Tool {
+		case "file_write":
+			// 处理file_write工具
+			if toolState.Data != nil {
+				// 文件路径直接从base64字段解码
+				if pathB64, ok := toolState.Data["path_b64"].(string); ok {
+					if pathData, err := base64.StdEncoding.DecodeString(pathB64); err == nil {
+						toolCall.Path = string(pathData)
+					}
+				}
+				if originalCodeB64, ok := toolState.Data["originalCode_b64"].(string); ok {
+					if chunk, exists := base64Chunks[originalCodeB64]; exists && chunk.Complete {
+						if toolCall.Code == nil {
+							toolCall.Code = &CodeDiff{}
+						}
+						toolCall.Code.OriginalCode = string(chunk.Data)
+					}
+				}
+				if newCodeB64, ok := toolState.Data["new_bs64"].(string); ok {
+					if chunk, exists := base64Chunks[newCodeB64]; exists && chunk.Complete {
+						if toolCall.Code == nil {
+							toolCall.Code = &CodeDiff{}
+						}
+						toolCall.Code.NewCode = string(chunk.Data)
+					}
+				}
 			}
 
-		case "file_write":
-			if tool.Code == nil || tool.Code.NewCode == "" {
-				toolCall.Status = "error"
-				toolCall.Error = "文件内容不能为空"
-			} else {
+			// 执行文件写入
+			if toolCall.Path != "" && toolCall.Code != nil && toolCall.Code.NewCode != "" {
 				// 读取原始文件内容用于代码对比和回退
-				originalContent, _ := oem.ReadFile(workspaceID, tool.Path)
+				originalContent, _ := oem.ReadFile(workspaceID, toolCall.Path)
 
 				// 若提供了行号，则做区间替换；否则做全量替换
-				if tool.Code.LineStart > 0 && tool.Code.LineEnd >= tool.Code.LineStart {
-					err = oem.ReplaceFileRegion(workspaceID, tool.Path, tool.Code.LineStart, tool.Code.LineEnd, tool.Code.NewCode)
+				if toolCall.Code.LineStart > 0 && toolCall.Code.LineEnd >= toolCall.Code.LineStart {
+					err := oem.ReplaceFileRegion(workspaceID, toolCall.Path, toolCall.Code.LineStart, toolCall.Code.LineEnd, toolCall.Code.NewCode)
+					if err != nil {
+						toolCall.Status = "error"
+						toolCall.Error = err.Error()
+					} else {
+						toolCall.Status = "success"
+						toolCall.Result = "文件内容替换成功"
+						toolCall.Output = fmt.Sprintf("替换文件 %s 内容成功，长度: %d", toolCall.Path, len(toolCall.Code.NewCode))
+						// 生成回退操作
+						toolCall.Rollback = oem.generateRollbackAction("file_write", toolCall.Path, originalContent)
+					}
 				} else {
-					err = oem.ReplaceFileContent(workspaceID, tool.Path, tool.Code.NewCode)
+					err := oem.ReplaceFileContent(workspaceID, toolCall.Path, toolCall.Code.NewCode)
+					if err != nil {
+						toolCall.Status = "error"
+						toolCall.Error = err.Error()
+					} else {
+						toolCall.Status = "success"
+						toolCall.Result = "文件内容替换成功"
+						toolCall.Output = fmt.Sprintf("替换文件 %s 内容成功，长度: %d", toolCall.Path, len(toolCall.Code.NewCode))
+						// 生成回退操作
+						toolCall.Rollback = oem.generateRollbackAction("file_write", toolCall.Path, originalContent)
+					}
 				}
-				if err != nil {
-					toolCall.Status = "error"
-					toolCall.Error = err.Error()
-				} else {
-					toolCall.Status = "success"
-					toolCall.Result = "文件内容替换成功"
-					toolCall.Output = fmt.Sprintf("替换文件 %s 内容成功，长度: %d", tool.Path, len(tool.Code.NewCode))
-
-					// 生成回退操作
-					toolCall.Rollback = oem.generateRollbackAction("file_write", tool.Path, originalContent)
-				}
+			} else {
+				toolCall.Status = "error"
+				toolCall.Error = "文件路径或内容不能为空"
 			}
 
 		case "file_create":
-			if tool.Content == "" {
-				toolCall.Status = "error"
-				toolCall.Error = "文件内容不能为空"
-			} else {
-				// 执行文件创建
-				err := oem.CreateFile(workspaceID, tool.Path)
+			// 处理file_create工具
+			if toolState.Data != nil {
+				// 文件路径直接从base64字段解码
+				if pathB64, ok := toolState.Data["path_b64"].(string); ok {
+					if pathData, err := base64.StdEncoding.DecodeString(pathB64); err == nil {
+						toolCall.Path = string(pathData)
+					}
+				}
+				if contentB64, ok := toolState.Data["content_b64"].(string); ok {
+					if chunk, exists := base64Chunks[contentB64]; exists && chunk.Complete {
+						toolCall.Content = string(chunk.Data)
+					}
+				}
+			}
+
+			// 执行文件创建
+			if toolCall.Path != "" && toolCall.Content != "" {
+				err := oem.CreateFile(workspaceID, toolCall.Path)
 				if err != nil {
 					toolCall.Status = "error"
 					toolCall.Error = err.Error()
 				} else {
 					// 写入内容
-					err = oem.WriteFile(workspaceID, tool.Path, tool.Content)
+					err = oem.WriteFile(workspaceID, toolCall.Path, toolCall.Content)
 					if err != nil {
 						toolCall.Status = "error"
 						toolCall.Error = err.Error()
 					} else {
 						toolCall.Status = "success"
 						toolCall.Result = "文件创建成功"
-						toolCall.Output = fmt.Sprintf("创建文件 %s 成功，长度: %d", tool.Path, len(tool.Content))
-
+						toolCall.Output = fmt.Sprintf("创建文件 %s 成功，长度: %d", toolCall.Path, len(toolCall.Content))
 						// 生成回退操作
-						toolCall.Rollback = oem.generateRollbackAction("file_create", tool.Path, "")
+						toolCall.Rollback = oem.generateRollbackAction("file_create", toolCall.Path, "")
+					}
+				}
+			} else {
+				toolCall.Status = "error"
+				toolCall.Error = "文件路径或内容不能为空"
+			}
+
+		case "shell_exec":
+			// 处理shell_exec工具
+			if toolState.Data != nil {
+				if commandB64, ok := toolState.Data["command_b64"].(string); ok {
+					if chunk, exists := base64Chunks[commandB64]; exists && chunk.Complete {
+						toolCall.Command = string(chunk.Data)
 					}
 				}
 			}
 
-		case "file_delete":
-			// 读取原始文件内容用于回退
-			originalContent, _ := oem.ReadFile(workspaceID, tool.Path)
-
-			// 执行文件删除
-			err := oem.DeleteFile(workspaceID, tool.Path)
-			if err != nil {
-				toolCall.Status = "error"
-				toolCall.Error = err.Error()
-			} else {
-				toolCall.Status = "success"
-				toolCall.Result = "文件删除成功"
-				toolCall.Output = fmt.Sprintf("删除文件 %s 成功", tool.Path)
-
-				// 生成回退操作
-				toolCall.Rollback = oem.generateRollbackAction("file_delete", tool.Path, originalContent)
-			}
-
-		case "file_create_folder":
-			// 执行文件夹创建
-			err := oem.CreateFolder(workspaceID, tool.Path)
-			if err != nil {
-				toolCall.Status = "error"
-				toolCall.Error = err.Error()
-			} else {
-				toolCall.Status = "success"
-				toolCall.Result = "文件夹创建成功"
-				toolCall.Output = fmt.Sprintf("创建文件夹 %s 成功", tool.Path)
-
-				// 生成回退操作
-				toolCall.Rollback = oem.generateRollbackAction("file_create_folder", tool.Path, "")
-			}
-
-		case "dir_read":
-			// 读取目录内容
-			files, err := oem.ListFiles(workspaceID, tool.Path)
-			if err != nil {
-				toolCall.Status = "error"
-				toolCall.Error = err.Error()
-			} else {
-				toolCall.Status = "success"
-				toolCall.Result = files
-				toolCall.Output = fmt.Sprintf("读取目录 %s 成功，包含 %d 个文件/文件夹", tool.Path, len(files))
-				// 目录读取操作不生成回退操作
-			}
-
-		case "file_delete_folder":
-			// 执行文件夹删除
-			err := oem.DeleteFile(workspaceID, tool.Path) // 使用DeleteFile也可以删除文件夹
-			if err != nil {
-				toolCall.Status = "error"
-				toolCall.Error = err.Error()
-			} else {
-				toolCall.Status = "success"
-				toolCall.Result = "文件夹删除成功"
-				toolCall.Output = fmt.Sprintf("删除文件夹 %s 成功", tool.Path)
-
-				// 生成回退操作
-				toolCall.Rollback = oem.generateRollbackAction("file_delete_folder", tool.Path, "")
-			}
-
-		case "shell_exec":
 			// 执行shell命令
-			output, err := oem.ShellExec(workspaceID, tool.Command)
-			if err != nil {
-				toolCall.Status = "error"
-				toolCall.Error = err.Error()
+			if toolCall.Command != "" {
+				output, err := oem.ShellExec(workspaceID, toolCall.Command)
+				if err != nil {
+					toolCall.Status = "error"
+					toolCall.Error = err.Error()
+				} else {
+					toolCall.Status = "success"
+					toolCall.Result = "命令执行成功"
+					toolCall.Output = output
+					// 生成回退操作
+					toolCall.Rollback = oem.generateRollbackAction("shell_exec", "", toolCall.Command)
+				}
 			} else {
-				toolCall.Status = "success"
-				toolCall.Result = "命令执行成功"
-				toolCall.Output = output
-
-				// 生成回退操作
-				toolCall.Rollback = oem.generateRollbackAction("shell_exec", "", tool.Command)
+				toolCall.Status = "error"
+				toolCall.Error = "命令不能为空"
 			}
 
 		case "conversation_summary":
+			// 处理conversation_summary工具
+			if toolState.Data != nil {
+				if summaryB64, ok := toolState.Data["summary_b64"].(string); ok {
+					if chunk, exists := base64Chunks[summaryB64]; exists && chunk.Complete {
+						toolCall.Summary = string(chunk.Data)
+					}
+				}
+			}
+
 			// 处理对话总结工具
-			if tool.Summary == "" {
+			if toolCall.Summary != "" {
+				toolCall.Status = "success"
+				toolCall.Result = toolCall.Summary
+				toolCall.Output = fmt.Sprintf("对话总结完成，长度: %d", len(toolCall.Summary))
+				status = "finish" // 总结工具表示完成
+			} else {
 				toolCall.Status = "error"
 				toolCall.Error = "对话总结内容不能为空"
-			} else {
-				toolCall.Status = "success"
-				toolCall.Result = tool.Summary
-				toolCall.Output = fmt.Sprintf("对话总结完成，长度: %d", len(tool.Summary))
-				// 对话总结工具不生成回退操作
 			}
 
 		default:
 			toolCall.Status = "error"
-			toolCall.Error = fmt.Sprintf("不支持的工具: %s", tool.Type)
+			toolCall.Error = fmt.Sprintf("不支持的工具: %s", toolState.Tool)
 		}
+
 		endTime := time.Now()
 		toolCall.EndTime = &endTime
 
-		// 存储工具调用到对话历史中（如果有会话ID）
-		// 这里暂时不存储，因为我们需要先实现对话管理
+		// 累积thinking内容
+		if toolState.Thinking != "" {
+			thinkingContent.WriteString(toolState.Thinking)
+			thinkingContent.WriteString("\n")
+		}
 
 		toolCalls = append(toolCalls, toolCall)
 	}
 
 	// 构建思考过程
-	thinking := aiResponse.Thinking
+	thinking := &ThinkingProcess{
+		Content: thinkingContent.String(),
+	}
 
-	return toolCalls, thinking, aiResponse.Status, nil
+	return toolCalls, thinking, status, nil
 }
 
 func (e *AutoRetryError) Error() string {
