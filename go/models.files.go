@@ -73,7 +73,9 @@ func (oem *OnlineEditorManager) ListFiles(workspaceID, path string) ([]FileInfo,
 			ModifiedTime: info.ModTime(),
 			Permissions:  info.Mode().String(),
 		}
-		files = append(files, fileInfo)
+		if !strings.Contains(entry.Name(), ".agentFileBackup") {
+			files = append(files, fileInfo)
+		}
 	}
 
 	return files, nil

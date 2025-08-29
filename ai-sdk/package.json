@@ -4,20 +4,36 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsx index.ts"
+    "dev": "tsx main.ts",
+    "xxx": "tsx transform.ts",
+    "ttt": "tsx test.ts"
   },
   "author": "",
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/koa": "^2.13.8",
+    "@types/koa__router": "^12.0.4",
+    "@types/koa-bodyparser": "^4.3.10",
+    "@types/koa-cors": "^0.0.6",
+    "@types/koa-router": "^7.4.8",
     "@types/node": "^24.2.1",
+    "@types/ws": "^8.5.5",
+    "nodemon": "^3.0.1",
+    "ts-node": "^10.9.1",
     "tsx": "^4.20.4",
     "typescript": "^5.9.2"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^1.0.7",
+    "@koa/cors": "^4.0.0",
+    "@koa/router": "^12.0.0",
+    "@types/koa__cors": "^5.0.0",
     "ai": "^5.0.0-beta.34",
     "dotenv": "^17.2.1",
+    "koa": "^2.14.2",
+    "koa-bodyparser": "^4.4.1",
+    "ws": "^8.13.0",
     "zod": "^3.25.76"
   }
 }

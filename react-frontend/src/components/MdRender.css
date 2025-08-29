@@ -1,0 +1,318 @@
+/* 主容器样式 */
+.md-render-container {
+    overflow: auto;
+}
+
+/* MDX内容样式 */
+.md-render-mdx-content {
+    max-width: 100%;
+}
+
+/* 代码卡片样式 */
+.md-render-code-card {
+    position: relative;
+    background-color: var(--darker-bg);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    margin: 8px 0;
+}
+
+.md-render-code-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0px 8px;
+    background-color: var(--darker-bg);
+    height: 30px;
+}
+
+.md-render-language-tag {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: JetBrains Mono, Fira Code, Consolas, Monaco Inter, sans-serif !important
+}
+
+.md-render-code-card-button-box {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 4px;
+}
+
+.md-render-code-card-button {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.md-render-code-card-button:hover {
+    color: var(--text-primary);
+}
+
+.md-render-code-content {
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.md-render-file-diff {
+    color: rgb(53, 47, 47);
+}
+
+.md-render-code-card-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
+    z-index: 999;
+    position: relative;
+    color: var(--text-primary);
+    background-color: var(--dark-bg);
+    cursor: pointer;
+}
+
+.md-render-expand-icon {
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+/* 函数标签样式 */
+.md-render-function-tag {
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.md-render-function-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background-color: var(--darker-bg);
+}
+
+.md-render-function-info {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+}
+
+.md-render-read-function {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    gap: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.md-render-function-icon {
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.md-render-function-details {
+    display: flex;
+    align-items: center;
+}
+
+.md-render-target-name {
+    display: flex;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.md-render-function-name {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.md-render-function-id {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: "JetBrains Mono", monospace;
+}
+
+.md-render-function-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.md-render-action-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.md-render-action-btn:hover {
+    color: #d2d6db;
+}
+
+/* 参数区域样式 */
+.md-render-params-section {
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* 工具内容样式 */
+.md-render-tool-content {
+    background-color: var(--darker-bg);
+}
+
+.md-render-file-info,
+.md-render-command-info,
+.md-render-search-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.md-render-file-path,
+.md-render-file-name,
+.md-render-command,
+.md-render-search-query,
+.md-render-search-path,
+.md-render-line-range {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.md-render-default-content {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* 思维链卡片样式 */
+.md-render-reasoner-card {}
+
+.md-render-reasoner-header {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.md-render-reasoner-icon {
+    font-size: 14px;
+}
+
+.md-render-reading-content {
+    font-size: 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 12px 0 0 0;
+}
+
+.md-render-reasoner-content {
+    padding: 4px;
+    font-size: 12px;
+
+}
+
+/* 代码高亮覆盖样式 */
+.react-syntax-highlighter {
+    border-radius: 0 !important;
+}
+
+/* 工具提示样式 */
+[title] {
+    position: relative;
+}
+
+/* 加载状态 */
+.md-render-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 40px;
+    color: #64748b;
+}
+
+.md-render-loading::after {
+    content: '';
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border-color);
+    border-top: 2px solid #3b82f6;
+    border-radius: 50%;
+    animation: md-render-spin 1s linear infinite;
+    margin-left: 8px;
+}
+
+@keyframes md-render-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* 状态指示器 */
+.md-render-status-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.md-render-status-success {
+    background: #10b981;
+}
+
+.md-render-status-error {
+    background: #ef4444;
+}
+
+.md-render-status-warning {
+    background: #f59e0b;
+}
+
+.md-render-status-info {
+    background: #3b82f6;
+}
+
+.diff-code {
+    font-size: 14px;
+    padding-left: 14px !important;
+}
+
+code {
+    text-shadow: none !important;
+}
+
+.md-render-loading-indicator {
+    margin-left: auto;
+    color: var(--primary-color);
+    font-size: 12px;
+    width: 12px;
+    display: flex;
+    align-items: center;
+}
+
+.md-render-loading-indicator .fa-spinner {
+    animation: spin 1s linear infinite;
+}

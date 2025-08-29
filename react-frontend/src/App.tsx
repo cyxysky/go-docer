@@ -17,8 +17,9 @@ import ResizablePanel from './components/ResizablePanel';
 import SplitEditor from './components/SplitEditor';
 import ToastComponent from './components/Toast';
 import ThemeToggle from './components/ThemeToggle';
+import MdRederer from './components/MdRender';
 import './App.css';
-import StreamingExample from './components/StreamingExample';
+
 
 // 主应用组件
 const AppContent: React.FC = () => {
@@ -77,8 +78,6 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
-  // 主题切换功能现在由ThemeContext提供
-
   return (
     <div className="app" data-theme={theme}>
       {/* 顶部菜单栏 */}
@@ -126,13 +125,6 @@ const AppContent: React.FC = () => {
               >
                 <i className="fas fa-layer-group"></i>
               </div>
-              <div
-                className={`sidebar-tab ${activeSidebarTab === 'streaming' ? 'active' : ''}`}
-                onClick={() => setActiveSidebarTab('streaming')}
-                title="流式渲染"
-              >
-                <i className="fas fa-stream"></i>
-              </div>
             </div>
 
             {/* 侧边栏内容 */}
@@ -155,13 +147,6 @@ const AppContent: React.FC = () => {
               {activeSidebarTab === 'images' && (
                 <div className="sidebar-tab-content active">
                   <ImagePanel />
-                </div>
-              )}
-
-              {/* 流式渲染标签页 */}
-              {activeSidebarTab === 'streaming' && (
-                <div className="sidebar-tab-content active">
-                  <StreamingExample />
                 </div>
               )}
             </div>
@@ -189,7 +174,7 @@ const AppContent: React.FC = () => {
             style={{ height: `${bottomPanelHeight}px` }}
           >
             <div className="bottom-panel">
-              <div className="panel-tabs">
+              {/* <div className="panel-tabs">
                 <div
                   className={`panel-tab ${activePanel === 'terminal' ? 'active' : ''}`}
                   onClick={() => setActivePanel('terminal')}
@@ -211,7 +196,7 @@ const AppContent: React.FC = () => {
                   <i className="fas fa-chart-line"></i>
                   <span>状态</span>
                 </div>
-              </div>
+              </div> */}
 
               <div className="panel-content">
                 <div className={`panel-tab-content ${activePanel === 'terminal' ? 'active' : ''}`}>

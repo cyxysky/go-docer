@@ -41,65 +41,6 @@ const (
 	DEFAULT_STRATEGY = "preview"
 )
 
-// GetAIConfig 获取AI配置
-func GetAIConfig() *AIConfigData {
-	config := &AIConfigData{
-		DefaultModel: DEFAULT_MODEL,
-		Strategy:     DEFAULT_STRATEGY,
-		Models:       make(map[string]*AIModel),
-	}
-
-	// 定义AI模型配置
-	models := map[string]*AIModel{
-		GPT35_TURBO_ID: {
-			ID:          GPT35_TURBO_ID,
-			Name:        GPT35_TURBO_NAME,
-			Provider:    GPT35_TURBO_PROVIDER,
-			Description: GPT35_TURBO_DESCRIPTION,
-			Endpoint:    GPT35_TURBO_ENDPOINT,
-			APIKey:      GPT35_TURBO_API_KEY,
-			MaxTokens:   GPT35_TURBO_MAX_TOKENS,
-			Temperature: GPT35_TURBO_TEMPERATURE,
-			IsDefault:   false,
-			IsEnabled:   true,
-			IsReasoner:  false,
-		},
-		GPT4_ID: {
-			ID:          GPT4_ID,
-			Name:        GPT4_NAME,
-			Provider:    GPT4_PROVIDER,
-			Description: GPT4_DESCRIPTION,
-			Endpoint:    GPT4_ENDPOINT,
-			APIKey:      GPT4_API_KEY,
-			MaxTokens:   GPT4_MAX_TOKENS,
-			Temperature: GPT4_TEMPERATURE,
-			IsDefault:   false,
-			IsEnabled:   true,
-			IsReasoner:  false,
-		},
-		DEEPSEEK_REASONER_ID: {
-			ID:          DEEPSEEK_REASONER_ID,
-			Name:        DEEPSEEK_REASONER_NAME,
-			Provider:    DEEPSEEK_REASONER_PROVIDER,
-			Description: DEEPSEEK_REASONER_DESCRIPTION,
-			Endpoint:    DEEPSEEK_REASONER_ENDPOINT,
-			APIKey:      DEEPSEEK_REASONER_API_KEY,
-			MaxTokens:   DEEPSEEK_REASONER_MAX_TOKENS,
-			Temperature: DEEPSEEK_REASONER_TEMPERATURE,
-			IsDefault:   true,
-			IsEnabled:   true,
-			IsReasoner:  true,
-		},
-	}
-
-	// 将模型添加到配置中
-	for id, model := range models {
-		config.Models[id] = model
-	}
-
-	return config
-}
-
 // 构建AI提示词 - 按照新的NDJSON流式输出格式
 func (oem *OnlineEditorManager) buildAIPrompt(userPrompt, workspaceID string, fileContents map[string]string, initPrompt bool) string {
 	var prompt strings.Builder

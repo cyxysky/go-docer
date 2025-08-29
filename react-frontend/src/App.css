@@ -6,11 +6,14 @@
   --primary-hover: #2563eb;
   --primary-light: #dbeafe;
   --primary-dark: #1e40af;
-  
+
   /* 强调色 */
   --accent-color: #007acc;
   --accent-hover: #1177bb;
-  
+
+  /* 文本基础颜色 */
+  --text-basic: "#64748b";
+
   /* 背景色系 - 更柔和的深色主题 */
   --dark-bg: #0f172a;
   --darker-bg: #020617;
@@ -20,7 +23,7 @@
   --secondary-color: #1e293b;
   --tertiary-color: #334155;
   --quaternary-color: #475569;
-  
+
   /* 功能色 */
   --success-color: #10b981;
   --success-hover: #059669;
@@ -30,39 +33,66 @@
   --danger-hover: #dc2626;
   --info-color: #06b6d4;
   --info-hover: #0891b2;
-  
+
   /* 文本色 */
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
   --text-tertiary: #94a3b8;
   --text-muted: #64748b;
-  
+
   /* 边框和分割线 */
   --border-color: #334155;
   --border-light: #475569;
   --border-lighter: #64748b;
-  
+
   /* 尺寸 */
   --sidebar-width: 280px;
   --header-height: 56px;
   --status-bar-height: 28px;
-  
+
   /* 阴影 */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-  
+
   /* 圆角 */
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
-  
+
   /* 动画 */
   --transition-fast: 0.15s ease;
   --transition-normal: 0.2s ease;
   --transition-slow: 0.3s ease;
+
+  --diff-background-color: initial;
+  --diff-text-color: initial;
+  --diff-font-family: Consolas, Courier, monospace;
+  --diff-selection-background-color: #b3d7ff;
+  --diff-selection-text-color: var(--diff-text-color);
+  --diff-gutter-insert-background-color: #d6fedb;
+  --diff-gutter-insert-text-color: var(--diff-text-color);
+  --diff-gutter-delete-background-color: #fadde0;
+  --diff-gutter-delete-text-color: var(--diff-text-color);
+  --diff-gutter-selected-background-color: #fffce0;
+  --diff-gutter-selected-text-color: var(--diff-text-color);
+
+  
+  --diff-code-insert-background-color: #ecfdf0;
+  --diff-code-insert-text-color: var(--diff-text-color);
+  --diff-code-delete-background-color: #fbe9eb;
+  --diff-code-delete-text-color: var(--diff-text-color);
+
+
+  --diff-code-insert-edit-background-color: #c0dc91;
+  --diff-code-insert-edit-text-color: var(--diff-text-color);
+  --diff-code-delete-edit-background-color: #f39ea2;
+  --diff-code-delete-edit-text-color: var(--diff-text-color);
+  --diff-code-selected-background-color: #fffce0;
+  --diff-code-selected-text-color: var(--diff-text-color);
+  --diff-omit-gutter-line-color: #cb2a1d;
 }
 
 /* 亮色主题 */
@@ -71,10 +101,10 @@
   --primary-hover: #2563eb;
   --primary-light: #eff6ff;
   --primary-dark: #1e40af;
-  
+
   --accent-color: #007acc;
   --accent-hover: #1177bb;
-  
+
   --dark-bg: #ffffff;
   --darker-bg: #f8fafc;
   --bg: #f1f5f9;
@@ -83,12 +113,12 @@
   --secondary-color: #f1f5f9;
   --tertiary-color: #e2e8f0;
   --quaternary-color: #cbd5e1;
-  
+
   --text-primary: #0f172a;
   --text-secondary: #334155;
   --text-tertiary: #475569;
   --text-muted: #64748b;
-  
+
   --border-color: #e2e8f0;
   --border-light: #cbd5e1;
   --border-lighter: #94a3b8;
@@ -187,7 +217,7 @@ body {
 .top-menu .menu-item:hover {
   background: var(--quaternary-color);
   color: var(--text-primary);
-  
+
   box-shadow: var(--shadow-md);
 }
 
@@ -215,7 +245,7 @@ body {
 .theme-toggle:hover {
   background: var(--quaternary-color);
   color: var(--text-primary);
-  
+
   box-shadow: var(--shadow-md);
   border-color: var(--border-light);
 }
@@ -276,7 +306,7 @@ body {
 .sidebar-tab:hover {
   background: rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
-  
+
 }
 
 .sidebar-tab.active {
@@ -373,7 +403,7 @@ body {
 .editor-tab:hover {
   background: var(--tertiary-color);
   color: var(--text-primary);
-  
+
 }
 
 .editor-tab.active {
@@ -464,7 +494,7 @@ body {
 .panel-tab:hover {
   background: var(--quaternary-color);
   color: var(--text-primary);
-  
+
 }
 
 .panel-tab.active {
@@ -537,9 +567,7 @@ body {
 }
 
 /* 响应式设计 */
-@media (max-width: 1200px) {
-
-}
+@media (max-width: 1200px) {}
 
 @media (max-width: 968px) {
 
@@ -665,7 +693,7 @@ body {
 }
 
 .btn-primary:hover:not(:disabled) {
-  
+
   box-shadow: var(--shadow-lg);
 }
 
@@ -897,6 +925,7 @@ body {
     opacity: 0;
     transform: scale(0.95) translateY(-20px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -1363,6 +1392,7 @@ body {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -1373,6 +1403,7 @@ body {
     opacity: 0;
     transform: scale(0.95) translateY(-20px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -1383,9 +1414,11 @@ body {
   0% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.5;
   }
+
   100% {
     opacity: 1;
   }
@@ -1507,7 +1540,7 @@ body {
   cursor: pointer;
 }
 
-.radio-option input[type="radio"]:checked + span {
+.radio-option input[type="radio"]:checked+span {
   color: var(--primary-color);
   font-weight: 600;
 }
@@ -1656,33 +1689,33 @@ body {
     padding: 20px;
     margin: 16px;
   }
-  
+
   .dialog-content.export-dialog,
   .dialog-content.large-dialog {
     min-width: 280px;
     max-width: 100%;
   }
-  
+
   .dialog-content h3 {
     font-size: 16px;
   }
-  
+
   .dialog-actions {
     flex-direction: column;
   }
-  
+
   .dialog-actions button {
     width: 100%;
   }
-  
+
   .radio-group {
     gap: 8px;
   }
-  
+
   .radio-option {
     padding: 10px 12px;
   }
-  
+
   .file-selector-container {
     max-height: 200px;
     padding: 12px;

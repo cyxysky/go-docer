@@ -2,6 +2,46 @@
 
 const API_BASE_URL = '/api/v1';
 
+// 通用请求方法
+const request = async (endpoint: string, options: RequestInit = {}) => {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const config: RequestInit = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  };
+
+  try {
+    const response = await fetch(url, config);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API请求失败: ${response.status} - ${errorText}`);
+    }
+
+    // 检查响应内容类型
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const jsonData = await response.json();
+      return jsonData;
+    }
+
+    // 如果不是 JSON，尝试解析为 JSON（某些 API 可能没有设置正确的 content-type）
+    const textData = await response.text();
+    try {
+      return JSON.parse(textData);
+    } catch {
+      // 如果解析失败，返回原始文本
+      return textData;
+    }
+  } catch (error) {
+    console.error('API请求错误:', error);
+    throw error;
+  }
+};
+
 // AI代码生成API
 export const aiAPI = {
   generateCode: async (request: {
@@ -13,9 +53,9 @@ export const aiAPI = {
     file_paths?: string[]; // 新增：文件或文件夹原始路径（文件夹不展开，仅做提示）
     tools?: string[];
     session_id?: string; // 新增：对话会话ID
-  }): Promise<{ 
-    success: boolean; 
-    code?: string; 
+  }): Promise<{
+    success: boolean;
+    code?: string;
     message?: string;
     codeChanges?: Array<{
       file_path: string;
@@ -52,25 +92,26 @@ export const aiAPI = {
     }
   },
 
-  // 回退操作
-  rollback: async (workspaceId: string, executionId: string): Promise<{ 
-    success: boolean; 
-    message?: string; 
-    error?: string; 
-  }> => {
+  /**
+   * 工具回退操作
+   * @param type 回退类型
+   * @param workspaceId 工作空间id
+   * @param sessionId 对话id
+   * @param toolUUID 工具uuid
+   * @returns 
+   */
+  rollback: async (type: "acceptAll" | "acceptSome" | "rejectAll" | "rejectSome", workspaceId: string, sessionId: string, toolUUID: string): boolean => {
     try {
-      const response = await fetch(`${API_BASE_URL}/ai/rollback`, {
+      const response = await fetch(`${API_BASE_URL}/session/rollback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ workspace_id: workspaceId, execution_id: executionId }),
+        body: JSON.stringify({ type, workspaceId, sessionId, toolUUID }),
       });
-
       if (!response.ok) {
         throw new Error(`回退操作请求失败: ${response.status}`);
       }
-
       const data = await response.json();
       return data;
     } catch (error) {
@@ -79,56 +120,15 @@ export const aiAPI = {
     }
   },
 
-  // 拒绝操作
-  rejectOperation: async (request: {
-    workspace_id: string;
-    execution_id: string;
-    operation: string;
-    file_path: string;
-    content?: string;
-    original_content?: string;
-  }): Promise<{ 
-    success: boolean; 
-    message?: string; 
-    error?: string; 
-  }> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/ai/reject`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
-
-      if (!response.ok) {
-        throw new Error(`拒绝操作请求失败: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('拒绝操作失败:', error);
-      throw error;
-    }
-  },
-
   // 创建对话会话
-  createConversation: async (workspaceId: string): Promise<{
-    session_id: string;
-    workspace_id: string;
-    created_at: string;
-    updated_at: string;
-    messages: any[];
-    tool_history: any;
-  }> => {
+  createConversation: async (workspaceId: string): Promise<any> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/ai/conversations`, {
+      const response = await fetch(`${API_BASE_URL}/session/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ workspace_id: workspaceId }),
+        body: JSON.stringify({ workspaceId: workspaceId }),
       });
 
       if (!response.ok) {
@@ -143,17 +143,69 @@ export const aiAPI = {
     }
   },
 
-  // 获取工作空间的对话会话列表
-  getConversations: async (workspaceId: string): Promise<{
-    session_id: string;
-    workspace_id: string;
-    created_at: string;
-    updated_at: string;
-    messages: any[];
-    tool_history: any;
-  }[]> => {
+  /**
+   * 获取对话会话详情
+   * @param workspaceId 工作空间id
+   * @param sessionId 对话id
+   * @returns 对话详情
+   */
+  getConversation: async (workspaceId: string, sessionId: string): Promise<any> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/workspaces/${workspaceId}/conversations`);
+      const response = await fetch(`${API_BASE_URL}/session/get`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspaceId, sessionId }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('获取对话会话详情失败:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * 删除对话会话
+   * @param workspaceId 工作空间id
+   * @param sessionId 对话id
+   */
+  deleteConversation: async (workspaceId: string, sessionId: string): Promise<void> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/session/delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspaceId, sessionId }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('删除对话会话失败:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * 获取工作空间的对话会话列表
+   * @param workspaceId 工作空间id
+   * @returns 对话列表
+   */
+  getConversations: async (workspaceId: string): Promise<any[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/session/getWorkspaceSession`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspaceId }),
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -167,98 +219,18 @@ export const aiAPI = {
     }
   },
 
-  // 获取对话会话详情
-  getConversation: async (sessionId: string): Promise<{
-    session_id: string;
-    workspace_id: string;
-    created_at: string;
-    updated_at: string;
-    messages: any[];
-    tool_history: any;
-  }> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/ai/conversations/${sessionId}`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('获取对话会话详情失败:', error);
-      throw error;
-    }
-  },
-
-  // 删除对话会话
-  deleteConversation: async (sessionId: string): Promise<void> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/ai/conversations/${sessionId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-    } catch (error) {
-      console.error('删除对话会话失败:', error);
-      throw error;
-    }
-  },
-
   // 获取AI推理/内容流式WebSocket URL
   getAIWebSocketUrl: (sessionId: string) => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}${API_BASE_URL}/ai/chat/${sessionId}/ws`;
+    return `${protocol}//${window.location.host}${API_BASE_URL}/ai/chat/sessionId=${sessionId}`;
   },
-};
-
-// 通用请求方法
-const request = async (endpoint: string, options: RequestInit = {}) => {
-  const url = `${API_BASE_URL}${endpoint}`;
-  const config: RequestInit = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    ...options,
-  };
-
-  try {
-    const response = await fetch(url, config);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API请求失败: ${response.status} - ${errorText}`);
-    }
-
-    // 检查响应内容类型
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const jsonData = await response.json();
-      return jsonData;
-    }
-    
-    // 如果不是 JSON，尝试解析为 JSON（某些 API 可能没有设置正确的 content-type）
-    const textData = await response.text();
-    try {
-      return JSON.parse(textData);
-    } catch {
-      // 如果解析失败，返回原始文本
-      return textData;
-    }
-  } catch (error) {
-    console.error('API请求错误:', error);
-    throw error;
-  }
 };
 
 // 工作空间相关API
 export const workspaceAPI = {
   // 获取工作空间列表
   getWorkspaces: () => request('/workspaces'),
-  
+
   // 创建工作空间
   createWorkspace: (data: {
     name: string;
@@ -266,8 +238,8 @@ export const workspaceAPI = {
     git_repo?: string;
     git_branch?: string;
     tools?: string[];
-    ports?: Array<{containerPort: string, hostPort: string, protocol: string}>;
-    environment?: {[key: string]: string};
+    ports?: Array<{ containerPort: string, hostPort: string, protocol: string }>;
+    environment?: { [key: string]: string };
   }) => request('/workspaces', {
     method: 'POST',
     body: JSON.stringify({
@@ -280,29 +252,31 @@ export const workspaceAPI = {
       }))
     }),
   }),
-  
+
   // 启动工作空间
-  startWorkspace: (workspaceId: string) => 
+  startWorkspace: (workspaceId: string) =>
     request(`/workspaces/${workspaceId}/start`, { method: 'POST' }),
-  
+
   // 停止工作空间
-  stopWorkspace: (workspaceId: string) => 
+  stopWorkspace: (workspaceId: string) =>
     request(`/workspaces/${workspaceId}/stop`, { method: 'POST' }),
-  
+
   // 删除工作空间
-  deleteWorkspace: (workspaceId: string) => 
+  deleteWorkspace: (workspaceId: string) =>
     request(`/workspaces/${workspaceId}`, { method: 'DELETE' }),
 
   // 更新端口绑定
-  updatePortBindings: (workspaceId: string, ports: Array<{containerPort: string, hostPort: string, protocol: string}>) =>
+  updatePortBindings: (workspaceId: string, ports: Array<{ containerPort: string, hostPort: string, protocol: string }>) =>
     request(`/workspaces/${workspaceId}/ports`, {
       method: 'PUT',
-      body: JSON.stringify({ ports: ports.map(p => ({
-        container_port: p.containerPort,
-        host_port: p.hostPort,
-        protocol: p.protocol,
-        public_access: p.hostPort !== ''
-      })) }),
+      body: JSON.stringify({
+        ports: ports.map(p => ({
+          container_port: p.containerPort,
+          host_port: p.hostPort,
+          protocol: p.protocol,
+          public_access: p.hostPort !== ''
+        }))
+      }),
     }),
 
   // 切换收藏状态
@@ -323,68 +297,66 @@ export const workspaceAPI = {
 // 文件相关API
 export const fileAPI = {
   // 获取文件树
-  getFileTree: (workspaceId: string, path: string = '') => 
+  getFileTree: (workspaceId: string, path: string = '') =>
     request(`/workspaces/${workspaceId}/files${path ? `?path=${encodeURIComponent(path)}` : ''}`),
-  
+
   // 读取文件内容
-  readFile: (workspaceId: string, filePath: string) => 
+  readFile: (workspaceId: string, filePath: string) =>
     request(`/workspaces/${workspaceId}/files/read`, {
       method: 'POST',
       body: JSON.stringify({ path: filePath }),
     }),
-  
+
   // 写入文件内容
-  writeFile: (workspaceId: string, filePath: string, content: string) => 
+  writeFile: (workspaceId: string, filePath: string, content: string) =>
     request(`/workspaces/${workspaceId}/files/write`, {
       method: 'POST',
       body: JSON.stringify({ path: filePath, content }),
     }),
-  
+
   // 创建文件
-  createFile: (workspaceId: string, filePath: string) => 
+  createFile: (workspaceId: string, filePath: string) =>
     request(`/workspaces/${workspaceId}/files/create`, {
       method: 'POST',
       body: JSON.stringify({ path: filePath }),
     }),
-  
+
   // 创建文件夹
-  createFolder: (workspaceId: string, folderPath: string) => 
+  createFolder: (workspaceId: string, folderPath: string) =>
     request(`/workspaces/${workspaceId}/files/mkdir`, {
       method: 'POST',
       body: JSON.stringify({ path: folderPath }),
     }),
-  
+
   // 删除文件或文件夹
-  deleteFile: (workspaceId: string, filePath: string) => 
+  deleteFile: (workspaceId: string, filePath: string) =>
     request(`/workspaces/${workspaceId}/files/delete`, {
       method: 'POST',
       body: JSON.stringify({ path: filePath }),
     }),
-  
+
   // 移动文件或文件夹
-  moveFile: (workspaceId: string, sourcePath: string, targetPath: string) => 
+  moveFile: (workspaceId: string, sourcePath: string, targetPath: string) =>
     request(`/workspaces/${workspaceId}/files/move`, {
       method: 'POST',
       body: JSON.stringify({ source_path: sourcePath, target_path: targetPath }),
     }),
 };
 
-
-
 // 镜像相关API
 export const imageAPI = {
   // 获取镜像列表
   getImages: () => request('/images'),
-  
+
   // 拉取镜像
-  pullImage: (imageName: string) => 
+  pullImage: (imageName: string) =>
     request('/images/pull', {
       method: 'POST',
       body: JSON.stringify({ image: imageName }),
     }),
-  
+
   // 删除镜像
-  deleteImage: (imageId: string) => 
+  deleteImage: (imageId: string) =>
     request(`/images/${imageId}`, { method: 'DELETE' }),
 
   // 添加自定义镜像
@@ -392,28 +364,28 @@ export const imageAPI = {
     name: string;
     description?: string;
     shell?: string;
-    environment?: {[key: string]: string};
+    environment?: { [key: string]: string };
   }) => request('/images/custom', {
     method: 'POST',
     body: JSON.stringify(data),
   }),
 
   // 删除自定义镜像配置
-  deleteCustomImage: (imageName: string) => 
+  deleteCustomImage: (imageName: string) =>
     request(`/images/custom/${encodeURIComponent(imageName)}`, { method: 'DELETE' }),
 
   // 更新自定义镜像配置
   updateCustomImage: (imageName: string, data: {
     description?: string;
     shell?: string;
-    environment?: {[key: string]: string};
+    environment?: { [key: string]: string };
   }) => request(`/images/custom/${encodeURIComponent(imageName)}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   }),
 
   // 搜索Docker镜像（使用Docker CLI）
-  searchDockerHub: (query: string, limit?: number, registry?: string) => 
+  searchDockerHub: (query: string, limit?: number, registry?: string) =>
     request('/images/search/data', {
       method: 'POST',
       body: JSON.stringify({ query, limit: limit || 25, registry }),
@@ -426,7 +398,7 @@ export const imageAPI = {
     if (imageName) {
       formData.append('image_name', imageName);
     }
-    
+
     return fetch('/api/v1/images/import/images', {
       method: 'POST',
       body: formData,
@@ -500,9 +472,9 @@ export const registryAPI = {
 // 终端相关API
 export const terminalAPI = {
   // 创建终端会话
-  createSession: (workspaceId: string) => 
+  createSession: (workspaceId: string) =>
     request(`/workspaces/${workspaceId}/terminal`, { method: 'POST' }),
-  
+
   // 获取终端WebSocket URL
   getWebSocketUrl: (workspaceId: string, sessionId: string) => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -513,36 +485,36 @@ export const terminalAPI = {
 // Git相关API
 export const gitAPI = {
   // Git状态
-  status: (workspaceId: string) => 
-    request(`/workspaces/${workspaceId}/git`, { 
+  status: (workspaceId: string) =>
+    request(`/workspaces/${workspaceId}/git`, {
       method: 'POST',
       body: JSON.stringify({ type: 'status' }),
     }),
-  
+
   // Git添加
-  add: (workspaceId: string, files: string[] = []) => 
+  add: (workspaceId: string, files: string[] = []) =>
     request(`/workspaces/${workspaceId}/git`, {
       method: 'POST',
       body: JSON.stringify({ type: 'add', files }),
     }),
-  
+
   // Git提交
-  commit: (workspaceId: string, message: string) => 
+  commit: (workspaceId: string, message: string) =>
     request(`/workspaces/${workspaceId}/git`, {
       method: 'POST',
       body: JSON.stringify({ type: 'commit', message }),
     }),
-  
+
   // Git推送
-  push: (workspaceId: string) => 
-    request(`/workspaces/${workspaceId}/git`, { 
+  push: (workspaceId: string) =>
+    request(`/workspaces/${workspaceId}/git`, {
       method: 'POST',
       body: JSON.stringify({ type: 'push' }),
     }),
-  
+
   // Git拉取
-  pull: (workspaceId: string) => 
-    request(`/workspaces/${workspaceId}/git`, { 
+  pull: (workspaceId: string) =>
+    request(`/workspaces/${workspaceId}/git`, {
       method: 'POST',
       body: JSON.stringify({ type: 'pull' }),
     }),
@@ -551,7 +523,7 @@ export const gitAPI = {
 // 统计相关API
 export const statsAPI = {
   // 获取容器统计信息
-  getStats: (workspaceId: string) => 
+  getStats: (workspaceId: string) =>
     request(`/workspaces/${workspaceId}/stats`),
 };
 

@@ -158,12 +158,6 @@ type OnlineEditorManager struct {
 	importTasks      map[string]*ImportTaskInfo // 导入任务信息管理
 	importTasksMutex sync.RWMutex               // 导入任务锁
 
-	// 新增：AI配置
-	aiConfig       *AIConfig
-	aiModelManager *AIModelManager
-
-	// 新增：AI对话管理器
-	aiConversationManager *AIConversationManager
 }
 
 // 脚本和命令管理
@@ -371,35 +365,17 @@ func NewOnlineEditorManager() (*OnlineEditorManager, error) {
 				return true // 允许所有来源
 			},
 		},
-		dockerClient:          dockerCli,
-		networkName:           networkName,
-		portPool:              make(map[int]bool),
-		downloadsDir:          downloadsDir,
-		downloads:             make(map[string]*DownloadInfo),
-		downloadsMutex:        sync.RWMutex{},
-		customImages:          make(map[string]*ImageConfig),
-		customImagesMutex:     sync.RWMutex{},
-		registryManager:       NewRegistryManager(), // 初始化镜像源管理器
-		importTasks:           make(map[string]*ImportTaskInfo),
-		aiConfig:              &AIConfig{DefaultModel: "gpt-3.5-turbo", Models: make(map[string]*AIModel)},
-		aiModelManager:        &AIModelManager{models: make(map[string]*AIModel)},
-		aiConversationManager: &AIConversationManager{conversations: make(map[string]*AIConversation)},
+		dockerClient:      dockerCli,
+		networkName:       networkName,
+		portPool:          make(map[int]bool),
+		downloadsDir:      downloadsDir,
+		downloads:         make(map[string]*DownloadInfo),
+		downloadsMutex:    sync.RWMutex{},
+		customImages:      make(map[string]*ImageConfig),
+		customImagesMutex: sync.RWMutex{},
+		registryManager:   NewRegistryManager(), // 初始化镜像源管理器
+		importTasks:       make(map[string]*ImportTaskInfo),
 	}
-
-	// 从Go配置文件加载AI配置
-	aiConfigData := GetAIConfig()
-
-	// 设置默认模型和策略
-	manager.aiConfig.DefaultModel = aiConfigData.DefaultModel
-	manager.aiConfig.Strategy = aiConfigData.Strategy
-
-	// 加载模型配置
-	for modelID, model := range aiConfigData.Models {
-		manager.aiModelManager.models[modelID] = model
-		manager.aiConfig.Models[modelID] = model
-	}
-
-	log.Printf("AI配置加载完成，默认模型: %s", manager.aiConfig.DefaultModel)
 
 	// 启动时恢复现有工作空间
 	if err := manager.recoverExistingWorkspaces(); err != nil {

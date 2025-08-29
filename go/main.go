@@ -137,7 +137,6 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	// 终端
 	api.HandleFunc("/workspaces/{id}/terminal", oem.handleCreateTerminal).Methods("POST")
 	api.HandleFunc("/workspaces/{id}/terminal/{sessionId}/ws", oem.handleTerminalWebSocket).Methods("GET")
-	api.HandleFunc("/ai/chat/{sessionId}/ws", oem.handleAIChatWebSocket).Methods("GET")
 
 	// 命令执行
 	api.HandleFunc("/workspaces/{id}/exec", oem.handleExecuteCommand).Methods("POST")
@@ -184,22 +183,6 @@ func (oem *OnlineEditorManager) StartServer(port int) error {
 	api.HandleFunc("/downloads", oem.handleListDownloads).Methods("GET")
 	api.HandleFunc("/downloads/{downloadId}/status", oem.handleGetDownloadStatus).Methods("GET")
 	api.HandleFunc("/downloads/{downloadId}/file", oem.handleDownload).Methods("GET")
-
-	// 新增：AI拒绝操作
-	api.HandleFunc("/ai/reject", oem.handleRejectOperation).Methods("POST")
-
-	// 对话管理路由
-	api.HandleFunc("/ai/conversations", oem.handleCreateConversation).Methods("POST")
-	api.HandleFunc("/workspaces/{id}/conversations", oem.handleGetConversations).Methods("GET")
-	api.HandleFunc("/ai/conversations/{sessionId}", oem.handleGetConversation).Methods("GET")
-	api.HandleFunc("/ai/conversations/{sessionId}", oem.handleDeleteConversation).Methods("DELETE")
-
-	// AI模型管理
-	api.HandleFunc("/ai/models", oem.handleGetAIModels).Methods("GET")
-	api.HandleFunc("/ai/models", oem.handleAddAIModel).Methods("POST")
-	api.HandleFunc("/ai/models/{id}", oem.handleUpdateAIModel).Methods("PUT")
-	api.HandleFunc("/ai/models/{id}", oem.handleDeleteAIModel).Methods("DELETE")
-	api.HandleFunc("/ai/models/{id}/default", oem.handleSetDefaultAIModel).Methods("POST")
 
 	// 静态文件服务
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./static")))
