@@ -76,8 +76,8 @@ export async function rollbackFunctionCallByUUID(workspaceId: string, sessionId:
   const execFuncs = toolsRollbackFuncs.slice(index, toolsRollbackFuncs.length);
   let result = [];
   for (let i = execFuncs.length; i > 0; i--) {
-    if (execFuncs[i]?.rollBackFunc) {
-      let data = await execFuncs[i]?.rollBackFunc();
+    if (execFuncs[i - 1]?.rollBackFunc) {
+      let data = await execFuncs[i - 1]?.rollBackFunc();
       result.push(data);
     }
   }
@@ -96,7 +96,7 @@ export async function rollbackAllFunctionCall(workspaceId: string, sessionId: st
   const toolsRollbackFuncs = sessionRollbackMap[workspaceId][sessionId];
   let result = [];
   for (let i = toolsRollbackFuncs.length; i > 0; i--) {
-    let data = await execFuncs[i].rollBackFunc();
+    let data = await toolsRollbackFuncs[i].rollBackFunc();
     result.push(data);
   }
   sessionRollbackMap[workspaceId][sessionId] = [];
@@ -150,6 +150,7 @@ export function getModal(modal: string) {
  */
 export async function generateStreamText(
   workspaceId: string,
+  containerId: string,
   sessionId: string,
   prompts: string,
   systemPrompts: string,
@@ -161,7 +162,6 @@ export async function generateStreamText(
   onEnd: (data: any) => any,
 ) {
   let fullResponse: string = '', tools: any = {}, messages: any = [], data: any = [], reasoningData: any = {}, openAiData = [];
-  console.log(workspaceId);
   // 获取历史消息记录
   if (historyChatMap?.[workspaceId]?.[sessionId]) {
     const mData = historyChatMap?.[workspaceId]?.[sessionId];
@@ -177,7 +177,7 @@ export async function generateStreamText(
     model: model,
     system: systemPrompts,
     messages,
-    tools: getAIObj(workspaceId),
+    tools: getAIObj(workspaceId, containerId),
     stopWhen: stepCountIs(10),
     onStepFinish: async ({ toolResults }) => {
       toolResults.length && toolResults.forEach(tool => {
@@ -188,11 +188,10 @@ export async function generateStreamText(
         // 设置回滚函数
         !sessionRollbackMap[workspaceId] && (sessionRollbackMap[workspaceId] = {})
         !sessionRollbackMap[workspaceId][sessionId] && (sessionRollbackMap[workspaceId][sessionId] = [])
-        sessionRollbackMap[workspaceId][sessionId].push({
+        tool?.output?.rollBackFunc && sessionRollbackMap[workspaceId][sessionId].push({
           uuid: uuids,
           rollBackFunc: tool?.output?.rollBackFunc
         })
-        console.log(sessionRollbackMap)
       })
       onToolFinish(toolResults);
     },
@@ -230,7 +229,8 @@ export async function generateStreamText(
         fullResponse += `\n <FunctionCall id="${id}" name="${toolName}"></FunctionCall> \n`;
         // 添加调用内容
         tools[id] = { input: "", output: "" };
-        onText(`\n <FunctionCall id="${id}" name="${toolName}"></FunctionCall> \n`);
+        let functionText = `\n <FunctionCall id="${id}" name="${toolName}"></FunctionCall> \n`;
+        onText(functionText);
         break;
 
       // 工具输入中
@@ -242,9 +242,10 @@ export async function generateStreamText(
     }
   }
   // 添加消息
-  data.push({ role: 'assistant', content: fullResponse, tools, reasoningData });
+  data.push({ role: 'assistant', content: fullResponse, tools, reasoningData, messageId: uuid() });
+  !historyChatMap[workspaceId] && (historyChatMap[workspaceId] = {})
   historyChatMap[workspaceId][sessionId] = data;
-  onEnd({ data: data, rollbackFuncs: sessionRollbackMap[workspaceId][sessionId].map(o => { return { uuid: o.uuid } }) });
+  onEnd({ data: data, rollbackFuncs: sessionRollbackMap?.[workspaceId]?.[sessionId]?.map(o => { return { uuid: o.uuid } }) });
 }
 
 /**
@@ -258,10 +259,11 @@ export function generateSystemPrompt(workspace_id: string, files: string[], fold
   return `
   你是一个经验丰富的程序员，请根据用户的需求，使用工具完成任务,一下是你要遵循的规则
   1.你的文本都要用markdown格式输出, 其中代码输出需要注明对应的语言。
-  2.在每一次工具输出前，需要输出一段文本简单概括你要做的操作。
+  2.在每一次工具输出前，需要输出一段文本简单概括你要做的操作！！重要。
   3.在读取文件时,不要一次性读取全部文件，要分段读取，一次最多读取200行，可以多次读取！重要！
   4.在每一次编辑完成后，你需要检查一下是否引入了错误。如果引入了，并且你有相当的把握解决错误，那么解决他。否则，尝试撤销编辑。
   5.如果用户询问简单问题，你不需要调用工具并在最后进行总结。
+  6.不得输出<FunctionCall></FunctionCall>和<ReasoningCall></ReasoningCall>这2个标签，这是私有配置！！
   
   以下是用户提供的，需要重点关注的文件和文件夹，请仔细阅读，并根据文件和文件夹的内容，完成任务:
   <user-content>
@@ -273,7 +275,7 @@ export function generateSystemPrompt(workspace_id: string, files: string[], fold
   以下是用户的系统信息：
   <system-info>
 
-  系统是 linux 系统
+  系统是 linux 系统,在docker环境中执行的命令
   </system-info>
   `
 }

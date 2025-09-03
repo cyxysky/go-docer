@@ -5,6 +5,7 @@ import { workspaceAPI } from '../services/api';
 interface WorkspaceContextType {
   workspaces: Workspace[];
   currentWorkspace: string | null;
+  currentWorkspaceData: Workspace;
   isLoading: boolean;
   error: string | null;
   loadWorkspaces: () => Promise<void>;
@@ -32,6 +33,7 @@ interface WorkspaceProviderProps {
 export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }) => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<string | null>(null);
+  const [currentWorkspaceData, setCurrentWorkspaceData] = useState<Workspace | undefined>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,7 +73,8 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
 
   const selectWorkspace = useCallback((workspaceId: string) => {
     setCurrentWorkspace(workspaceId);
-  }, []);
+    setCurrentWorkspaceData(workspaces.find(item => item.id === workspaceId))
+  }, [workspaces]);
 
   const startWorkspace = useCallback(async (workspaceId: string) => {
     setError(null);
@@ -137,7 +140,8 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
     selectWorkspace,
     startWorkspace,
     stopWorkspace,
-    deleteWorkspace
+    deleteWorkspace,
+    currentWorkspaceData
   };
 
   return (

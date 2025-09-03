@@ -3,7 +3,7 @@ import './AIAgent.css';
 import { useDrag } from '../contexts/DragContext';
 import { aiAPI } from '../services/api';
 import MdRederer from './MdRender';
-
+import { useWorkspace } from '../contexts/WorkspaceContext';
 /** 选中的文件接口，用于区分文件和文件夹 */
 interface SelectedFile {
   path: string;
@@ -29,6 +29,7 @@ export interface AiMessages {
   reasoningData?: { [key: string]: any };
   timestamp?: any;
   toolsRollbackFuncs?: Array<any>;
+  messageId?: string;
 }
 
 /** ai工具 */
@@ -61,9 +62,11 @@ interface AIConversation {
 const AIAgent: React.FC<AIAgentProps> = ({
   onClose,
   isVisible,
-  currentWorkspace,
   onWidthChange
 }) => {
+  /** 工作空间context */
+  const { currentWorkspace, currentWorkspaceData } = useWorkspace();
+
   /** 对话消息 */
   const [messages, setMessages] = useState<AiMessages[]>([]);
 
@@ -377,7 +380,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
           modelId: selectedModelObj?.id || selectedModel,
           prompt: prompt,
           files: selectedFiles.filter(f => f.type === 'file').map(f => f.path),
-          folders: selectedFiles.filter(f => f.type === 'folder').map(f => f.path)
+          folders: selectedFiles.filter(f => f.type === 'folder').map(f => f.path),
+          containerId: currentWorkspaceData.container_id
         };
         ws.send(JSON.stringify(request));
       };
@@ -387,59 +391,69 @@ const AIAgent: React.FC<AIAgentProps> = ({
         // 思维链
         if (type === 'reasoning') {
           needInit = true;
-          let reasoningData = messages?.[messages.length - 1]?.reasoningData || {};
-          !reasoningData[data.id] && (reasoningData[data.id] = { data: "", isFinish: false });
-          reasoningData[data.id].data += data.data;
           setMessages(prev => prev.map((message: AiMessages, index: number) => {
-            return index === prev.length - 1 ? {
-              ...message,
-              reasoningData
-            } : message
+            if (index === prev.length - 1) {
+              let reasoningData = message?.reasoningData || {};
+              !reasoningData[data.id] && (reasoningData[data.id] = { data: "", isFinish: false });
+              reasoningData[data.id].data += data.data;
+              return {
+                ...message,
+                reasoningData
+              }
+            }
+            return message;
           })
           );
         }
         // 文本内容
         else if (type === 'text') {
-          let reasoningData: any = messages?.[messages.length - 1]?.reasoningData || {};
-          // todo
-          // if (needInit && reasoningData && reasoningData && typeof reasoningData === "object") {
-          //   for (let key of reasoningData) {
-          //     reasoningData[key].isFinish = true;
-          //   }
-          //   needInit = false;
-          // }
           setMessages(prev => prev.map((message: AiMessages, index: number) => {
-            return index === prev.length - 1 ? {
-              ...message,
-              content: message.content += data,
-              reasoningData: reasoningData
-            } : message
+            if (index === prev.length - 1) {
+              let reasoningData: any = message?.reasoningData || {};
+              // todo
+              if (needInit && reasoningData && reasoningData && typeof reasoningData === "object") {
+                Object.keys(reasoningData)?.forEach((key: string) => !reasoningData[key].isFinish && (reasoningData[key].isFinish = true))
+                needInit = false;
+              }
+              return {
+                ...message,
+                content: message.content += data,
+                reasoningData: reasoningData
+              }
+            }
+            return message;
           })
           );
         }
         // 工具输入
         else if (type === 'tool-input') {
-          let tools = messages?.[messages.length - 1]?.tools || {};
-          !tools[data.id] && (tools[data.id] = { input: "", output: "", toolCallId: "", toolName: "" });
-          tools[data.id].input += data.data;
           setMessages(prev => prev.map((message: AiMessages, index: number) => {
-            return index === prev.length - 1 ? {
-              ...message,
-              tools
-            } : message
+            if (index === prev.length - 1) {
+              let tools = message?.tools || {};
+              !tools[data.id] && (tools[data.id] = { input: "", output: "", toolCallId: "", toolName: "" });
+              tools[data.id].input += data.data;
+              return {
+                ...message,
+                tools
+              }
+            }
+            return message
           })
           );
         }
         // 工具执行完毕
         else if (type === 'tool-finish') {
-          let tools = messages?.[messages.length - 1]?.tools || {};
           // 设置工具状态
-          data && data.length && data.forEach((item: AiTools) => tools[item.toolCallId] = item)
           setMessages(prev => prev.map((message: AiMessages, index: number) => {
-            return index === prev.length - 1 ? {
-              ...message,
-              tools
-            } : message
+            if (index === prev.length - 1) {
+              let tools = message?.tools || {};
+              data && data.length && data.forEach((item: AiTools) => tools[item.toolCallId] = item);
+              return {
+                ...message,
+                tools
+              }
+            }
+            return message
           }));
           const needRefresh = data.some((tool: AiTools) => {
             [
@@ -448,8 +462,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
               "createDirectory",
               "deleteDirectory",
               "editFileContent"
-            ]
-              .includes(tool.toolName)
+            ].includes(tool.toolName)
           })
           if (needRefresh) {
             window.dispatchEvent(new CustomEvent('file-system-refresh'));
@@ -458,7 +471,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
         // 内容完成
         else if (type === 'end') {
           setRollbackFunc(data.rollbackFuncs);
-          ws.close();
+          // ws.close();
         }
       };
 
@@ -469,13 +482,8 @@ const AIAgent: React.FC<AIAgentProps> = ({
       ws.onclose = () => {
         aiWSRef.current = null;
         setIsLoading(false);
-        setTimeout(() => {
-          console.log(messages);
-        }, 2000)
       };
-
       return;
-
     } finally {
       setIsLoading(false);
     }
@@ -556,25 +564,24 @@ const AIAgent: React.FC<AIAgentProps> = ({
    * 工具接受或是回滚操作
    * @param toolsRollbackFuncs 工具回滚参数
    */
-  const funcCall = (toolsRollbackFuncs: any) => {
+  const funcCall = useCallback((toolsRollbackFuncs: any) => {
     setRollbackFunc(toolsRollbackFuncs);
-  }
+  }, [])
 
   if (!isVisible) return null;
-
 
   const messageRender = useMemo(() => {
     return (
       <>
         {
           messages && messages?.map((message: AiMessages, index: number) =>
-            <div key={index}>
+            <div key={message.messageId}>
               {/* 用户消息 */}
               {
                 message.role === "user" && (
-                  <div className="ai-agent-message">
+                  <div className="ai-agent-message ai-agent-message-user">
                     <div className='head'>
-                      <span className='title'>You</span>
+                      <span className='title'>用户</span>
                       <span className='time-stamp'>
                         {message?.timestamp?.toLocaleTimeString()}
                       </span>
@@ -585,18 +592,19 @@ const AIAgent: React.FC<AIAgentProps> = ({
                   </div>
                 )
               }
+
               {/* ai消息 */}
               {
                 message.role === 'assistant' && (
-                  <div className="ai-agent-message">
+                  <div className="ai-agent-message ai-agent-message-assistant">
                     <div className='head'>
-                      <span className='title'>AI</span>
+                      <span className='title'>助手</span>
                       <span className='time-stamp'>
                         {message?.timestamp?.toLocaleTimeString()}
                       </span>
                     </div>
                     <MdRederer
-                      key={"asdasd" + index}
+                      key={"asdasd" + message?.messageId}
                       content={message?.content}
                       tools={message?.tools}
                       reasoningData={message?.reasoningData}
@@ -604,6 +612,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
                       sessionId={currentSessionId}
                       toolsRollbackFuncs={rollbackFunc}
                       funcCall={funcCall}
+                      messageId={message?.messageId}
                     >
                     </MdRederer>
                   </div>
@@ -614,7 +623,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
         }
       </>
     )
-  }, [messages])
+  }, [messages, rollbackFunc])
 
   const selectedModelData = models.find(m => m.id === selectedModel);
 
@@ -821,7 +830,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
                   className={`ai-agent-action-button ai-agent-send-button ${(!input.trim() || isLoading) ? 'disabled' : ''}`}
                   title={isLoading ? '生成中...' : '发送'}
                 >
-                  {isLoading ? '⏳' : '➤'}
+                  {isLoading ? '⏳' : <i className="fa-solid fa-message"></i>}
                 </button>
 
                 <button
@@ -830,7 +839,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
                   onClick={() => fileInputRef.current?.click()}
                   title="上传图片"
                 >
-                  📷
+                  <i className="fa-solid fa-image"></i>
                 </button>
                 <input
                   ref={fileInputRef}

@@ -4,8 +4,40 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { z } from 'zod';
 import { tool } from 'ai';
+import * as os from "os";
+import * as pty from "node-pty";
 
 const execAsync = promisify(exec);
+
+/**
+ * 在cmd中执行命令
+ * @param cmd 命令
+ * @param cwd home
+ */
+export async function dockerExecCMD(cmd: string, cwd: string) {
+    return new Promise((resolve, reject) => {
+        let result: Array<string> = [];
+        var ptyProcess = pty.spawn('bash', [], {
+            name: 'xterm-color',
+            cols: 3000,
+            rows: 3000,
+            cwd: cwd,
+        });
+        ptyProcess.onData((data) => {
+            result.push(data);
+        });
+        ptyProcess.onExit((e) => {
+            const data = {
+                success: e.signal === 0,
+                data: result.slice(1, result.length - 2).join("")
+            }
+            resolve(data);
+        })
+        ptyProcess.write(`${cmd} \r`);
+        ptyProcess.write("exit\r")
+    })
+
+}
 
 /**
  * 文件阅读 - 通过文件路径阅读文件内容
@@ -120,8 +152,7 @@ export async function executeCommand(
     cwd?: string
 ): Promise<{ stdout: string; stderr: string }> {
     try {
-        const options = cwd ? { cwd } : {};
-        const result = await execAsync(command, options);
+        const result = await dockerExecCMD(command, cwd);
         return result;
     } catch (error) {
         throw new Error(`命令执行失败: ${error}`);
@@ -210,7 +241,7 @@ export async function editFileContent(
         const afterLines = lines.slice(end);
         const updatedContent = [...beforeLines, ...newLines, ...afterLines].join('\n');
         await fs.promises.writeFile(filePath, updatedContent, 'utf-8');
-        return { originContent: content, newContent: updatedContent.join("\n") }
+        return { originContent: content, newContent: updatedContent }
     } catch (error: any) {
         throw new Error(`编辑文件内容失败: ${error}`);
     }
@@ -233,7 +264,9 @@ export function uuid(): string {
     return uuid;
 }
 
-// 导出所有工具函数
+/**
+ * 导出所有工具函数
+ */
 export const tools = {
     readFile,
     createFile,
@@ -249,9 +282,12 @@ export const tools = {
 /**
  * 获取ai工具函数
  */
-export function getAIObj(workspaceId: string) {
+export function getAIObj(workspaceId: string, containerId: string) {
     const getFilePath = (path: string) => {
         return `../go/workspace/workspaces/${workspaceId}/` + path;
+    }
+    const getCOntainerCmd = (cmd: string) => {
+        return `docker exec ${containerId} /bin/bash -c ${cmd}`;
     }
 
     return {
@@ -285,7 +321,6 @@ export function getAIObj(workspaceId: string) {
                     const rollBackFunc = (): Promise<any> => {
                         return new Promise(async (resolve, reject) => {
                             try {
-                                console.log("开始执行")
                                 await deleteFile(fullPath);
                                 resolve({ success: true, message: '文件删除成功' });
                             } catch (error: any) {
@@ -307,13 +342,13 @@ export function getAIObj(workspaceId: string) {
             execute: async ({ filePath }) => {
                 try {
                     const backupPath: string = getFilePath(filePath) + ".agentFileBackup";
-                    await fs.promise.copyFileSync(getFilePath(filePath), backupPath);
+                    await fs.promises.copyFile(getFilePath(filePath), backupPath);
                     await deleteFile(getFilePath(filePath));
                     // 回滚操作
                     const rollBackFunc = (): Promise<any> => {
                         return new Promise(async (resolve, reject) => {
                             try {
-                                await fs.promise.copyFileSync(backupPath, getFilePath(filePath));
+                                await fs.promises.copyFile(backupPath, getFilePath(filePath));
                                 await deleteFile(backupPath);
                                 resolve({ success: true, message: '文件复原成功' });
                             } catch (error: any) {
@@ -362,13 +397,13 @@ export function getAIObj(workspaceId: string) {
         //     execute: async ({ dirPath, recursive = true }) => {
         //         try {
         //             const backupPath: string = filePath + ".agentFileBackup";
-        //             await fs.promise.copyFileSync(filePath, backupPath);
+        //             await fs.promises.copyFileSync(filePath, backupPath);
         //             await deleteDirectory(dirPath, recursive);
         //             // 回滚操作
         //             const rollBackFunc = (): Promise<any> => {
         //                 return new Promise(async (resolve, reject) => {
         //                     try {
-        //                         await fs.promise.copyFileSync(backupPath, filePath);
+        //                         await fs.promises.copyFileSync(backupPath, filePath);
         //                         await deleteFile(backupPath);
         //                         resolve({ success: true, message: '文件复原成功' });
         //                     } catch (error: any) {
@@ -385,16 +420,16 @@ export function getAIObj(workspaceId: string) {
         executeCommand: tool({
             description: '执行系统命令',
             inputSchema: z.object({
-                command: z.string().describe('要执行的命令, 当前目录为./'),
+                command: z.string().describe('要执行的命令, 当前目录为./ ,注意多个命令使用&&合并'),
                 cwd: z.string().optional().describe('工作目录（可选）, 当前目录为./'),
             }),
             execute: async ({ command, cwd }) => {
                 try {
-                    const result = await executeCommand(command, cwd);
+                    const result = await executeCommand(getCOntainerCmd(command), cwd);
                     return {
-                        success: true,
-                        stdout: result.stdout,
-                        stderr: result.stderr,
+                        success: result.success,
+                        stdout: result.data,
+                        stderr: result.data,
                         command
                     };
                 } catch (error: any) {

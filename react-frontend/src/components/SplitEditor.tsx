@@ -794,7 +794,6 @@ const SplitEditor: React.FC<SplitEditorProps> = ({ className }) => {
           editor={null} // 这里需要传递当前激活的编辑器实例
           onClose={() => setIsAIVisible(false)}
           isVisible={isAIVisible}
-          currentWorkspace={currentWorkspace || undefined}
           fileTree={undefined}
           onWidthChange={setAiSidebarWidth}
         />

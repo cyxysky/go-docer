@@ -52,11 +52,11 @@ export const formatBytes = (bytes: number): string => {
  * @param jsonString 不完整的JSON字符串
  * @returns 解析出的字段对象
  */
-export function parseIncompleteJson(jsonString: string): Record<string, any> {
+export function parseIncompleteJson(jsonString: string | any): Record<string, any> {
   const result: Record<string, any> = {};
 
   if (!jsonString || typeof jsonString !== 'string') {
-    return result;
+    return jsonString;
   }
 
   // 移除首尾空白字符

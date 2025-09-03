@@ -378,11 +378,8 @@
 }
 
 .ai-agent-input-area {
-  padding: 8px;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--darker-bg);
+  padding: 6px;
   position: relative;
-  box-shadow: 8px 4px 10px var(--primary-color);
 }
 
 .ai-agent-drag-overlay {
@@ -405,7 +402,7 @@
 .ai-agent-input-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
 }
 
 .ai-agent-textarea {
@@ -737,8 +734,13 @@
   text-align: center;
 }
 
-.ai-agent-message {
+.ai-agent-message-assistant {
   padding: 4px;
+}
+
+.ai-agent-message-user {
+  padding: 4px 4px 16px 4px;
+  border-bottom: 2px solid var(--primary-color);
 }
 
 .ai-agent-message>.head {
@@ -810,7 +812,7 @@
 }
 
 .ai-agent-user-message-content {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-primary);
   font-weight: 500;
 }
