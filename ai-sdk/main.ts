@@ -135,7 +135,7 @@ class WebSocketServer {
                 // }, 200)
 
 
-                
+
                 const message: any = JSON.parse(data.toString());
                 generateStreamText(
                     message.workspaceId,

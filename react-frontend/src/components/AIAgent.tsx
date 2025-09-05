@@ -352,7 +352,6 @@ const AIAgent: React.FC<AIAgentProps> = ({
     };
     setMessages(prev => [...prev, userMessage]);
     try {
-      const selectedModelObj = models.find(m => m.id === selectedModel || m.name === selectedModel);
       // 推理模型：使用WebSocket流式传输
       let sessionId = currentSessionId;
       if (!sessionId) {
@@ -370,108 +369,107 @@ const AIAgent: React.FC<AIAgentProps> = ({
         reasoningData: {},
         timestamp: new Date(),
       }]);
-      const wsUrl = aiAPI.getAIWebSocketUrl(sessionId);
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(aiAPI.getAIWebSocketUrl(sessionId));
       aiWSRef.current = ws;
       // 连接成功
       ws.onopen = () => {
         const request = {
           workspaceId: currentWorkspace,
-          modelId: selectedModelObj?.id || selectedModel,
+          modelId: models.find(m => m.id === selectedModel || m.name === selectedModel)?.id || selectedModel,
           prompt: prompt,
           files: selectedFiles.filter(f => f.type === 'file').map(f => f.path),
           folders: selectedFiles.filter(f => f.type === 'folder').map(f => f.path),
-          containerId: currentWorkspaceData.container_id
+          containerId: currentWorkspaceData.container_id,
+          timestamp: new Date()
         };
         ws.send(JSON.stringify(request));
       };
       // 收到消息
       ws.onmessage = (evt) => {
         const { type, data } = JSON.parse(evt.data);
-        // 思维链
-        if (type === 'reasoning') {
-          needInit = true;
-          setMessages(prev => prev.map((message: AiMessages, index: number) => {
-            if (index === prev.length - 1) {
-              let reasoningData = message?.reasoningData || {};
-              !reasoningData[data.id] && (reasoningData[data.id] = { data: "", isFinish: false });
-              reasoningData[data.id].data += data.data;
-              return {
-                ...message,
-                reasoningData
+        switch (type) {
+          case "reasoning":
+            needInit = true;
+            setMessages(prev => prev.map((message: AiMessages, index: number) => {
+              if (index === prev.length - 1) {
+                let reasoningData = message?.reasoningData || {};
+                !reasoningData[data.id] && (reasoningData[data.id] = { data: "", isFinish: false });
+                reasoningData[data.id].data += data.data;
+                return {
+                  ...message,
+                  reasoningData
+                }
               }
+              return message;
+            })
+            );
+            break;
+          case "text":
+            setMessages(prev => prev.map((message: AiMessages, index: number) => {
+              if (index === prev.length - 1) {
+                let reasoningData: any = message?.reasoningData || {};
+                // todo
+                if (needInit && reasoningData && reasoningData && typeof reasoningData === "object") {
+                  Object.keys(reasoningData)?.forEach((key: string) => !reasoningData[key].isFinish && (reasoningData[key].isFinish = true))
+                  needInit = false;
+                }
+                return {
+                  ...message,
+                  content: message.content += data,
+                  reasoningData: reasoningData
+                }
+              }
+              return message;
+            })
+            );
+            break;
+          case "tool-input":
+            setMessages(prev => prev.map((message: AiMessages, index: number) => {
+              if (index === prev.length - 1) {
+                let tools = message?.tools || {};
+                !tools[data.id] && (tools[data.id] = { input: "", output: "", toolCallId: "", toolName: "" });
+                tools[data.id].input += data.data;
+                return {
+                  ...message,
+                  tools
+                }
+              }
+              return message
+            })
+            );
+            break;
+          case "tool-finish":
+            // 设置工具状态
+            setMessages(prev => prev.map((message: AiMessages, index: number) => {
+              if (index === prev.length - 1) {
+                let tools = message?.tools || {};
+                data && data.length && data.forEach((item: AiTools) => tools[item.toolCallId] = item);
+                return {
+                  ...message,
+                  tools
+                }
+              }
+              return message
+            }));
+            const needRefresh = data.some((tool: AiTools) => {
+              [
+                "createFile",
+                "deleteFile",
+                "createDirectory",
+                "deleteDirectory",
+                "editFileContent"
+              ].includes(tool.toolName)
+            })
+            if (needRefresh) {
+              window.dispatchEvent(new CustomEvent('file-system-refresh'));
             }
-            return message;
-          })
-          );
-        }
-        // 文本内容
-        else if (type === 'text') {
-          setMessages(prev => prev.map((message: AiMessages, index: number) => {
-            if (index === prev.length - 1) {
-              let reasoningData: any = message?.reasoningData || {};
-              // todo
-              if (needInit && reasoningData && reasoningData && typeof reasoningData === "object") {
-                Object.keys(reasoningData)?.forEach((key: string) => !reasoningData[key].isFinish && (reasoningData[key].isFinish = true))
-                needInit = false;
-              }
-              return {
-                ...message,
-                content: message.content += data,
-                reasoningData: reasoningData
-              }
-            }
-            return message;
-          })
-          );
-        }
-        // 工具输入
-        else if (type === 'tool-input') {
-          setMessages(prev => prev.map((message: AiMessages, index: number) => {
-            if (index === prev.length - 1) {
-              let tools = message?.tools || {};
-              !tools[data.id] && (tools[data.id] = { input: "", output: "", toolCallId: "", toolName: "" });
-              tools[data.id].input += data.data;
-              return {
-                ...message,
-                tools
-              }
-            }
-            return message
-          })
-          );
-        }
-        // 工具执行完毕
-        else if (type === 'tool-finish') {
-          // 设置工具状态
-          setMessages(prev => prev.map((message: AiMessages, index: number) => {
-            if (index === prev.length - 1) {
-              let tools = message?.tools || {};
-              data && data.length && data.forEach((item: AiTools) => tools[item.toolCallId] = item);
-              return {
-                ...message,
-                tools
-              }
-            }
-            return message
-          }));
-          const needRefresh = data.some((tool: AiTools) => {
-            [
-              "createFile",
-              "deleteFile",
-              "createDirectory",
-              "deleteDirectory",
-              "editFileContent"
-            ].includes(tool.toolName)
-          })
-          if (needRefresh) {
-            window.dispatchEvent(new CustomEvent('file-system-refresh'));
-          }
-        }
-        // 内容完成
-        else if (type === 'end') {
-          setRollbackFunc(data.rollbackFuncs);
-          // ws.close();
+            break;
+          case "end":
+            setRollbackFunc(data.rollbackFuncs);
+            setTimeout(() => {
+              ws.close();
+            }, 10000)
+            break;
         }
       };
 
@@ -581,7 +579,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
                 message.role === "user" && (
                   <div className="ai-agent-message ai-agent-message-user">
                     <div className='head'>
-                      <span className='title'>用户</span>
+                      <span className='user-title'>用户</span>
                       <span className='time-stamp'>
                         {message?.timestamp?.toLocaleTimeString()}
                       </span>
@@ -598,7 +596,7 @@ const AIAgent: React.FC<AIAgentProps> = ({
                 message.role === 'assistant' && (
                   <div className="ai-agent-message ai-agent-message-assistant">
                     <div className='head'>
-                      <span className='title'>助手</span>
+                      <span className='ai-title'>助手</span>
                       <span className='time-stamp'>
                         {message?.timestamp?.toLocaleTimeString()}
                       </span>

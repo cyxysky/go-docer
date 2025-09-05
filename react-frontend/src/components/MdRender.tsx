@@ -10,23 +10,12 @@ import { parseIncompleteJson } from '../utils/index';
 import * as refractor from 'refractor';
 import { diffLines, formatLines } from 'unidiff';
 import { tokenize, parseDiff, Diff, Hunk } from 'react-diff-view';
+import { AnsiUp } from 'ansi_up'
+const ansi_up = new AnsiUp();
 
 import './MdRender.css';
 import "react-diff-view/style/index.css";
 import 'prismjs/themes/prism.css';
-
-/**
- * AI消息接口
- */
-interface AiMessages {
-  content: string;
-  tools?: Record<string, any>;
-  reasoningData?: Record<string, any>;
-  workspaceId?: string,
-  sessionId?: string;
-  toolsRollbackFuncs?: Array<any>;
-  funcCall?: any
-}
 
 /**
  * 代码参数
@@ -103,14 +92,6 @@ const SyntaxHighlightedCode: React.FC<Props> = ({ children, className, acTionnam
   const [copied, setCopied] = useState(false);
   const [expand, setExpand] = useState(false);
   const language = className ? className.replace('language-', '') : 'inline';
-
-  // children && children instanceof Array && (
-  //   React.Children.map(children, child => {
-  //     if (React.isValidElement(child)) {
-  //       isBlock = true;
-  //     }
-  //   })
-  // )
 
   if (language === "inline") {
     return <code className="md-render-inline-code">{children}</code>
@@ -219,6 +200,20 @@ const FunctionComponent: React.FC<Props> = ({ id, name, tools, workspaceId, sess
 
   const toolInfo = getToolInfo(name);
 
+
+  const transform = (str: string): string => {
+    if (!str) return '';
+    return ansi_up.ansi_to_html(str.replace(']0;', ""));
+    // // 移除 \u001b[?2004h 这种格式的控制符
+    // .replace(/\\u001b\[[?]?[0-9;]*[a-zA-Z]/g, '')
+    // // 移除 \u001b]0; 这种格式的控制符
+    // .replace(/\\u001b\]0;[^\\]*\\u001b\\[0-9;]*[a-zA-Z]/g, '')
+    // // 移除其他Unicode控制符
+    // .replace(/\\u001b\[[0-9;]*[a-zA-Z]/g, '')
+    // .replace("\u001b[?2004h\u001b]0;", "")
+    // .replace("\u001b[?2004l", "")
+  }
+
   /**
    * 渲染工具执行状态
    */
@@ -256,23 +251,25 @@ const FunctionComponent: React.FC<Props> = ({ id, name, tools, workspaceId, sess
         );
       case 'executeCommand':
         return (
-          <div className="md-render-tool-content">
-            <SyntaxHighlighter
-              language="shell"
-              style={tomorrow}
-              customStyle={codeStyle}
-              wrapLines={false}
-            >
-              {
-                toolData?.output ? toolData?.output?.stdout ? toolData?.output?.stdout : toolData?.output?.error ? toolData?.output?.error : toolData?.output?.success ? "命令执行成功" : "命令执行失败" : ""
-              }
-            </SyntaxHighlighter>
-          </div>
+          <pre
+            style={{
+              padding: "6px 12px",
+              margin: "0px",
+              overflow: "auto",
+              backgroundColor: "var(--dark-bg)",
+              fontFamily: '"JetBrains Mono", "Fira Code", Consolas, Monaco',
+              fontSize: "14px"
+            }}
+            dangerouslySetInnerHTML={{
+              __html:
+                transform(toolData?.output ? toolData?.output?.stdout ? toolData?.output?.stdout : toolData?.output?.error ? toolData?.output?.error : toolData?.output?.success ? "命令执行成功" : "命令执行失败" : "")
+            }}>
+          </pre>
         );
       case 'editFileContent':
-        return (
-          <CodeDiff oldVal={toolData?.output?.originData || ''} newVal={toolData?.output?.newContent || ''} />
-        );
+        return toolData?.output?.newContent && toolData?.output?.newContent ?
+          (<CodeDiff oldVal={toolData?.output?.originData || ''} newVal={toolData?.output?.newContent || ''} />) :
+          (<></>)
     }
   }
 
@@ -294,9 +291,14 @@ const FunctionComponent: React.FC<Props> = ({ id, name, tools, workspaceId, sess
           <div>
             {parseIncompleteJson(toolData?.input)?.filePath?.split("/")?.pop() || ""}
           </div>
-          <div>
-            {parseIncompleteJson(toolData?.input)?.startLine} ~ {parseIncompleteJson(toolData?.input)?.endLine}
-          </div>
+          {
+            parseIncompleteJson(toolData?.input)?.startLine !== undefined && parseIncompleteJson(toolData?.input)?.endLine !== undefined && (
+              <div>
+                {parseIncompleteJson(toolData?.input)?.startLine} ~ {parseIncompleteJson(toolData?.input)?.endLine}
+              </div>
+            )
+          }
+
         </div>
         <div className="md-render-reading-content" style={{
           margin: isExpanded ? "12px 0 0 0" : ""
@@ -408,6 +410,7 @@ const FunctionComponent: React.FC<Props> = ({ id, name, tools, workspaceId, sess
           {renderLoading()}
 
         </div>
+        {/* {JSON.stringify(toolsRollbackFuncs)} */}
         {
           toolsRollbackFuncs?.some((item: any) => item.uuid === toolData?.uuid) && (
             <div className="md-render-function-actions">
@@ -503,19 +506,16 @@ const ReasonerComponent: React.FC<Props> = ({ id, reasoningDatas }) => {
 const MdRederer: React.FC<any> = ({ content, tools, reasoningData, workspaceId, sessionId, toolsRollbackFuncs, funcCall, messageId }) => {
   const [Component, setComponent] = useState<any>(null);
 
-  const FunctionCallComponent = useMemo(() => {
-    const Component: React.FC<any> = (props) => (
-      <FunctionComponent
-        {...props}
-        tools={tools}
-        workspaceId={workspaceId}
-        sessionId={sessionId}
-        toolsRollbackFuncs={toolsRollbackFuncs}
-        funcCall={funcCall}
-      />
-    );
-    return React.memo(Component);
-  }, [workspaceId, toolsRollbackFuncs]);
+  const FunctionCallComponent: React.FC<any> = (props) => (
+    <FunctionComponent
+      {...props}
+      tools={tools}
+      workspaceId={workspaceId}
+      sessionId={sessionId}
+      toolsRollbackFuncs={toolsRollbackFuncs}
+      funcCall={funcCall}
+    />
+  );
 
   const ReasoningCallComponent: React.FC<any> = (props) => {
     return (

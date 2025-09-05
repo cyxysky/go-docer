@@ -1,5 +1,3 @@
-let a = {
-  a: "456"
-};
+let z = [1,2,3,4,5]
 
-console.log(Object.keys(a))
+console.log(z.slice(0,0))

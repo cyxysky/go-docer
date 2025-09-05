@@ -287,7 +287,9 @@ export function getAIObj(workspaceId: string, containerId: string) {
         return `../go/workspace/workspaces/${workspaceId}/` + path;
     }
     const getCOntainerCmd = (cmd: string) => {
-        return `docker exec ${containerId} /bin/bash -c ${cmd}`;
+        return `docker exec ${containerId} /bin/bash -c "${cmd}"`;
+        // | perl -pe 's/\x1b\[[0-9;]*[a-zA-Z]//g'
+        // | tr -d '\x1b\['
     }
 
     return {

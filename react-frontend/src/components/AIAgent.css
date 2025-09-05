@@ -409,10 +409,10 @@
   width: 100%;
   min-height: 80px;
   max-height: 200px;
-  padding: 12px;
+  padding: 8px;
   background-color: var(--darker-bg);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--text-primary);
   font-size: 12px;
   resize: vertical;
@@ -739,8 +739,8 @@
 }
 
 .ai-agent-message-user {
-  padding: 4px 4px 16px 4px;
-  border-bottom: 2px solid var(--primary-color);
+  padding: 4px 4px 8px 4px;
+  /* border-bottom: 2px solid var(--primary-color); */
 }
 
 .ai-agent-message>.head {
@@ -750,10 +750,25 @@
   margin-bottom: 8px
 }
 
-.ai-agent-message>.head>.title {
-  font-weight: 500;
-  font-size: 14px;
+.ai-agent-message>.head>.user-title {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: white;
+
+  background-color: var(--info-color);
 }
+
+.ai-agent-message>.head>.ai-title {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: white;
+  background-color: var(--success-color);
+}
+
 
 .ai-agent-message>.head>.time-stamp {
   font-size: 12px;

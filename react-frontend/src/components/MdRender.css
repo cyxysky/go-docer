@@ -29,7 +29,7 @@
 
 .md-render-language-tag {
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 12px;
     font-family: JetBrains Mono, Fira Code, Consolas, Monaco Inter, sans-serif !important
 }
 
@@ -87,15 +87,14 @@
     border-radius: 4px;
     border: 1px solid var(--border-color);
     overflow: hidden;
-    transition: all 0.3s ease;
-    margin: 12px 0;
+    margin: 8px 0;
 }
 
 .md-render-function-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 4px 8px;
+    padding: 2px 8px;
     background-color: var(--darker-bg);
 }
 
@@ -136,7 +135,7 @@
 
 .md-render-target-name {
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 12px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -185,11 +184,15 @@
 }
 
 .md-render-tool-content pre {
-    padding: 8px 12px !important;
+    padding: 6px 12px !important;
 }
 .md-render-reasoner-content pre {
-    padding: 8px 12px !important;
+    padding: 6px 12px !important;
 }
+.md-render-code-content pre {
+    padding: 6px 12px !important;
+}
+
 
 .md-render-file-info,
 .md-render-command-info,
