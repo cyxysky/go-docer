@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { MDXProvider } from '@mdx-js/react';
 import { compileSync, runSync } from '@mdx-js/mdx';
 import * as runtime from 'react/jsx-runtime';
@@ -10,23 +10,12 @@ import { parseIncompleteJson } from '../utils/index';
 import * as refractor from 'refractor';
 import { diffLines, formatLines } from 'unidiff';
 import { tokenize, parseDiff, Diff, Hunk } from 'react-diff-view';
+import { AnsiUp } from 'ansi_up'
+const ansi_up = new AnsiUp();
 
 import './MdRender.css';
 import "react-diff-view/style/index.css";
 import 'prismjs/themes/prism.css';
-
-/**
- * AI消息接口
- */
-interface AiMessages {
-  content: string;
-  tools?: Record<string, any>;
-  reasoningData?: Record<string, any>;
-  workspaceId?: string,
-  sessionId?: string;
-  toolsRollbackFuncs?: Array<any>;
-  funcCall?: any
-}
 
 /**
  * 代码参数
@@ -44,7 +33,7 @@ const codeStyle = {
   fontSize: '14px',
   fontFamily: '"JetBrains Mono", "Fira Code", "Consolas", "Monaco"',
   backgroundColor: 'var(--dark-bg)',
-  textShadow: "none"
+  textShadow: "none",
 }
 
 /**
@@ -102,7 +91,11 @@ const copyToClipboard = async (text: string) => {
 const SyntaxHighlightedCode: React.FC<Props> = ({ children, className, acTionname }) => {
   const [copied, setCopied] = useState(false);
   const [expand, setExpand] = useState(false);
-  const language = className ? className.replace('language-', '') : 'text';
+  const language = className ? className.replace('language-', '') : 'inline';
+
+  if (language === "inline") {
+    return <code className="md-render-inline-code">{children}</code>
+  }
 
   const handleCopy = async () => {
     if (children) {
@@ -122,8 +115,6 @@ const SyntaxHighlightedCode: React.FC<Props> = ({ children, className, acTionnam
           gap: "4px"
         }}>
           <i className="fa-solid fa-code" style={{
-            height: "10px",
-            fontSize: "12px",
             color: "#06b6d4"
           }}></i>
           <div className="md-render-language-tag">
@@ -174,36 +165,25 @@ const SyntaxHighlightedCode: React.FC<Props> = ({ children, className, acTionnam
 /**
  * 统一的工具组件 - 根据name判断工具类型
  */
-const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspaceId, sessionId, toolsRollbackFuncs, funcCall }) => {
+const FunctionComponent: React.FC<Props> = ({ id, name, tools, workspaceId, sessionId, toolsRollbackFuncs, funcCall }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [input, setInput] = useState<any>({});
-  const [output, setOuput] = useState<any>({});
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isJudge, setIsJudge] = useState<boolean>(false);
-  const toolData = tools?.[id];
+  let toolData = tools?.[id];
 
   useEffect(() => {
-    toolData?.output && setIsLoading(false);
-    setInput(parseIncompleteJson(String(toolData?.input)));
-    setOuput(parseIncompleteJson(String(toolData?.output)));
-    console.log("重置")
-  }, [tools, id])
-
-  useEffect(() => {
-    setIsJudge(prev => toolsRollbackFuncs?.some((item: any) => item.uuid === toolData?.uuid));
-  }, [tools, workspaceId, sessionId, toolsRollbackFuncs])
+    toolData = tools?.[id];
+  }, [tools, id, toolsRollbackFuncs])
 
   const acceptById = useCallback(async () => {
-    let data = await aiAPI.rollback("acceptSome", workspaceId, sessionId, toolData?.uuid);
+    await aiAPI.rollback("acceptSome", workspaceId, sessionId, toolData?.uuid);
     const index = toolsRollbackFuncs?.findIndex((o: any) => o.uuid === toolData?.uuid);
     funcCall && funcCall(toolsRollbackFuncs?.slice(index, toolsRollbackFuncs?.length || 0));
-  }, [output, toolsRollbackFuncs, funcCall, workspaceId, sessionId])
+  }, [tools, toolsRollbackFuncs, funcCall, workspaceId, sessionId])
 
   const rollbackById = useCallback(async () => {
-    let data = await aiAPI.rollback("rejectSome", workspaceId, sessionId, toolData?.uuid);
+    await aiAPI.rollback("rejectSome", workspaceId, sessionId, toolData?.uuid);
     const index = toolsRollbackFuncs?.findIndex((o: any) => o.uuid === toolData?.uuid);
     funcCall && funcCall(toolsRollbackFuncs?.slice(0, index))
-  }, [output, toolsRollbackFuncs, funcCall, workspaceId, sessionId])
+  }, [tools, toolsRollbackFuncs, funcCall, workspaceId, sessionId])
 
   // 根据工具名称获取图标和标题
   const getToolInfo = (toolName: string) => {
@@ -215,29 +195,43 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
       'executeCommand': { icon: 'fa-gear', title: '执行命令', color: '#8b5cf6' },
       'editFileContent': { icon: 'fa-pen-to-square', title: '编辑文件', color: '#007acc' },
     };
-
     return toolMap[toolName] || toolMap['default'];
   };
 
   const toolInfo = getToolInfo(name);
 
+
+  const transform = (str: string): string => {
+    if (!str) return '';
+    return ansi_up.ansi_to_html(str.replace(']0;', ""));
+    // // 移除 \u001b[?2004h 这种格式的控制符
+    // .replace(/\\u001b\[[?]?[0-9;]*[a-zA-Z]/g, '')
+    // // 移除 \u001b]0; 这种格式的控制符
+    // .replace(/\\u001b\]0;[^\\]*\\u001b\\[0-9;]*[a-zA-Z]/g, '')
+    // // 移除其他Unicode控制符
+    // .replace(/\\u001b\[[0-9;]*[a-zA-Z]/g, '')
+    // .replace("\u001b[?2004h\u001b]0;", "")
+    // .replace("\u001b[?2004l", "")
+  }
+
+  /**
+   * 渲染工具执行状态
+   */
   const renderLoading = () => {
     return (
-      <div style={{
-        height: "8px"
-      }}>
-        {
-          isLoading && (
-            <span className="md-render-loading-indicator">
-              <i className="fas fa-spinner"></i>
-            </span>
-          )
-        }
+      <div style={{ height: "10px" }}>
+        {!toolData?.output && (
+          <span className="md-render-loading-indicator">
+            <i className="fas fa-spinner"></i>
+          </span>
+        )}
       </div>
     )
   }
 
-  // 渲染工具特定内容
+  /**
+   * 渲染工具特定内容
+   */
   const renderToolContent = () => {
     if (!toolData) return null;
     switch (name) {
@@ -246,38 +240,42 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
         return (
           <div className="md-render-tool-content">
             <SyntaxHighlighter
-              language={input?.fileName?.split(".").pop() || 'text'}
+              language={parseIncompleteJson(toolData?.input)?.fileName?.split(".").pop() || 'text'}
               style={tomorrow}
               customStyle={codeStyle}
               wrapLines={true}
             >
-              {input?.content || ''}
+              {parseIncompleteJson(toolData?.input)?.content || ''}
             </SyntaxHighlighter>
           </div>
         );
-
       case 'executeCommand':
         return (
-          <div className="md-render-tool-content">
-            <SyntaxHighlighter
-              language="shell"
-              style={tomorrow}
-              customStyle={codeStyle}
-              wrapLines={false}
-            >
-              {output?.stdout || '命令执行完成'}
-            </SyntaxHighlighter>
-          </div>
+          <pre
+            style={{
+              padding: "6px 12px",
+              margin: "0px",
+              overflow: "auto",
+              backgroundColor: "var(--dark-bg)",
+              fontFamily: '"JetBrains Mono", "Fira Code", Consolas, Monaco',
+              fontSize: "14px"
+            }}
+            dangerouslySetInnerHTML={{
+              __html:
+                transform(toolData?.output ? toolData?.output?.stdout ? toolData?.output?.stdout : toolData?.output?.error ? toolData?.output?.error : toolData?.output?.success ? "命令执行成功" : "命令执行失败" : "")
+            }}>
+          </pre>
         );
-
       case 'editFileContent':
-        return (
-          <CodeDiff oldVal={output?.originData || ''} newVal={output?.newContent || ''} />
-        );
+        return toolData?.output?.newContent && toolData?.output?.newContent ?
+          (<CodeDiff oldVal={toolData?.output?.originData || ''} newVal={toolData?.output?.newContent || ''} />) :
+          (<></>)
     }
-  };
+  }
 
-  // 文件读取
+  /**
+   * 文件读取工具渲染
+   */
   if (name === 'readFile') {
     return (
       <div data-function-id={id}>
@@ -286,27 +284,33 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
           setIsExpanded(!isExpanded)
         }}>
           <i className="fa-brands fa-readme" style={{
-            height: "10px",
             color: "var(--success-hover)"
           }}>
           </i>
           {renderLoading()}
           <div>
-            {input?.filePath?.split("/")?.pop() || ""}
+            {parseIncompleteJson(toolData?.input)?.filePath?.split("/")?.pop() || ""}
           </div>
-          <div>
-            {input?.startLine} ~ {input?.endLine}
-          </div>
+          {
+            parseIncompleteJson(toolData?.input)?.startLine !== undefined && parseIncompleteJson(toolData?.input)?.endLine !== undefined && (
+              <div>
+                {parseIncompleteJson(toolData?.input)?.startLine} ~ {parseIncompleteJson(toolData?.input)?.endLine}
+              </div>
+            )
+          }
+
         </div>
-        <div className="md-render-reading-content">
+        <div className="md-render-reading-content" style={{
+          margin: isExpanded ? "12px 0 0 0" : ""
+        }}>
           {isExpanded && (
             <SyntaxHighlighter
-              language={input?.filePath?.split(".").pop() || 'text'}
+              language={parseIncompleteJson(toolData?.input)?.filePath?.split(".").pop() || 'text'}
               style={tomorrow}
               customStyle={codeStyle}
               wrapLines={true}
             >
-              {toolData?.output?.content || output?.content || ""}
+              {toolData?.output?.content || ""}
             </SyntaxHighlighter>
           )}
         </div>
@@ -314,7 +318,9 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
     )
   }
 
-  // 全局搜索
+  /**
+   * 全局搜索工具渲染
+   */
   if (name === 'globalSearch') {
     return (
       <div data-function-id={id} style={{
@@ -326,19 +332,19 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
             color: "var(--primary-dark)"
           }}></i>
           {renderLoading()}
-          {input?.searchPath && (
+          {parseIncompleteJson(toolData?.input)?.searchPath && (
             <div>
-              {input?.searchPath}
+              {parseIncompleteJson(toolData?.input)?.searchPath}
             </div>
           )}
-          {input?.searchText && (
+          {parseIncompleteJson(toolData?.input)?.searchText && (
             <div>
-              {input?.searchText}
+              {parseIncompleteJson(toolData?.input)?.searchText}
             </div>
           )}
-          {input?.fileExtensions && (
+          {parseIncompleteJson(toolData?.input)?.fileExtensions && (
             <div>
-              {input?.fileExtensions}
+              {parseIncompleteJson(toolData?.input)?.fileExtensions}
             </div>
           )}
         </div>
@@ -346,7 +352,9 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
     )
   }
 
-  // 默认内容
+  /**
+   * 默认内容
+   */
   return (
     <div className="md-render-function-tag" data-function-id={id}>
       {/* 卡片头部 */}
@@ -355,7 +363,6 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
           <div className="md-render-function-icon">
             <i className={"fa-solid " + toolInfo.icon} style={{
               color: toolInfo.color,
-              height: "9px"
             }}></i>
           </div>
           <div className="md-render-function-details">
@@ -371,7 +378,7 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
               'editFileContent'
             ].includes(name) && (
                 <div className="md-render-target-name">
-                  {input?.filePath?.split("/")?.pop() || ""}
+                  {parseIncompleteJson(toolData?.input)?.filePath?.split("/")?.pop() || ""}
                 </div>
               )}
 
@@ -380,7 +387,7 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
               'deleteDirectory',
             ].includes(name) && (
                 <div className="md-render-target-name">
-                  {input?.dirPath?.split("/")?.pop() || ""}
+                  {parseIncompleteJson(toolData?.input)?.dirPath?.split("/")?.pop() || ""}
                 </div>
               )}
 
@@ -388,7 +395,7 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
               'createFile',
             ].includes(name) && (
                 <div className="md-render-target-name">
-                  {input?.fileName || ""}
+                  {parseIncompleteJson(toolData?.input)?.fileName || ""}
                 </div>
               )}
 
@@ -396,27 +403,32 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
               "executeCommand"
             ].includes(name) && (
                 <div className="md-render-target-name">
-                  {input?.command || ""}
+                  {parseIncompleteJson(toolData?.input)?.command || ""}
                 </div>
               )}
           </div>
           {renderLoading()}
-        </div>
 
-        <div className="md-render-function-actions">
-          <button
-            onClick={() => rollbackById()}
-            className="md-render-action-btn"
-          >
-            <i className="fa-solid fa-xmark"></i>
-          </button>
-          <button
-            onClick={() => acceptById()}
-            className="md-render-action-btn"
-          >
-            <i className="fa-solid fa-check"></i>
-          </button>
         </div>
+        {/* {JSON.stringify(toolsRollbackFuncs)} */}
+        {
+          toolsRollbackFuncs?.some((item: any) => item.uuid === toolData?.uuid) && (
+            <div className="md-render-function-actions">
+              <button
+                onClick={() => rollbackById()}
+                className="md-render-action-btn"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+              <button
+                onClick={() => acceptById()}
+                className="md-render-action-btn"
+              >
+                <i className="fa-solid fa-check"></i>
+              </button>
+            </div>
+          )
+        }
       </div>
 
       {/* 参数区域 */}
@@ -448,24 +460,40 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
 };
 
 /**
- * 思维链组件
+ * 思维链工具渲染
  */
-const ReasonerComponent: React.FC<Props> = ({ children, id, reasoningData }) => {
+const ReasonerComponent: React.FC<Props> = ({ id, reasoningDatas }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const reasoningContent = reasoningData?.[id]?.data || children;
+  let reasoningData = reasoningDatas?.[id];
+
+  useEffect(() => {
+    reasoningData = reasoningDatas?.[id];
+  }, [reasoningDatas, id])
 
   return (
     <div className="md-render-reasoner-card">
       {/* 思维链头部 */}
       <div className="md-render-reasoner-header" onClick={() => setIsExpanded(!isExpanded)}>
-        <div className="md-render-reasoner-icon">🧠</div>
+        <div className="md-render-reasoner-icon">
+          <i className="fa-solid fa-brain" style={{
+            color: "var(--primary-color)"
+          }}>
+          </i>
+        </div>
       </div>
 
       {/* 思维链内容 */}
-      {isExpanded && (
+      {(isExpanded || !reasoningData?.isFinish) && (
         <div className="md-render-reasoner-content">
-          {reasoningContent}
+          <SyntaxHighlighter
+            language={'text'}
+            style={tomorrow}
+            customStyle={codeStyle}
+            wrapLines={true}
+          >
+            {reasoningData?.data}
+          </SyntaxHighlighter>
         </div>
       )}
     </div>
@@ -473,14 +501,32 @@ const ReasonerComponent: React.FC<Props> = ({ children, id, reasoningData }) => 
 };
 
 /**
- * 动态MDX渲染器组件
+ * 主渲染器组件
  */
-const DynamicMDXRenderer: React.FC<AiMessages> = ({ content, tools, reasoningData, workspaceId, sessionId, toolsRollbackFuncs, funcCall }) => {
+const MdRederer: React.FC<any> = ({ content, tools, reasoningData, workspaceId, sessionId, toolsRollbackFuncs, funcCall, messageId }) => {
+  const [Component, setComponent] = useState<any>(null);
 
-  const components = {
+  const FunctionCallComponent: React.FC<any> = (props) => (
+    <FunctionComponent
+      {...props}
+      tools={tools}
+      workspaceId={workspaceId}
+      sessionId={sessionId}
+      toolsRollbackFuncs={toolsRollbackFuncs}
+      funcCall={funcCall}
+    />
+  );
+
+  const ReasoningCallComponent: React.FC<any> = (props) => {
+    return (
+      <ReasonerComponent {...props} reasoningDatas={reasoningData} />
+    )
+  }
+
+  let components = {
     // 工具组件
-    FunctionCall: (prop: any) => FunctionComponent({ ...prop, tools, workspaceId, sessionId, toolsRollbackFuncs, funcCall }),
-    ReasoningCall: (prop: any) => ReasonerComponent({ ...prop, reasoningData }),
+    FunctionCall: FunctionCallComponent,
+    ReasoningCall: ReasoningCallComponent,
     // 基础MDX组件
     h1: (props: any) => (
       <h1
@@ -606,41 +652,28 @@ const DynamicMDXRenderer: React.FC<AiMessages> = ({ content, tools, reasoningDat
     )
   }
 
-  /** 编译的代码内容 */
-  const compiled = compileSync(content, {
-    outputFormat: 'function-body',
-  });
-
-  /** 编译后的md的html内容 */
-  const { default: Content } = runSync(compiled, { ...runtime, baseUrl: import.meta.url });
+  useEffect(() => {
+    /** 编译的代码内容 */
+    try {
+      const compiled = compileSync(content, {
+        outputFormat: 'function-body',
+      });
+      /** 编译后的md的html内容 */
+      const { default: Contents } = runSync(compiled, { ...runtime, baseUrl: import.meta.url });
+      setComponent(prev => Contents)
+    } catch (e: any) {
+      console.log(e)
+    }
+  }, [content, tools, toolsRollbackFuncs, funcCall])
 
   return (
-    <MDXProvider components={components}>
+    <MDXProvider>
       <div className="md-render-mdx-content">
-        <Content components={components} />
+        {Component && (<Component components={components}></Component>)}
       </div>
     </MDXProvider>
-  );
+  )
 };
 
-/**
- * 主渲染器组件
- */
-const MdRederer: React.FC<any> = ({ content, tools, reasoningData, workspaceId, sessionId, toolsRollbackFuncs, funcCall }) => {
-  return (
-    <div className="md-render-container">
-      <DynamicMDXRenderer
-        content={content}
-        tools={tools}
-        reasoningData={reasoningData}
-        workspaceId={workspaceId}
-        sessionId={sessionId}
-        toolsRollbackFuncs={toolsRollbackFuncs}
-        funcCall={funcCall}
-      />
-    </div>
-  );
-};
-
-export default MdRederer;
+export default MdRederer
 

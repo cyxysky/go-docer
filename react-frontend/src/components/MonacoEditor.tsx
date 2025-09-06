@@ -1,12 +1,26 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
-import { DiffEditor, type DiffOnMount } from '@monaco-editor/react';
+import { DiffEditor, type DiffOnMount, loader } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useFile } from '../contexts/FileContext';
 import { useAICodeChanges } from '../contexts/AICodeChangesContext';
 import { fileAPI } from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
+
+const loaderConfig = {
+  'vs/nls': {
+    availableLanguages: {
+      '*': 'zh-cn',
+    },
+  },
+  paths: {
+    // 根据需要调整版本和产物类型
+    // https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs
+    vs: '../../public/monaco',
+  },
+};
+loader.config(loaderConfig);
 
 // 统一转换所有内容为纯文本，避免 monaco 在处理 JSON/对象时报 Z.split 错误
 const normalizeToString = (value: any, fallback: string = ''): string => {
@@ -116,15 +130,29 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   filePath,
   onActivate
 }) => {
+
+  /** 编辑器内容 */
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+  /** 差异编辑器内容 */
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
+
+  /** 保存防抖处理 */
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** 是否是差异模式 */
   const [isDiffMode, setIsDiffMode] = useState(false);
+
+  /** 是否已经创建差异模式 */
   const [isCreatingDiff, setIsCreatingDiff] = useState(false);
+
+  /** 原始代码 */
   const [originalCode, setOriginalCode] = useState('');
+
+  /** 编辑后的代码 */
   const [modifiedCode, setModifiedCode] = useState('');
 
+  /** 当前工作区 */
   const { currentWorkspace } = useWorkspace();
   const {
     updateTabContent,
@@ -138,13 +166,19 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   } = useAICodeChanges();
   const { theme } = useTheme();
 
-  // 获取文件扩展名对应的语言
+  /**
+   * 获取文件扩展名对应的语言
+   * @param path 路径
+   * @returns 语言
+   */
   const getLanguageFromPath = (path: string): string => {
     const extension = path.split('.').pop()?.toLowerCase();
     return languageMap[extension || ''] || 'plaintext';
   }
 
-  // 保存文件
+  /**
+   * 保存文件
+   */
   const saveFile = useCallback(async () => {
     if (!currentWorkspace || !filePath || !editorRef.current) return;
     const content = editorRef.current.getValue();
@@ -153,22 +187,26 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     await fileAPI.writeFile(currentWorkspace, filePath, content);
   }, [currentWorkspace, filePath, updateTabContent]);
 
-  // 编辑器内容变化处理
+  /**
+   * 编辑器内容变化处理
+   */
   const handleContentChange = useCallback((value: string | undefined) => {
     if (!filePath) return;
     const content = normalizeToString(value, '');
     updateTabContent(filePath, content);
     // 防抖保存
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
+    saveTimeoutRef.current && clearTimeout(saveTimeoutRef.current)
     saveTimeoutRef.current = setTimeout(() => {
       saveFile();
-    }, 2000);
+    }, 1000);
   }, [filePath, saveFile, updateTabContent]);
 
-  // 编辑器挂载完成
-  const handleEditorDidMount: OnMount = useCallback((editor: any, monaco: any) => {
+  /**
+   * 编辑器挂载完成
+   * @param editor 编辑器
+   * @param monaco 
+   */
+  const handleEditorDidMount: OnMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
 
     // 配置TypeScript
@@ -181,12 +219,11 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
       target: monaco.languages.typescript.ScriptTarget.ES2015,
       allowNonTsExtensions: true,
     });
+  };
 
-    // 添加保存快捷键
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveFile);
-  }, [saveFile]);
-
-  // 差异编辑器挂载完成
+  /**
+   * 差异编辑器挂载完成
+   */
   const handleDiffEditorDidMount: DiffOnMount = useCallback((editor: any, monaco: any) => {
     diffEditorRef.current = editor;
 
@@ -202,7 +239,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     });
   }, []);
 
-  // 预览代码差异
+  /**
+   * 预览代码差异
+   */
   const previewCodeDiff = useCallback((originalCode: string, modifiedCode: string) => {
     if (isCreatingDiff) return;
 
@@ -213,7 +252,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     setIsCreatingDiff(false);
   }, [isCreatingDiff]);
 
-  // 切换回普通编辑器
+  /**
+   * 切换回普通编辑器
+   */
   const switchToNormalEditor = useCallback((content: string = '') => {
     setIsDiffMode(false);
     setIsCreatingDiff(false);
@@ -226,7 +267,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     }
   }, [filePath, updateTabContent]);
 
-  // 应用代码更改
+  /**
+   * 应用代码更改
+   */
   const applyCodeChanges = useCallback(() => {
     if (!filePath || !diffEditorRef.current) return;
     const modifiedContent = diffEditorRef.current.getModel()?.modified?.getValue() || '';
@@ -282,7 +325,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     }
   }, [filePath, originalCode, modifiedCode, getTabContent, removePendingChanges, switchToNormalEditor]);
 
-  // 清理定时器
+  /**
+   * 清理定时器
+   */
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
@@ -291,7 +336,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     };
   }, []);
 
-  // AI代码变化时预览差异
+  /**
+   * AI代码变化时预览差异
+   */
   useEffect(() => {
     if (!filePath) return;
     const changes = getChangesForFile(filePath);
@@ -303,7 +350,10 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     }
   }, [pendingChanges, filePath, getChangesForFile, previewCodeDiff]);
 
-  // 获取当前应该显示的内容
+  /**
+   * 获取当前应该显示的内容
+   * @returns 内容
+   */
   const getCurrentContent = () => {
     if (!filePath) return '';
     const raw = getTabContent(filePath);

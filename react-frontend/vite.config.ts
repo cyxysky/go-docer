@@ -20,11 +20,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/v1/ai/chat/': {
-        target: 'http://localhost:3000/',
+        target: 'http://localhost:3001/',
         changeOrigin: true,
         ws: true, // 支持WebSocket
       },
-      '/api/v1/session': 'http://localhost:3000',
+      '/api/v1/session': 'http://localhost:3001',
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,

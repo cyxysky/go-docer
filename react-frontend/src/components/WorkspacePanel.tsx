@@ -6,13 +6,13 @@ import { workspaceAPI, imageAPI } from '../services/api';
 import './WorkspacePanel.css';
 
 const WorkspacePanel: React.FC = () => {
-  const { 
-    workspaces, 
-          currentWorkspace, 
- 
-    selectWorkspace, 
-    startWorkspace, 
-    stopWorkspace, 
+  const {
+    workspaces,
+    currentWorkspace,
+    
+    selectWorkspace,
+    startWorkspace,
+    stopWorkspace,
     deleteWorkspace,
     loadWorkspaces
   } = useWorkspace();
@@ -25,29 +25,29 @@ const WorkspacePanel: React.FC = () => {
   const [availableImages, setAvailableImages] = useState<any[]>([]);
   const [dockerImages, setDockerImages] = useState<any[]>([]);
   const [environmentTemplates, setEnvironmentTemplates] = useState<any>({});
-  const [customEnvironment, setCustomEnvironment] = useState<{[key: string]: string}>({});
+  const [customEnvironment, setCustomEnvironment] = useState<{ [key: string]: string }>({});
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showPortModal, setShowPortModal] = useState(false);
   const [selectedWorkspaceForPort, setSelectedWorkspaceForPort] = useState<any>(null);
-  const [portBindings, setPortBindings] = useState<Array<{containerPort: string, hostPort: string, protocol: string}>>([]);
-  
+  const [portBindings, setPortBindings] = useState<Array<{ containerPort: string, hostPort: string, protocol: string }>>([]);
+
   // 删除确认弹窗
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedWorkspaceForDelete, setSelectedWorkspaceForDelete] = useState<any>(null);
   const [deletingWorkspaces, setDeletingWorkspaces] = useState<Set<string>>(new Set());
-  
+
   // 创建工作空间时的端口绑定配置
-  const [createPortBindings, setCreatePortBindings] = useState<Array<{containerPort: string, hostPort: string, protocol: string}>>([]);
-  
+  const [createPortBindings, setCreatePortBindings] = useState<Array<{ containerPort: string, hostPort: string, protocol: string }>>([]);
+
   // 搜索和排序
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'created' | 'name' | 'status'>('created');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  
+
   // 定义工具类型
   type ToolKey = 'git' | 'curl' | 'wget' | 'vim' | 'nano' | 'tree' | 'htop' | 'jq' | 'zip' | 'unzip';
-  
+
   // 基础工具选择状态
   const [selectedTools, setSelectedTools] = useState<Record<ToolKey, boolean>>({
     git: true,
@@ -92,8 +92,8 @@ const WorkspacePanel: React.FC = () => {
       // 如果还没有选择镜像，设置为第一个可用镜像
       if (response.length > 0 && !image) {
         const firstImage = response[0];
-        const imageName = firstImage.tags && firstImage.tags.length > 0 
-          ? firstImage.tags[0] 
+        const imageName = firstImage.tags && firstImage.tags.length > 0
+          ? firstImage.tags[0]
           : firstImage.id;
         setImage(imageName);
       }
@@ -107,12 +107,12 @@ const WorkspacePanel: React.FC = () => {
     try {
       const response = await workspaceAPI.getAvailableImages();
       setAvailableImages(response);
-      
+
       // 如果还没有选择镜像，设置为第一个可用镜像
       if (response.length > 0 && !image) {
         const firstImage = response[0];
         setImage(firstImage.name);
-        
+
         // 设置环境变量
         if (firstImage.environment) {
           setCustomEnvironment({ ...firstImage.environment });
@@ -136,7 +136,7 @@ const WorkspacePanel: React.FC = () => {
   // 处理镜像选择变化
   const handleImageChange = (selectedImage: string) => {
     setImage(selectedImage);
-    
+
     // 根据选择的镜像填充环境变量
     const selectedImageConfig = availableImages.find(img => img.name === selectedImage);
     if (selectedImageConfig && selectedImageConfig.environment) {
@@ -183,7 +183,7 @@ const WorkspacePanel: React.FC = () => {
     });
   };
 
-  
+
 
   // 处理打开创建弹窗
   const handleOpenCreateModal = () => {
@@ -198,7 +198,7 @@ const WorkspacePanel: React.FC = () => {
     try {
       // 获取选中的工具列表
       const tools = (Object.keys(selectedTools) as ToolKey[]).filter(tool => selectedTools[tool]);
-      
+
       // 准备创建数据，包含环境变量
       const createData = {
         name,
@@ -209,9 +209,9 @@ const WorkspacePanel: React.FC = () => {
         ports: createPortBindings,
         environment: customEnvironment
       };
-      
+
       await workspaceAPI.createWorkspace(createData);
-      
+
       // 重置表单状态
       setName('');
       setGitRepo('');
@@ -233,7 +233,7 @@ const WorkspacePanel: React.FC = () => {
       // 重置端口配置
       setCreatePortBindings([]);
       setShowCreateModal(false);
-      
+
       // 重新加载工作空间列表
       await loadWorkspaces();
       showSuccess('创建成功', '工作空间创建成功！');
@@ -278,7 +278,7 @@ const WorkspacePanel: React.FC = () => {
   };
 
   const handleCreatePortBindingChange = (index: number, field: string, value: string) => {
-    setCreatePortBindings(prev => prev.map((binding, i) => 
+    setCreatePortBindings(prev => prev.map((binding, i) =>
       i === index ? { ...binding, [field]: value } : binding
     ));
   };
@@ -316,7 +316,7 @@ const WorkspacePanel: React.FC = () => {
 
   // 更新端口绑定
   const handlePortBindingChange = (index: number, field: string, value: string) => {
-    setPortBindings(prev => prev.map((binding, i) => 
+    setPortBindings(prev => prev.map((binding, i) =>
       i === index ? { ...binding, [field]: value } : binding
     ));
   };
@@ -324,7 +324,7 @@ const WorkspacePanel: React.FC = () => {
   // 保存端口配置
   const handleSavePortConfig = async () => {
     if (!selectedWorkspaceForPort) return;
-    
+
     try {
       await workspaceAPI.updatePortBindings(selectedWorkspaceForPort.id, portBindings);
       console.log('端口配置保存成功');
@@ -361,15 +361,15 @@ const WorkspacePanel: React.FC = () => {
   // 执行删除工作空间
   const handleDeleteWorkspace = async () => {
     if (!selectedWorkspaceForDelete) return;
-    
+
     const workspaceId = selectedWorkspaceForDelete.id;
-    
+
     try {
       // 添加到删除中状态
       setDeletingWorkspaces(prev => new Set(prev).add(workspaceId));
-      
+
       await deleteWorkspace(workspaceId);
-      
+
       // 删除成功后关闭弹窗
       setShowDeleteModal(false);
       setSelectedWorkspaceForDelete(null);
@@ -411,7 +411,7 @@ const WorkspacePanel: React.FC = () => {
 
       // 然后按指定字段排序
       let aValue, bValue;
-      
+
       switch (sortBy) {
         case 'name':
           aValue = a.name.toLowerCase();
@@ -443,22 +443,22 @@ const WorkspacePanel: React.FC = () => {
       {/* 工具栏 */}
       <div className="workspace-toolbar">
         <div className="toolbar-left">
-        <button 
-          className="btn special-button" 
-          onClick={handleRefresh} 
-          disabled={isRefreshing}
-          title="刷新工作空间列表"
-        >
-          <i className={`fas ${isRefreshing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
-        </button>
-        <button className="btn special-button" onClick={handleOpenCreateModal} title="创建工作空间">
-          <i className="fas fa-plus"></i>
-        </button>
+          <button
+            className="btn special-button"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            title="刷新工作空间列表"
+          >
+            <i className={`fas ${isRefreshing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`}></i>
+          </button>
+          <button className="btn special-button" onClick={handleOpenCreateModal} title="创建工作空间">
+            <i className="fas fa-plus"></i>
+          </button>
         </div>
-        
+
         <div className="toolbar-right">
-          <select 
-            value={`${sortBy}-${sortOrder}`} 
+          <select
+            value={`${sortBy}-${sortOrder}`}
             onChange={(e) => {
               const [field, order] = e.target.value.split('-');
               setSortBy(field as 'created' | 'name' | 'status');
@@ -478,37 +478,37 @@ const WorkspacePanel: React.FC = () => {
 
       <div className="workspace-search">
         <div className="toolbar-center">
-            <div className="search-box">
-              <i className="fas fa-search search-icon"></i>
-              <input
-                type="text"
-                placeholder="搜索工作空间..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="search-input"
-              />
-            </div>
+          <div className="search-box">
+            <i className="fas fa-search search-icon"></i>
+            <input
+              type="text"
+              placeholder="搜索工作空间..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="search-input"
+            />
           </div>
+        </div>
       </div>
 
       {/* 工作空间列表 */}
       <div className="workspace-list">
         <div className="workspace-list-content">
           {!workspaces || workspaces.length === 0 ? (
-            <div style={{padding: '20px', textAlign: 'center', color: '#969696'}}>
-              <i className="fas fa-folder-open" style={{fontSize: '2rem', marginBottom: '8px'}}></i>
+            <div style={{ padding: '20px', textAlign: 'center', color: '#969696' }}>
+              <i className="fas fa-folder-open" style={{ fontSize: '2rem', marginBottom: '8px' }}></i>
               <div>暂无工作空间</div>
-              <div style={{fontSize: '11px', marginTop: '4px'}}>点击上方加号创建您的第一个工作空间</div>
+              <div style={{ fontSize: '11px', marginTop: '4px' }}>点击上方加号创建您的第一个工作空间</div>
             </div>
           ) : filteredAndSortedWorkspaces.length === 0 ? (
-            <div style={{padding: '20px', textAlign: 'center', color: '#969696'}}>
-              <i className="fas fa-search" style={{fontSize: '2rem', marginBottom: '8px'}}></i>
+            <div style={{ padding: '20px', textAlign: 'center', color: '#969696' }}>
+              <i className="fas fa-search" style={{ fontSize: '2rem', marginBottom: '8px' }}></i>
               <div>没有找到匹配的工作空间</div>
-              <div style={{fontSize: '11px', marginTop: '4px'}}>请尝试其他搜索关键词</div>
+              <div style={{ fontSize: '11px', marginTop: '4px' }}>请尝试其他搜索关键词</div>
             </div>
           ) : (
             filteredAndSortedWorkspaces.map((workspace: any) => (
-              <div 
+              <div
                 key={workspace.id}
                 className={`workspace-item ${currentWorkspace === workspace.id ? 'active' : ''} ${workspace.is_favorite ? 'favorite' : ''}`}
               >
@@ -524,7 +524,7 @@ const WorkspacePanel: React.FC = () => {
                   {workspace.ports && workspace.ports.length > 0 && workspace.status === 'running' && (
                     <div className="workspace-ports">
                       {workspace.ports.filter((port: any) => port.host_port).map((port: any, index: number) => (
-                        <a 
+                        <a
                           key={index}
                           href={`http://localhost:${port.host_port}`}
                           target="_blank"
@@ -539,9 +539,9 @@ const WorkspacePanel: React.FC = () => {
                   )}
                 </div>
                 <div className="workspace-actions">
-                  <button 
-                    className={`btn action-button-green special-button ${workspace.is_favorite ? 'favorited' : ''}`} 
-                    onClick={() => handleToggleFavorite(workspace.id)} 
+                  <button
+                    className={`btn action-button-green special-button ${workspace.is_favorite ? 'favorited' : ''}`}
+                    onClick={() => handleToggleFavorite(workspace.id)}
                     title={workspace.is_favorite ? "取消收藏" : "收藏工作空间"}
                   >
                     <i className={workspace.is_favorite ? 'fas fa-star' : 'far fa-star'}></i>
@@ -561,9 +561,9 @@ const WorkspacePanel: React.FC = () => {
                       <i className="fas fa-stop"></i>
                     </button>
                   )}
-                  <button 
-                    className="btn action-button-red special-button" 
-                    onClick={() => handleDeleteConfirm(workspace)} 
+                  <button
+                    className="btn action-button-red special-button"
+                    onClick={() => handleDeleteConfirm(workspace)}
                     title="删除工作空间"
                     disabled={deletingWorkspaces.has(workspace.id)}
                   >
@@ -593,9 +593,9 @@ const WorkspacePanel: React.FC = () => {
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">名称</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
+                <input
+                  type="text"
+                  className="form-control"
                   placeholder="输入工作空间名称"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -607,8 +607,8 @@ const WorkspacePanel: React.FC = () => {
                   <option value="">请选择镜像</option>
                   {dockerImages.map((img: any) => {
                     const imageName = img.tags && img.tags.length > 0 ? img.tags[0] : img.id;
-                    const displayName = img.tags && img.tags.length > 0 
-                      ? img.tags[0] 
+                    const displayName = img.tags && img.tags.length > 0
+                      ? img.tags[0]
                       : `<未标记>:${img.id.substring(0, 12)}`;
                     return (
                       <option key={img.id} value={imageName}>
@@ -619,7 +619,7 @@ const WorkspacePanel: React.FC = () => {
                 </select>
                 <small>选择Docker中已存在的镜像</small>
               </div>
-              
+
               {/* 基础工具选择 */}
               <div className="form-group">
                 <label className="form-label">基础工具选择</label>
@@ -642,12 +642,12 @@ const WorkspacePanel: React.FC = () => {
                   ))}
                 </div>
               </div>
-              
+
               <div className="form-group">
                 <label className="form-label">Git 仓库 (可选)</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
+                <input
+                  type="text"
+                  className="form-control"
                   placeholder="https://github.com/user/repo.git"
                   value={gitRepo}
                   onChange={(e) => setGitRepo(e.target.value)}
@@ -655,10 +655,10 @@ const WorkspacePanel: React.FC = () => {
               </div>
               <div className="form-group">
                 <label className="form-label">分支</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  placeholder="main" 
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="main"
                   value={gitBranch}
                   onChange={(e) => setGitBranch(e.target.value)}
                 />
@@ -673,7 +673,7 @@ const WorkspacePanel: React.FC = () => {
                       <i className="fas fa-plus"></i> 添加变量
                     </button>
                   </div>
-                  
+
                   {Object.keys(customEnvironment).length === 0 ? (
                     <div className="empty-state">
                       <p>暂无环境变量</p>
@@ -716,7 +716,7 @@ const WorkspacePanel: React.FC = () => {
                       ))}
                     </div>
                   )}
-                  
+
                   <div className="info-section">
                     <h5>常用环境变量模板</h5>
                     <div className="template-buttons">
@@ -745,7 +745,7 @@ const WorkspacePanel: React.FC = () => {
                       <i className="fas fa-plus"></i> 添加端口
                     </button>
                   </div>
-                  
+
                   {createPortBindings.length === 0 ? (
                     <div className="empty-state">
                       <p>暂无端口绑定</p>
@@ -792,7 +792,7 @@ const WorkspacePanel: React.FC = () => {
                       ))}
                     </div>
                   )}
-                  
+
                 </div>
               </div>
             </div>
@@ -826,7 +826,7 @@ const WorkspacePanel: React.FC = () => {
                     <i className="fas fa-plus"></i> 添加端口
                   </button>
                 </div>
-                
+
                 {portBindings.length === 0 ? (
                   <div className="empty-state">
                     <p>暂无端口绑定</p>
@@ -917,15 +917,15 @@ const WorkspacePanel: React.FC = () => {
               </div>
             </div>
             <div className="modal-footer">
-              <button 
-                className="btn btn-secondary" 
+              <button
+                className="btn btn-secondary"
                 onClick={() => setShowDeleteModal(false)}
                 disabled={deletingWorkspaces.has(selectedWorkspaceForDelete.id)}
               >
                 取消
               </button>
-              <button 
-                className="btn btn-danger" 
+              <button
+                className="btn btn-danger"
                 onClick={handleDeleteWorkspace}
                 disabled={deletingWorkspaces.has(selectedWorkspaceForDelete.id)}
               >
@@ -946,7 +946,7 @@ const WorkspacePanel: React.FC = () => {
         </div>
       )}
 
-             
+
     </>
   );
 };

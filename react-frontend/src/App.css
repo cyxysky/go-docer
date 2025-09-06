@@ -79,7 +79,7 @@
   --diff-gutter-selected-background-color: #fffce0;
   --diff-gutter-selected-text-color: var(--diff-text-color);
 
-  
+
   --diff-code-insert-background-color: #ecfdf0;
   --diff-code-insert-text-color: var(--diff-text-color);
   --diff-code-delete-background-color: #fbe9eb;
@@ -93,6 +93,9 @@
   --diff-code-selected-background-color: #fffce0;
   --diff-code-selected-text-color: var(--diff-text-color);
   --diff-omit-gutter-line-color: #cb2a1d;
+
+  --inline-code-bg-color: #656c7633;
+  --inline-code-color: #f0f6fc;
 }
 
 /* 亮色主题 */
@@ -122,7 +125,12 @@
   --border-color: #e2e8f0;
   --border-light: #cbd5e1;
   --border-lighter: #94a3b8;
+
+  --inline-code-bg-color: #818b981f;
+  --inline-code-color: #1f2328;
 }
+
+
 
 /* 全局样式 */
 * {
