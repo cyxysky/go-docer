@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^1.0.7",
-    "@koa/cors": "^4.0.0",
+    "@koa/cors": "^5.0.0",
     "@koa/router": "^12.0.0",
     "@types/koa__cors": "^5.0.0",
     "ai": "^5.0.0-beta.34",

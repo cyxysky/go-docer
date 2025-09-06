@@ -23,7 +23,7 @@
     "react-diff-view": "^3.3.2",
     "react-dom": "^19.1.0",
     "react-syntax-highlighter": "^15.6.6",
-    "refractor": "^3.6.0",
+    "refractor": "^5.0.0",
     "unidiff": "^1.0.4",
     "vite-plugin-monaco-editor": "^1.1.0"
   },

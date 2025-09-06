@@ -186,6 +186,7 @@ const FunctionComponent: React.FC<Props> = ({ children, id, name, tools, workspa
     toolData?.output && setIsLoading(false);
     setInput(parseIncompleteJson(String(toolData?.input)));
     setOuput(parseIncompleteJson(String(toolData?.output)));
+    console.log("重置")
   }, [tools, id])
 
   useEffect(() => {

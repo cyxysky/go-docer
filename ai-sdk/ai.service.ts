@@ -76,14 +76,14 @@ export async function rollbackFunctionCallByUUID(workspaceId: string, sessionId:
   const execFuncs = toolsRollbackFuncs.slice(index, toolsRollbackFuncs.length);
   let result = [];
   for (let i = execFuncs.length; i > 0; i--) {
-    if (execFuncs[i]?.rollBackFunc) {
-      let data = await execFuncs[i]?.rollBackFunc();
+    if (execFuncs[i - 1]?.rollBackFunc) {
+      let data = await execFuncs[i - 1]?.rollBackFunc();
       result.push(data);
     }
   }
   // 重置工具操作数组
   sessionRollbackMap[workspaceId][sessionId] = toolsRollbackFuncs.slice(0, index);
-  return result.some(item => !item.success);
+  return result.some(item => !item?.success);
 }
 
 /**
@@ -96,7 +96,7 @@ export async function rollbackAllFunctionCall(workspaceId: string, sessionId: st
   const toolsRollbackFuncs = sessionRollbackMap[workspaceId][sessionId];
   let result = [];
   for (let i = toolsRollbackFuncs.length; i > 0; i--) {
-    let data = await execFuncs[i].rollBackFunc();
+    let data = await toolsRollbackFuncs[i].rollBackFunc();
     result.push(data);
   }
   sessionRollbackMap[workspaceId][sessionId] = [];
@@ -122,7 +122,7 @@ export function acceptAllFunctionCall(workspaceId: string, sessionId: string): b
  * @returns 操作结果
  */
 export function acceptFunctionCallByUUID(workspaceId: string, sessionId: string, toolUUID: string): boolean {
-  const toolsRollbackFuncs = sessionRollbackMap[workspaceId][sessionId];
+  const toolsRollbackFuncs = sessionRollbackMap[workspaceId]?.[sessionId] || [];
   const index = toolsRollbackFuncs.findIndex(o => o.uuid === toolUUID);
   // 重置工具操作
   sessionRollbackMap[workspaceId][sessionId] = toolsRollbackFuncs.slice(index, toolsRollbackFuncs.length)
@@ -137,7 +137,7 @@ export function acceptFunctionCallByUUID(workspaceId: string, sessionId: string,
 export function getModal(modal: string) {
   return deepseek('deepseek-reasoner');
 }
-
+// 在logs目录下创建xxx.js文件，里面再控制台输出hello world
 /**
  * 使用模型回答问题，流式输出
  * @param sessionId 对话id
@@ -161,13 +161,14 @@ export async function generateStreamText(
   onEnd: (data: any) => any,
 ) {
   let fullResponse: string = '', tools: any = {}, messages: any = [], data: any = [], reasoningData: any = {}, openAiData = [];
-  console.log(workspaceId);
   // 获取历史消息记录
   if (historyChatMap?.[workspaceId]?.[sessionId]) {
     const mData = historyChatMap?.[workspaceId]?.[sessionId];
     // 获取至多10个消息数据
     data = mData!.slice(mData!.length - 9 < 0 ? 0 : mData!.length - 9, mData!.length) || [];
   }
+  !historyChatMap[workspaceId] && (historyChatMap[workspaceId] = {})
+  !historyChatMap[workspaceId][sessionId] && (historyChatMap[workspaceId][sessionId] = [])
   // 添加信息
   data.push({ role: "user", content: prompts });
   // 初始化历史消息的格式
@@ -243,6 +244,7 @@ export async function generateStreamText(
   }
   // 添加消息
   data.push({ role: 'assistant', content: fullResponse, tools, reasoningData });
+
   historyChatMap[workspaceId][sessionId] = data;
   onEnd({ data: data, rollbackFuncs: sessionRollbackMap[workspaceId][sessionId].map(o => { return { uuid: o.uuid } }) });
 }
