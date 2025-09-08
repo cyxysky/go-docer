@@ -60,7 +60,14 @@ export function parseIncompleteJson(jsonString: string | any): Record<string, an
   }
 
   // 移除首尾空白字符
-  const trimmedString = jsonString.trim();
+  const trimmedString = jsonString.trim()
+    .replaceAll('\\n', '\n')
+    .replaceAll('\\"', '"')
+    .replaceAll('\\t', '\t')
+    .replaceAll('\\r', '\r')
+    .replaceAll('\\f', '\f')
+    .replaceAll('\\b', '\b')
+    .replaceAll('\\v', '\v');
 
   // 检查是否以 { 开头
   if (!trimmedString.startsWith('{')) {
@@ -93,7 +100,8 @@ export function extractFields(jsonString: string): Record<string, any> {
   for (const pair of pairs) {
     const parsed = parseKeyValue(pair);
     if (parsed) {
-      result[parsed.key] = parsed.value;
+      result[parsed.key] = parsed.value
+
     }
   }
 

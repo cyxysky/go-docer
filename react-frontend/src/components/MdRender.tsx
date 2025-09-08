@@ -217,17 +217,17 @@ const FunctionComponent: React.FC<Props> = ({ id, name, tools, workspaceId, sess
   /**
    * 渲染工具执行状态
    */
-  const renderLoading = () => {
+  const renderLoading = useCallback(() => {
     return (
       <div style={{ height: "10px" }}>
-        {!toolData?.output && (
+        {/* {!toolData?.output && (
           <span className="md-render-loading-indicator">
             <i className="fas fa-spinner"></i>
           </span>
-        )}
+        )} */}
       </div>
     )
-  }
+  }, [toolData])
 
   /**
    * 渲染工具特定内容
@@ -241,7 +241,9 @@ const FunctionComponent: React.FC<Props> = ({ id, name, tools, workspaceId, sess
           <div className="md-render-tool-content">
             <SyntaxHighlighter
               language={parseIncompleteJson(toolData?.input)?.fileName?.split(".").pop() || 'text'}
-              style={tomorrow}
+              style={{
+                ...tomorrow,
+              }}
               customStyle={codeStyle}
               wrapLines={true}
             >

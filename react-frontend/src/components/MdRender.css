@@ -94,7 +94,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 2px 8px;
+    padding: 2px 8px 6px 8px;
     background-color: var(--darker-bg);
 }
 
@@ -139,6 +139,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    height: 12px;
 }
 
 .md-render-function-name {

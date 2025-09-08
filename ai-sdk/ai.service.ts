@@ -173,7 +173,8 @@ export async function generateStreamText(
   // 添加信息
   data.push({ role: "user", content: prompts });
   // 初始化历史消息的格式
-  messages = data.map((item: any) => { return { role: item.role, content: item.content } })
+  const combinedRegex = /\n\s*<(ReasoningCall|FunctionCall)(?:\s+id="[^"]*")(?:\s+name="[^"]*")?><\/\1>\s*\n/g;
+  messages = data.map((item: any) => { return { role: item.role, content: item.content.replaceAll(combinedRegex, '') } })
   // 添加当前消息
   const result = streamText({
     model: model,
@@ -244,7 +245,7 @@ export async function generateStreamText(
     }
   }
   // 添加消息
-  data.push({ role: 'assistant', content: fullResponse, tools, reasoningData, messageId: uuid()});
+  data.push({ role: 'assistant', content: fullResponse, tools, reasoningData, messageId: uuid() });
   !historyChatMap[workspaceId] && (historyChatMap[workspaceId] = {})
   historyChatMap[workspaceId][sessionId] = data;
   onEnd({ data: data, rollbackFuncs: sessionRollbackMap?.[workspaceId]?.[sessionId]?.map(o => { return { uuid: o.uuid } }) });
@@ -265,7 +266,7 @@ export function generateSystemPrompt(workspace_id: string, files: string[], fold
   3.在读取文件时,不要一次性读取全部文件，要分段读取，一次最多读取200行，可以多次读取！重要！
   4.在每一次编辑完成后，你需要检查一下是否引入了错误。如果引入了，并且你有相当的把握解决错误，那么解决他。否则，尝试撤销编辑。
   5.如果用户询问简单问题，你不需要调用工具并在最后进行总结。
-  6.不得输出<FunctionCall></FunctionCall>和<ReasoningCall></ReasoningCall>这2个标签，这是私有配置!!!绝对记住！！！你要实际调用工，而不是尝试输出工具调用内容伪造工具调用！！！
+  
   
   以下是用户提供的，需要重点关注的文件和文件夹，请仔细阅读，并根据文件和文件夹的内容，完成任务:
   <user-content>
